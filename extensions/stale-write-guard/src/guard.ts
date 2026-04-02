@@ -3,7 +3,6 @@ export const DEFAULT_MTIME_TOLERANCE_MS = 2;
 export interface StaleWriteCheckInput {
 	currentMtimeMs: number;
 	lastReadMtimeMs?: number;
-	lastAgentEditMtimeMs?: number;
 	toleranceMs?: number;
 }
 

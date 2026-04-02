@@ -7,7 +7,6 @@ describe("requiresReadBeforeMutation", () => {
 		const blocked = requiresReadBeforeMutation({
 			currentMtimeMs: 120,
 			lastReadMtimeMs: undefined,
-			lastAgentEditMtimeMs: undefined,
 		});
 
 		expect(blocked).toBe(true);
@@ -17,7 +16,6 @@ describe("requiresReadBeforeMutation", () => {
 		const blocked = requiresReadBeforeMutation({
 			currentMtimeMs: 100 + DEFAULT_MTIME_TOLERANCE_MS,
 			lastReadMtimeMs: 100,
-			lastAgentEditMtimeMs: undefined,
 		});
 
 		expect(blocked).toBe(false);
@@ -27,7 +25,6 @@ describe("requiresReadBeforeMutation", () => {
 		const blocked = requiresReadBeforeMutation({
 			currentMtimeMs: 150,
 			lastReadMtimeMs: 100,
-			lastAgentEditMtimeMs: 100,
 		});
 
 		expect(blocked).toBe(true);
@@ -37,17 +34,15 @@ describe("requiresReadBeforeMutation", () => {
 		const blocked = requiresReadBeforeMutation({
 			currentMtimeMs: 150,
 			lastReadMtimeMs: 150,
-			lastAgentEditMtimeMs: 100,
 		});
 
 		expect(blocked).toBe(false);
 	});
 
-	it("ignores lastAgentEdit when read is stale", () => {
+	it("returns true when read is stale regardless of previous edits", () => {
 		const blocked = requiresReadBeforeMutation({
 			currentMtimeMs: 200,
 			lastReadMtimeMs: 100,
-			lastAgentEditMtimeMs: 200,
 		});
 
 		expect(blocked).toBe(true);

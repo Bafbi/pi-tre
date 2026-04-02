@@ -167,7 +167,6 @@ export default function (pi: ExtensionAPI) {
 						: requiresReadBeforeMutation({
 								currentMtimeMs,
 								lastReadMtimeMs: state.lastReadMtimeMs,
-								lastAgentEditMtimeMs: state.lastAgentEditMtimeMs,
 							});
 				const reason = computeStateReason(currentMtimeMs, state);
 
@@ -229,7 +228,6 @@ export default function (pi: ExtensionAPI) {
 		const shouldBlock = requiresReadBeforeMutation({
 			currentMtimeMs,
 			lastReadMtimeMs: tracked?.lastReadMtimeMs,
-			lastAgentEditMtimeMs: tracked?.lastAgentEditMtimeMs,
 		});
 		if (!shouldBlock) {
 			addDebugEvent(`tool_call:${event.toolName} allow: ${toolPath}`, ctx);
