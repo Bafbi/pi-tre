@@ -1,0 +1,15 @@
+{
+	"$schema": "https://btca.dev/btca.schema.json",
+	"dataDirectory": ".btca",
+	"resources": [
+		{
+			"type": "git",
+			"name": "pi-mono",
+			"url": "https://github.com/badlogic/pi-mono",
+			"branch": "main",
+			"specialNotes": "AI agent toolkit: coding agent CLI, unified LLM API, TUI & web UI libraries, Slack bot, vLLM pods"
+		}
+	],
+	"model": "claude-haiku-4.5",
+	"provider": "github-copilot"
+}

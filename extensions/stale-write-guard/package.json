@@ -1,0 +1,17 @@
+{
+	"name": "@pi-tre/stale-write-guard",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"pi": {
+		"extensions": ["./src/index.ts"]
+	},
+	"scripts": {
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"peerDependencies": {
+		"@mariozechner/pi-coding-agent": "*",
+		"@sinclair/typebox": "*"
+	}
+}

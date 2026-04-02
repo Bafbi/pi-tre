@@ -1,0 +1,17 @@
+{
+	"name": "pi-tre",
+	"private": true,
+	"version": "0.1.0",
+	"packageManager": "pnpm@9.15.0",
+	"scripts": {
+		"lint": "biome check .",
+		"format": "biome format --write .",
+		"format:check": "biome format .",
+		"typecheck": "pnpm -r run typecheck"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@types/node": "^22.15.2",
+		"typescript": "^5.8.3"
+	}
+}

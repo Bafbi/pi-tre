@@ -1,0 +1,37 @@
+# AGENTS.md (repo-wide)
+
+## Philosophy
+- Build small, focused Pi extensions with clear boundaries.
+- Optimize for fast local iteration and excellent developer experience (DevX).
+- Prefer explicit, readable code and predictable behavior over cleverness.
+
+## Tooling standards
+- **Mise is the source of truth** for dev tools and shared tasks.
+  - Use `mise run <task>` instead of ad-hoc one-off commands when possible.
+- **pnpm** is the only package manager for this monorepo.
+  - Use workspaces for shared tooling and extension packages.
+- **Biome** handles formatting + linting.
+  - Run formatting before committing.
+- **btca** is the research assistant for library/framework/source-first questions.
+  - Prefer btca-backed answers when behavior is uncertain.
+
+## Repo workflow
+1. `mise run install`
+2. `mise run check`
+3. `mise run dev` (or `mise run dev_stale_write_guard`)
+
+## Commit conventions
+- Follow **Conventional Commits**:
+  - `feat: ...`
+  - `fix: ...`
+  - `docs: ...`
+  - `refactor: ...`
+  - `chore: ...`
+  - `test: ...`
+- Keep commits scoped and atomic.
+
+## DevX expectations
+- Document intent in code and docs, not just implementation details.
+- Keep extension state/behavior debuggable (clear logs, explicit guards, deterministic paths).
+- Avoid hidden magic and surprising side effects.
+- Prefer safe defaults; require explicit override for risky behavior.

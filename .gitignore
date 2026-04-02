@@ -1,0 +1,16 @@
+node_modules/
+.pnpm-store/
+*.log
+
+# local editor/cache
+.vscode/
+.btca/
+
+# local pi runtime caches
+.pi/git/
+.pi/npm/
+.pi/sessions/
+
+# build artifacts
+**/dist/
+**/.turbo/

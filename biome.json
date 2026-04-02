@@ -1,0 +1,20 @@
+{
+	"$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+	"files": {
+		"ignore": [".btca/**", "**/dist/**", "**/node_modules/**"]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"lineWidth": 120
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true
+		}
+	},
+	"organizeImports": {
+		"enabled": true
+	}
+}
