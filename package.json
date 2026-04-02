@@ -11,6 +11,9 @@
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},
+	"pi": {
+		"extensions": ["./extensions/stale-write-guard/src/index.ts"]
+	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
 		"@mariozechner/pi-coding-agent": "^0.64.0",
