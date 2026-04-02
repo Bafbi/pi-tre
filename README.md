@@ -13,9 +13,9 @@ Built for fast local iteration with:
 - **stale-write-guard**  
   Docs: [`extensions/stale-write-guard/README.md`](./extensions/stale-write-guard/README.md)
 
-## Install from GitHub (planned repo)
+## Install from GitHub
 
-Once `github.com/Bafbi/pi-tre` is live, install with Pi package support:
+Install with Pi package support:
 
 ```bash
 # global install
