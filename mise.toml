@@ -1,9 +1,10 @@
 [tools]
-node = "22"
-pnpm = "9"
+node = "25"
+pnpm = "latest"
 "npm:@biomejs/biome" = "latest"
 "npm:@mariozechner/pi-coding-agent" = "latest"
 "npm:btca" = "latest"
+bun = "latest"
 
 [env]
 NODE_ENV = "development"
@@ -25,9 +26,17 @@ run = "pnpm format"
 description = "Type-check all workspace packages"
 run = "pnpm typecheck"
 
+[tasks.test]
+description = "Run test suite"
+run = "pnpm test"
+
+[tasks.test_watch]
+description = "Run tests in watch mode"
+run = "pnpm test:watch"
+
 [tasks.check]
-description = "Run lint + typecheck"
-depends = ["lint", "typecheck"]
+description = "Run lint + typecheck + tests"
+depends = ["lint", "typecheck", "test"]
 
 [tasks.dev]
 description = "Start pi in this repo (project-local .pi/extensions auto-discovered)"
@@ -40,3 +49,7 @@ run = "pi -e .pi/extensions/stale-write-guard.ts"
 [tasks.btca_resources]
 description = "List configured btca resources"
 run = "btca resources"
+
+[prepare.pnpm]
+auto = true
+

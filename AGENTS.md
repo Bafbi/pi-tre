@@ -14,6 +14,8 @@
   - Run formatting before committing.
 - **btca** is the research assistant for library/framework/source-first questions.
   - Prefer btca-backed answers when behavior is uncertain.
+  - Prefer small, atomic btca queries (one focused question per query) over broad multi-part prompts.
+  - If a btca query times out, retry with a longer timeout before changing approach.
 
 ## Repo workflow
 1. `mise run install`

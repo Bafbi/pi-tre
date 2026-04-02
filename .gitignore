@@ -5,6 +5,7 @@ node_modules/
 # local editor/cache
 .vscode/
 .btca/
+.mise/
 
 # local pi runtime caches
 .pi/git/

@@ -2,16 +2,20 @@
 	"name": "pi-tre",
 	"private": true,
 	"version": "0.1.0",
-	"packageManager": "pnpm@9.15.0",
+	"packageManager": "pnpm@10.33.0",
 	"scripts": {
 		"lint": "biome check .",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
-		"typecheck": "pnpm -r run typecheck"
+		"typecheck": "pnpm -r run typecheck",
+		"test": "vitest run",
+		"test:watch": "vitest"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
+		"@mariozechner/pi-coding-agent": "^0.64.0",
 		"@types/node": "^22.15.2",
-		"typescript": "^5.8.3"
+		"typescript": "^5.8.3",
+		"vitest": "^3.2.4"
 	}
 }
