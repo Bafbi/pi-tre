@@ -112,7 +112,7 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx.hasUI) return;
 		if (!debugEnabled) {
 			ctx.ui.setWidget(DEBUG_WIDGET_KEY, undefined);
-			ctx.ui.setStatus(STATUS_KEY, `ready (${loadedAt}), tracked files: ${store.size()}`);
+			ctx.ui.setStatus(STATUS_KEY, undefined);
 			return;
 		}
 		ctx.ui.setStatus(STATUS_KEY, `debug ON, tracked files: ${store.size()}`);
