@@ -1,0 +1,50 @@
+import { describe, expect, it } from "vitest";
+
+import { DEFAULT_MTIME_TOLERANCE_MS, requiresReadBeforeMutation } from "../../src/guard";
+
+describe("requiresReadBeforeMutation", () => {
+	it("returns true when no read record exists", () => {
+		const blocked = requiresReadBeforeMutation({
+			currentMtimeMs: 120,
+			lastReadMtimeMs: undefined,
+		});
+
+		expect(blocked).toBe(true);
+	});
+
+	it("returns false when current mtime is within tolerance of last read", () => {
+		const blocked = requiresReadBeforeMutation({
+			currentMtimeMs: 100 + DEFAULT_MTIME_TOLERANCE_MS,
+			lastReadMtimeMs: 100,
+		});
+
+		expect(blocked).toBe(false);
+	});
+
+	it("returns true when file changed since last read", () => {
+		const blocked = requiresReadBeforeMutation({
+			currentMtimeMs: 150,
+			lastReadMtimeMs: 100,
+		});
+
+		expect(blocked).toBe(true);
+	});
+
+	it("returns false when file was freshly re-read", () => {
+		const blocked = requiresReadBeforeMutation({
+			currentMtimeMs: 150,
+			lastReadMtimeMs: 150,
+		});
+
+		expect(blocked).toBe(false);
+	});
+
+	it("returns true when read is stale regardless of previous edits", () => {
+		const blocked = requiresReadBeforeMutation({
+			currentMtimeMs: 200,
+			lastReadMtimeMs: 100,
+		});
+
+		expect(blocked).toBe(true);
+	});
+});
