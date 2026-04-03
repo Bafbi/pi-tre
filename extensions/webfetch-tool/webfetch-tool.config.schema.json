@@ -1,0 +1,64 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://raw.githubusercontent.com/Bafbi/pi-tre/main/extensions/webfetch-tool/webfetch-tool.config.schema.json",
+	"title": "webfetch-tool config",
+	"description": "Configuration for webfetch-tool extension. Project config: .pi/extensions/webfetch-tool.json. Global config: ~/.pi/agent/extensions/webfetch-tool.json",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"$schema": {
+			"type": "string",
+			"description": "Optional JSON schema URI for editor validation."
+		},
+		"conversionModel": {
+			"type": "string",
+			"minLength": 3,
+			"pattern": "^[^/\\s]+/.+$",
+			"description": "Model reference in provider/model form (for example: anthropic/claude-sonnet-4-5)."
+		},
+		"htmlPreprocessor": {
+			"type": "string",
+			"enum": ["regex", "dom"],
+			"description": "HTML preprocessing engine used before markdown conversion."
+		},
+		"strictSafety": {
+			"type": "boolean",
+			"default": true,
+			"description": "Block high-risk content in safe_markdown mode."
+		},
+		"maxBytes": {
+			"type": "integer",
+			"minimum": 10000,
+			"maximum": 2000000,
+			"default": 400000,
+			"description": "Maximum response bytes to keep."
+		},
+		"timeoutSec": {
+			"type": "integer",
+			"minimum": 5,
+			"maximum": 120,
+			"default": 25,
+			"description": "Fetch + conversion timeout seconds."
+		},
+		"maxRedirects": {
+			"type": "integer",
+			"minimum": 0,
+			"maximum": 8,
+			"default": 3,
+			"description": "Maximum redirects to follow manually."
+		},
+		"maxMarkdownChars": {
+			"type": "integer",
+			"minimum": 2000,
+			"maximum": 120000,
+			"default": 30000,
+			"description": "Maximum markdown chars returned."
+		},
+		"defaultMode": {
+			"type": "string",
+			"enum": ["safe_markdown", "raw_markdown", "extract_only"],
+			"default": "safe_markdown",
+			"description": "Default mode used when tool call omits mode."
+		}
+	}
+}
