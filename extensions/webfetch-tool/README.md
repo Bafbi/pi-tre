@@ -13,12 +13,9 @@ Pi extension that adds a `webfetch` tool.
 ## Tool parameters
 
 - `url` (required)
-- `mode` = `safe_markdown` | `raw_markdown` | `extract_only`
-- `strictSafety` (default `true`)
-- `maxBytes` (default `400000`)
-- `timeoutSec` (default `25`)
-- `maxRedirects` (default `3`)
-- `maxMarkdownChars` (default `30000`)
+- `mode` = `safe_markdown` | `raw_markdown` | `extract_only` (optional override)
+
+Administrative settings are configured via extension config (not per-call tool parameters).
 
 ## Markdown model configuration
 
@@ -42,13 +39,32 @@ Preprocessor precedence (highest to lowest):
 3. env var: `PI_WEBFETCH_HTML_PREPROCESSOR`
 4. default: `regex`
 
+## Extension config settings
+
+Config file locations:
+- project: `.pi/extensions/webfetch-tool.json`
+- global: `~/.pi/agent/extensions/webfetch-tool.json`
+
+Supported keys:
+- `conversionModel` (string)
+- `htmlPreprocessor` (`regex` | `dom`)
+- `strictSafety` (boolean, default `true`)
+- `maxBytes` (int, default `400000`)
+- `timeoutSec` (int, default `25`)
+- `maxRedirects` (int, default `3`)
+- `maxMarkdownChars` (int, default `30000`)
+- `defaultMode` (`safe_markdown` | `raw_markdown` | `extract_only`, default `safe_markdown`)
+
 Example config file:
 
 ```json
 {
   "$schema": "../../extensions/webfetch-tool/webfetch-tool.config.schema.json",
   "conversionModel": "anthropic/claude-sonnet-4-5",
-  "htmlPreprocessor": "dom"
+  "htmlPreprocessor": "dom",
+  "strictSafety": true,
+  "timeoutSec": 30,
+  "defaultMode": "safe_markdown"
 }
 ```
 

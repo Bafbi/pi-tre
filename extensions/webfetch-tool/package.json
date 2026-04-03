@@ -16,6 +16,7 @@
 		"@sinclair/typebox": "*"
 	},
 	"dependencies": {
-		"parse5": "^8.0.0"
+		"parse5": "^8.0.0",
+		"zod": "^4.1.12"
 	}
 }

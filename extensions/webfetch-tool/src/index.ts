@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { z } from "zod";
 
 import { fetchWithCurl } from "./fetch.js";
 import { deterministicTextMarkdown, fallbackMarkdown, shouldUseSubagentConversion } from "./markdown.js";
@@ -33,6 +34,20 @@ const STATUS_KEY = "webfetch-tool";
 const DEBUG_WIDGET_KEY = "webfetch-tool-debug";
 const MAX_DEBUG_EVENTS = 20;
 
+const extensionConfigSchema = z
+	.object({
+		$schema: z.string().optional(),
+		conversionModel: z.string().min(3).optional(),
+		htmlPreprocessor: z.enum(["regex", "dom"]).optional(),
+		strictSafety: z.boolean().optional(),
+		maxBytes: z.number().int().optional(),
+		timeoutSec: z.number().int().optional(),
+		maxRedirects: z.number().int().optional(),
+		maxMarkdownChars: z.number().int().optional(),
+		defaultMode: z.enum(["safe_markdown", "raw_markdown", "extract_only"]).optional(),
+	})
+	.strict();
+
 type UiCtx = Pick<ExtensionContext, "hasUI" | "ui">;
 
 interface DebugSnapshot {
@@ -58,6 +73,12 @@ function normalizeMode(input: string | undefined): WebfetchMode {
 	return "safe_markdown";
 }
 
+function normalizeConfiguredMode(input: unknown): WebfetchMode | undefined {
+	if (typeof input !== "string") return undefined;
+	if (input === "safe_markdown" || input === "raw_markdown" || input === "extract_only") return input;
+	return undefined;
+}
+
 function normalizeModelValue(input: unknown): string | undefined {
 	if (typeof input !== "string") return undefined;
 	const trimmed = input.trim();
@@ -78,9 +99,11 @@ function readConfigFile(path: string): WebfetchExtensionConfig {
 	if (!existsSync(path)) return {};
 	try {
 		const raw = readFileSync(path, "utf8");
-		const parsed = JSON.parse(raw) as WebfetchExtensionConfig;
-		if (!parsed || typeof parsed !== "object") return {};
-		return parsed;
+		const parsed = JSON.parse(raw) as unknown;
+		const validated = extensionConfigSchema.safeParse(parsed);
+		if (!validated.success) return {};
+		const { $schema: _schema, ...config } = validated.data;
+		return config;
 	} catch {
 		return {};
 	}
@@ -106,11 +129,6 @@ function toOptions(
 	input: {
 		url: string;
 		mode?: string;
-		strictSafety?: boolean;
-		maxBytes?: number;
-		timeoutSec?: number;
-		maxRedirects?: number;
-		maxMarkdownChars?: number;
 	},
 	defaults: {
 		flagConversionModel?: string;
@@ -119,16 +137,22 @@ function toOptions(
 		flagHtmlPreprocessor?: HtmlPreprocessor;
 		configHtmlPreprocessor?: HtmlPreprocessor;
 		envHtmlPreprocessor?: HtmlPreprocessor;
+		configStrictSafety?: boolean;
+		configMaxBytes?: number;
+		configTimeoutSec?: number;
+		configMaxRedirects?: number;
+		configMaxMarkdownChars?: number;
+		configDefaultMode?: WebfetchMode;
 	},
 ): WebfetchOptions {
 	return {
 		url: input.url,
-		mode: normalizeMode(input.mode),
-		strictSafety: input.strictSafety ?? true,
-		maxBytes: clampNumber(input.maxBytes, DEFAULT_MAX_BYTES, 10_000, 2_000_000),
-		timeoutSec: clampNumber(input.timeoutSec, DEFAULT_TIMEOUT_SEC, 5, 120),
-		maxRedirects: clampNumber(input.maxRedirects, DEFAULT_MAX_REDIRECTS, 0, 8),
-		maxMarkdownChars: clampNumber(input.maxMarkdownChars, DEFAULT_MAX_MARKDOWN_CHARS, 2_000, 120_000),
+		mode: normalizeMode(input.mode ?? defaults.configDefaultMode),
+		strictSafety: defaults.configStrictSafety ?? true,
+		maxBytes: clampNumber(defaults.configMaxBytes, DEFAULT_MAX_BYTES, 10_000, 2_000_000),
+		timeoutSec: clampNumber(defaults.configTimeoutSec, DEFAULT_TIMEOUT_SEC, 5, 120),
+		maxRedirects: clampNumber(defaults.configMaxRedirects, DEFAULT_MAX_REDIRECTS, 0, 8),
+		maxMarkdownChars: clampNumber(defaults.configMaxMarkdownChars, DEFAULT_MAX_MARKDOWN_CHARS, 2_000, 120_000),
 		conversionModel: defaults.flagConversionModel ?? defaults.configConversionModel ?? defaults.envConversionModel,
 		htmlPreprocessor:
 			defaults.flagHtmlPreprocessor ?? defaults.configHtmlPreprocessor ?? defaults.envHtmlPreprocessor ?? "regex",
@@ -413,14 +437,9 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			url: Type.String({ description: "HTTP(S) URL to fetch." }),
 			mode: Type.Optional(
-				Type.String({ description: "safe_markdown | raw_markdown | extract_only (default: safe_markdown)" }),
-			),
-			strictSafety: Type.Optional(Type.Boolean({ description: "Block high-risk content when true (default: true)." })),
-			maxBytes: Type.Optional(Type.Number({ description: "Maximum response bytes to keep (default: 400000)." })),
-			timeoutSec: Type.Optional(Type.Number({ description: "Fetch + conversion timeout seconds (default: 25)." })),
-			maxRedirects: Type.Optional(Type.Number({ description: "Maximum redirects to follow manually (default: 3)." })),
-			maxMarkdownChars: Type.Optional(
-				Type.Number({ description: "Maximum markdown chars returned (default: 30000)." }),
+				Type.String({
+					description: "safe_markdown | raw_markdown | extract_only (default: extension config or safe_markdown)",
+				}),
 			),
 		}),
 		async execute(_toolCallId, input, signal, onUpdate, ctx) {
@@ -438,9 +457,15 @@ export default function (pi: ExtensionAPI) {
 				flagHtmlPreprocessor,
 				configHtmlPreprocessor,
 				envHtmlPreprocessor,
+				configStrictSafety: extensionConfig.strictSafety,
+				configMaxBytes: extensionConfig.maxBytes,
+				configTimeoutSec: extensionConfig.timeoutSec,
+				configMaxRedirects: extensionConfig.maxRedirects,
+				configMaxMarkdownChars: extensionConfig.maxMarkdownChars,
+				configDefaultMode: normalizeConfiguredMode(extensionConfig.defaultMode),
 			});
 			addDebugEvent(
-				`run start url=${options.url} mode=${options.mode} model=${options.conversionModel ?? "<default>"} preprocessor=${options.htmlPreprocessor} sources(flag=${flagConversionModel ?? "-"},config=${configConversionModel ?? "-"},env=${envConversionModel ?? "-"})`,
+				`run start url=${options.url} mode=${options.mode} strict=${options.strictSafety} timeout=${options.timeoutSec}s maxBytes=${options.maxBytes} model=${options.conversionModel ?? "<default>"} preprocessor=${options.htmlPreprocessor}`,
 				ctx,
 			);
 
@@ -496,7 +521,7 @@ export default function (pi: ExtensionAPI) {
 				const blockMessage = [
 					`Blocked: detected high prompt-injection risk in '${fetch.url}'.`,
 					`Risk score: ${scan.finalScore}.`,
-					"Use mode='raw_markdown' or strictSafety=false only if you explicitly want to review risky source content.",
+					"Use mode='raw_markdown' to review risky source content when explicitly needed.",
 				].join(" ");
 
 				const details: WebfetchDetails = {

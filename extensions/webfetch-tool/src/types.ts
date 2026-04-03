@@ -17,6 +17,12 @@ export interface WebfetchOptions {
 export interface WebfetchExtensionConfig {
 	conversionModel?: string;
 	htmlPreprocessor?: HtmlPreprocessor;
+	strictSafety?: boolean;
+	maxBytes?: number;
+	timeoutSec?: number;
+	maxRedirects?: number;
+	maxMarkdownChars?: number;
+	defaultMode?: WebfetchMode;
 }
 
 export interface RedirectHop {
