@@ -33,6 +33,15 @@ importers:
         specifier: '*'
         version: 0.34.49
 
+  extensions/webfetch-tool:
+    dependencies:
+      '@mariozechner/pi-coding-agent':
+        specifier: '*'
+        version: 0.64.0(ws@8.20.0)(zod@4.3.6)
+      '@sinclair/typebox':
+        specifier: '*'
+        version: 0.34.49
+
 packages:
 
   '@anthropic-ai/sdk@0.73.0':

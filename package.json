@@ -12,7 +12,7 @@
 		"test:watch": "vitest"
 	},
 	"pi": {
-		"extensions": ["./extensions/stale-write-guard/src/index.ts"]
+		"extensions": ["./extensions/stale-write-guard/src/index.ts", "./extensions/webfetch-tool/src/index.ts"]
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
