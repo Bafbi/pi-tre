@@ -31,12 +31,24 @@ Conversion model precedence (highest to lowest):
 3. env var: `PI_WEBFETCH_CONVERSION_MODEL`
 4. Pi default model selection
 
+## HTML preprocessor configuration
+
+Preprocessor precedence (highest to lowest):
+
+1. CLI flag: `--webfetch-html-preprocessor <regex|dom>`
+2. extension config files (project overrides global):
+   - `.pi/extensions/webfetch-tool.json`
+   - `~/.pi/agent/extensions/webfetch-tool.json`
+3. env var: `PI_WEBFETCH_HTML_PREPROCESSOR`
+4. default: `regex`
+
 Example config file:
 
 ```json
 {
   "$schema": "../../extensions/webfetch-tool/webfetch-tool.config.schema.json",
-  "conversionModel": "anthropic/claude-sonnet-4-5"
+  "conversionModel": "anthropic/claude-sonnet-4-5",
+  "htmlPreprocessor": "dom"
 }
 ```
 
@@ -63,4 +75,4 @@ Use:
 - Localhost/private IP targets are blocked.
 - Redirects are followed manually and validated per hop.
 - HTML is preprocessed before sub-agent conversion to reduce boilerplate and token load (`main/article/content` extraction + script/style/nav/footer removal).
-- No external npm dependencies are used for scoring/conversion logic.
+- `dom` preprocessing uses `parse5`; `regex` remains available as the default.

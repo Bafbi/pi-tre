@@ -14,5 +14,8 @@
 		"@mariozechner/pi-coding-agent": "*",
 		"@mariozechner/pi-tui": "*",
 		"@sinclair/typebox": "*"
+	},
+	"dependencies": {
+		"parse5": "^8.0.0"
 	}
 }

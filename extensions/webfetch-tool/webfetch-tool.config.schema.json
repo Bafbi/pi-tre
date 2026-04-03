@@ -15,6 +15,11 @@
 			"minLength": 3,
 			"pattern": "^[^/\\s]+/.+$",
 			"description": "Model reference in provider/model form (for example: anthropic/claude-sonnet-4-5)."
+		},
+		"htmlPreprocessor": {
+			"type": "string",
+			"enum": ["regex", "dom"],
+			"description": "HTML preprocessing engine used before markdown conversion."
 		}
 	}
 }

@@ -82,6 +82,10 @@ export async function convertWithSubagent(
 	model: string | undefined,
 	signal?: AbortSignal,
 ): Promise<SubagentResult> {
+	if (signal?.aborted) {
+		throw new Error("Conversion aborted before starting.");
+	}
+
 	const scratchDir = await mkdtemp(join(tmpdir(), "pi-webfetch-subagent-"));
 	const sourcePath = join(scratchDir, "source.txt");
 	const systemPromptPath = join(scratchDir, "system-prompt.txt");
