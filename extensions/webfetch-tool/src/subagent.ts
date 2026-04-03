@@ -24,6 +24,8 @@ interface PiMessage {
 	role: "assistant" | "user" | "tool";
 	content: Array<PiMessageTextPart | { type: string }>;
 	model?: string;
+	errorMessage?: string;
+	stopReason?: string;
 }
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
@@ -64,6 +66,12 @@ export function parseModelReference(value: string): ParsedModelReference {
 	}
 
 	return { provider, model, raw: trimmed };
+}
+
+function truncateForError(text: string, maxLength = 400): string {
+	const cleaned = text.replace(/\s+/g, " ").trim();
+	if (cleaned.length <= maxLength) return cleaned;
+	return `${cleaned.slice(0, maxLength)}...`;
 }
 
 export async function convertWithSubagent(
@@ -136,6 +144,9 @@ export async function convertWithSubagent(
 			let stderr = "";
 			let finalAssistantText = "";
 			let finalAssistantModel: string | undefined;
+			let finalAssistantError: string | undefined;
+			let timedOut = false;
+			let abortedByParent = false;
 
 			const killProcess = () => {
 				proc.kill("SIGTERM");
@@ -145,12 +156,24 @@ export async function convertWithSubagent(
 			};
 
 			const timeout = setTimeout(() => {
+				timedOut = true;
 				killProcess();
 			}, timeoutSec * 1000);
 
 			if (signal) {
-				if (signal.aborted) killProcess();
-				else signal.addEventListener("abort", killProcess, { once: true });
+				if (signal.aborted) {
+					abortedByParent = true;
+					killProcess();
+				} else {
+					signal.addEventListener(
+						"abort",
+						() => {
+							abortedByParent = true;
+							killProcess();
+						},
+						{ once: true },
+					);
+				}
 			}
 
 			const processLine = (line: string) => {
@@ -167,6 +190,9 @@ export async function convertWithSubagent(
 				const parsed = event as { type?: string; message?: PiMessage };
 				if (parsed.message?.model && typeof parsed.message.model === "string") {
 					finalAssistantModel = parsed.message.model;
+				}
+				if (parsed.message?.errorMessage && typeof parsed.message.errorMessage === "string") {
+					finalAssistantError = parsed.message.errorMessage;
 				}
 				if (parsed.type !== "message_end" || !parsed.message) return;
 
@@ -190,15 +216,30 @@ export async function convertWithSubagent(
 				reject(error);
 			});
 
-			proc.on("close", (code) => {
+			proc.on("close", (code, closeSignal) => {
 				clearTimeout(timeout);
 				if (stdoutBuffer.trim()) processLine(stdoutBuffer);
-				if (code !== 0) {
-					reject(new Error(`Sub-agent exited with code ${code}: ${stderr.trim() || "unknown error"}`));
+				if (code !== 0 || closeSignal) {
+					const reasons: string[] = [];
+					reasons.push("Sub-agent failed during markdown conversion.");
+					if (timedOut) reasons.push(`Timed out after ${timeoutSec}s.`);
+					if (abortedByParent) reasons.push("Aborted by parent signal.");
+					reasons.push(`Process exit code=${code === null ? "null" : code}, signal=${closeSignal ?? "none"}.`);
+					if (requestedModelRef?.raw) reasons.push(`Requested model=${requestedModelRef.raw}.`);
+					if (finalAssistantModel) reasons.push(`Last reported model=${finalAssistantModel}.`);
+					if (finalAssistantError) reasons.push(`Assistant error=${truncateForError(finalAssistantError)}.`);
+					if (stderr.trim()) reasons.push(`stderr=${truncateForError(stderr)}.`);
+					reject(new Error(reasons.join(" ")));
 					return;
 				}
 				if (!finalAssistantText) {
-					reject(new Error("Sub-agent returned no markdown output."));
+					const reasons: string[] = [];
+					reasons.push("Sub-agent returned no markdown text.");
+					if (requestedModelRef?.raw) reasons.push(`Requested model=${requestedModelRef.raw}.`);
+					if (finalAssistantModel) reasons.push(`Last reported model=${finalAssistantModel}.`);
+					if (finalAssistantError) reasons.push(`Assistant error=${truncateForError(finalAssistantError)}.`);
+					if (stderr.trim()) reasons.push(`stderr=${truncateForError(stderr)}.`);
+					reject(new Error(reasons.join(" ")));
 					return;
 				}
 				resolve({

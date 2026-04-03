@@ -57,6 +57,9 @@ export interface MarkdownConversionResult {
 	markdown: string;
 	usedSubagent: boolean;
 	conversionModelUsed?: string;
+	conversionPreprocessStrategy?: string;
+	conversionInputCharsRaw?: number;
+	conversionInputCharsPrepared?: number;
 	fallbackReason?: string;
 }
 
@@ -70,6 +73,9 @@ export interface WebfetchDetails {
 	scan: ScanResult;
 	mode: WebfetchMode;
 	conversionModelUsed?: string;
+	conversionPreprocessStrategy?: string;
+	conversionInputCharsRaw?: number;
+	conversionInputCharsPrepared?: number;
 	usedSubagent: boolean;
 	fallbackReason?: string;
 	markdownTruncated: boolean;

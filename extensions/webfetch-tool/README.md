@@ -45,9 +45,22 @@ Schema file:
 
 If your Pi setup has the same model ID under multiple providers, use `provider/model` to avoid ambiguous selection (for example `openrouter/gpt-4o` instead of `gpt-4o`).
 
+## Debugging
+
+Use:
+
+```text
+/webfetch-debug [on|off|status|toggle|dump]
+```
+
+- `on/off/toggle`: control debug status + widget
+- `status`: show whether debug is enabled
+- `dump`: write a full diagnostic report into the editor
+
 ## Notes
 
 - Only `http`/`https` URLs are allowed.
 - Localhost/private IP targets are blocked.
 - Redirects are followed manually and validated per hop.
+- HTML is preprocessed before sub-agent conversion to reduce boilerplate and token load (`main/article/content` extraction + script/style/nav/footer removal).
 - No external npm dependencies are used for scoring/conversion logic.
