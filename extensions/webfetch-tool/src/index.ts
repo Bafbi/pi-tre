@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@mariozechner/pi-coding-agent";
+import { type ExtensionAPI, getAgentDir } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { z } from "zod";
 
+import { createWebfetchDebugController } from "./debug.js";
 import { WEBFETCH_DETAILS_VERSION, validateWebfetchDetails } from "./details/index.js";
 import { fetchWithCurl } from "./fetch.js";
 import { deterministicTextMarkdown, fallbackMarkdown, shouldUseSubagentConversion } from "./markdown.js";
@@ -31,9 +32,6 @@ const HTML_PREPROCESSOR_ENV = "PI_WEBFETCH_HTML_PREPROCESSOR";
 const CONVERSION_MODEL_FLAG = "webfetch-conversion-model";
 const HTML_PREPROCESSOR_FLAG = "webfetch-html-preprocessor";
 const EXTENSION_CONFIG_FILE = "webfetch-tool.json";
-const STATUS_KEY = "webfetch-tool";
-const DEBUG_WIDGET_KEY = "webfetch-tool-debug";
-const MAX_DEBUG_EVENTS = 20;
 
 const extensionConfigSchema = z
 	.object({
@@ -48,25 +46,6 @@ const extensionConfigSchema = z
 		defaultMode: z.enum(["safe_markdown", "raw_markdown", "extract_only"]).optional(),
 	})
 	.strict();
-
-type UiCtx = Pick<ExtensionContext, "hasUI" | "ui">;
-
-interface DebugSnapshot {
-	url: string;
-	mode: WebfetchMode;
-	statusCode: number;
-	contentType: string;
-	bodyBytes: number;
-	conversionModelConfigured?: string;
-	conversionModelUsed?: string;
-	conversionPreprocessStrategy?: string;
-	conversionInputCharsRaw?: number;
-	conversionInputCharsPrepared?: number;
-	usedSubagent: boolean;
-	fallbackReason?: string;
-	scanScore: number;
-	scanDecision: string;
-}
 
 function normalizeMode(input: string | undefined): WebfetchMode {
 	if (input === "raw_markdown") return "raw_markdown";
@@ -305,136 +284,8 @@ async function convertToMarkdown(
 }
 
 export default function (pi: ExtensionAPI) {
-	let debugEnabled = false;
-	const debugEvents: string[] = [];
-	let lastSnapshot: DebugSnapshot | undefined;
-
-	const getDebugLines = () => {
-		const lines: string[] = [];
-		lines.push(`debug: ${debugEnabled ? "ON" : "OFF"}`);
-		if (lastSnapshot) {
-			lines.push(`last url: ${lastSnapshot.url}`);
-			lines.push(`last mode: ${lastSnapshot.mode}`);
-			lines.push(`last status/type: ${lastSnapshot.statusCode} ${lastSnapshot.contentType || "unknown"}`);
-			lines.push(
-				`last conversion: used=${lastSnapshot.conversionModelUsed ?? "<none>"} subagent=${lastSnapshot.usedSubagent} input=${lastSnapshot.conversionInputCharsPrepared ?? 0}/${lastSnapshot.conversionInputCharsRaw ?? 0} (${lastSnapshot.conversionPreprocessStrategy ?? "n/a"})`,
-			);
-			if (lastSnapshot.fallbackReason) {
-				lines.push(`last fallback: ${lastSnapshot.fallbackReason}`);
-			}
-			lines.push(`last scan: ${lastSnapshot.scanScore} (${lastSnapshot.scanDecision})`);
-		}
-		if (debugEvents.length > 0) {
-			lines.push("recent events:");
-			for (const event of debugEvents.slice(-8)) {
-				lines.push(event);
-			}
-		}
-		return lines;
-	};
-
-	const syncDebugUi = (ctx: UiCtx) => {
-		if (!ctx.hasUI) return;
-		if (!debugEnabled) {
-			ctx.ui.setStatus(STATUS_KEY, undefined);
-			ctx.ui.setWidget(DEBUG_WIDGET_KEY, undefined);
-			return;
-		}
-		ctx.ui.setStatus(STATUS_KEY, "webfetch debug ON");
-		ctx.ui.setWidget(DEBUG_WIDGET_KEY, getDebugLines());
-	};
-
-	const addDebugEvent = (message: string, ctx?: UiCtx) => {
-		const line = `${new Date().toISOString()} ${message}`;
-		debugEvents.push(line);
-		if (debugEvents.length > MAX_DEBUG_EVENTS) {
-			debugEvents.splice(0, debugEvents.length - MAX_DEBUG_EVENTS);
-		}
-		if (debugEnabled && ctx) {
-			syncDebugUi(ctx);
-		}
-	};
-
-	const buildDebugDump = () => {
-		const lines: string[] = [];
-		lines.push("# webfetch-tool debug dump");
-		lines.push("");
-		lines.push(`debugEnabled: ${debugEnabled}`);
-		if (lastSnapshot) {
-			lines.push("");
-			lines.push("## last-run");
-			lines.push(`- url: ${lastSnapshot.url}`);
-			lines.push(`- mode: ${lastSnapshot.mode}`);
-			lines.push(`- statusCode: ${lastSnapshot.statusCode}`);
-			lines.push(`- contentType: ${lastSnapshot.contentType || "unknown"}`);
-			lines.push(`- bodyBytes: ${lastSnapshot.bodyBytes}`);
-			lines.push(`- conversionModelConfigured: ${lastSnapshot.conversionModelConfigured ?? "<none>"}`);
-			lines.push(`- conversionModelUsed: ${lastSnapshot.conversionModelUsed ?? "<none>"}`);
-			lines.push(`- conversionPreprocessStrategy: ${lastSnapshot.conversionPreprocessStrategy ?? "<none>"}`);
-			lines.push(`- conversionInputCharsRaw: ${lastSnapshot.conversionInputCharsRaw ?? 0}`);
-			lines.push(`- conversionInputCharsPrepared: ${lastSnapshot.conversionInputCharsPrepared ?? 0}`);
-			lines.push(`- usedSubagent: ${lastSnapshot.usedSubagent}`);
-			lines.push(`- fallbackReason: ${lastSnapshot.fallbackReason ?? "<none>"}`);
-			lines.push(`- scan: ${lastSnapshot.scanScore} (${lastSnapshot.scanDecision})`);
-		}
-		lines.push("");
-		lines.push("## recent-events");
-		if (debugEvents.length === 0) {
-			lines.push("(none)");
-		} else {
-			for (const event of debugEvents) lines.push(`- ${event}`);
-		}
-		return `${lines.join("\n")}\n`;
-	};
-
-	pi.registerCommand("webfetch-debug", {
-		description: "Debug webfetch-tool (on|off|status|toggle|dump)",
-		handler: async (args, ctx) => {
-			const [subcommandRaw] = args.trim().split(/\s+/).filter(Boolean);
-			const subcommand = subcommandRaw ?? "toggle";
-
-			switch (subcommand) {
-				case "on": {
-					debugEnabled = true;
-					addDebugEvent("debug enabled", ctx);
-					break;
-				}
-				case "off": {
-					debugEnabled = false;
-					addDebugEvent("debug disabled", ctx);
-					break;
-				}
-				case "status": {
-					addDebugEvent("debug status requested", ctx);
-					break;
-				}
-				case "toggle": {
-					debugEnabled = !debugEnabled;
-					addDebugEvent(`debug ${debugEnabled ? "enabled" : "disabled"} (toggle)`, ctx);
-					break;
-				}
-				case "dump": {
-					addDebugEvent("debug dump generated", ctx);
-					if (ctx.hasUI) {
-						ctx.ui.setEditorText(buildDebugDump());
-						ctx.ui.notify("webfetch debug dump copied to editor", "info");
-					}
-					break;
-				}
-				default: {
-					if (ctx.hasUI) {
-						ctx.ui.notify("Unknown subcommand. Use: /webfetch-debug [on|off|status|toggle|dump]", "warning");
-					}
-					return;
-				}
-			}
-
-			syncDebugUi(ctx);
-			if (ctx.hasUI && subcommand !== "dump") {
-				ctx.ui.notify(`webfetch debug: ${debugEnabled ? "ON" : "OFF"}`, "info");
-			}
-		},
-	});
+	const debug = createWebfetchDebugController(pi);
+	debug.registerCommand();
 
 	pi.registerFlag(CONVERSION_MODEL_FLAG, {
 		description: "Default model for webfetch markdown conversion sub-agent",
@@ -489,7 +340,7 @@ export default function (pi: ExtensionAPI) {
 				configMaxMarkdownChars: extensionConfig.maxMarkdownChars,
 				configDefaultMode: normalizeConfiguredMode(extensionConfig.defaultMode),
 			});
-			addDebugEvent(
+			debug.addEvent(
 				`run start url=${options.url} mode=${options.mode} strict=${options.strictSafety} timeout=${options.timeoutSec}s maxBytes=${options.maxBytes} model=${options.conversionModel ?? "<default>"} preprocessor=${options.htmlPreprocessor}`,
 				ctx,
 			);
@@ -507,7 +358,7 @@ export default function (pi: ExtensionAPI) {
 				allowPrivateHosts: false,
 				signal,
 			});
-			addDebugEvent(
+			debug.addEvent(
 				`fetch done url=${fetch.url} status=${fetch.statusCode} type=${fetch.contentType || "unknown"} bytes=${fetch.bodyBytes} redirects=${fetch.redirects.length}`,
 				ctx,
 			);
@@ -518,7 +369,7 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			const scan = scanPromptInjection(fetch.bodyText, fetch.contentType, options.strictSafety);
-			addDebugEvent(`scan score=${scan.finalScore} decision=${scan.decision} hits=${scan.hits.length}`, ctx);
+			debug.addEvent(`scan score=${scan.finalScore} decision=${scan.decision} hits=${scan.hits.length}`, ctx);
 			const detailsBase: Omit<WebfetchDetails, "usedSubagent" | "fallbackReason" | "markdownTruncated"> = {
 				webfetchDetailsVersion: WEBFETCH_DETAILS_VERSION,
 				url: fetch.url,
@@ -532,18 +383,21 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			if (scan.decision === "block" && options.strictSafety && options.mode === "safe_markdown") {
-				lastSnapshot = {
-					url: fetch.url,
-					mode: options.mode,
-					statusCode: fetch.statusCode,
-					contentType: fetch.contentType,
-					bodyBytes: fetch.bodyBytes,
-					conversionModelConfigured: options.conversionModel,
-					usedSubagent: false,
-					fallbackReason: "blocked by safety policy",
-					scanScore: scan.finalScore,
-					scanDecision: scan.decision,
-				};
+				debug.setSnapshot(
+					{
+						url: fetch.url,
+						mode: options.mode,
+						statusCode: fetch.statusCode,
+						contentType: fetch.contentType,
+						bodyBytes: fetch.bodyBytes,
+						conversionModelConfigured: options.conversionModel,
+						usedSubagent: false,
+						fallbackReason: "blocked by safety policy",
+						scanScore: scan.finalScore,
+						scanDecision: scan.decision,
+					},
+					ctx,
+				);
 				const blockMessage = [
 					`Blocked: detected high prompt-injection risk in '${fetch.url}'.`,
 					`Risk score: ${scan.finalScore}.`,
@@ -556,7 +410,7 @@ export default function (pi: ExtensionAPI) {
 					fallbackReason: "blocked by safety policy",
 					markdownTruncated: false,
 				});
-				addDebugEvent(`run blocked by safety policy score=${scan.finalScore}`, ctx);
+				debug.addEvent(`run blocked by safety policy score=${scan.finalScore}`, ctx);
 				return {
 					content: [{ type: "text", text: blockMessage }],
 					details,
@@ -596,23 +450,26 @@ export default function (pi: ExtensionAPI) {
 				fallbackReason: converted.fallbackReason,
 				markdownTruncated: truncated.truncated,
 			});
-			lastSnapshot = {
-				url: fetch.url,
-				mode: options.mode,
-				statusCode: fetch.statusCode,
-				contentType: fetch.contentType,
-				bodyBytes: fetch.bodyBytes,
-				conversionModelConfigured: options.conversionModel,
-				conversionModelUsed: converted.conversionModelUsed,
-				conversionPreprocessStrategy: converted.conversionPreprocessStrategy,
-				conversionInputCharsRaw: converted.conversionInputCharsRaw,
-				conversionInputCharsPrepared: converted.conversionInputCharsPrepared,
-				usedSubagent: converted.usedSubagent,
-				fallbackReason: converted.fallbackReason,
-				scanScore: scan.finalScore,
-				scanDecision: scan.decision,
-			};
-			addDebugEvent(
+			debug.setSnapshot(
+				{
+					url: fetch.url,
+					mode: options.mode,
+					statusCode: fetch.statusCode,
+					contentType: fetch.contentType,
+					bodyBytes: fetch.bodyBytes,
+					conversionModelConfigured: options.conversionModel,
+					conversionModelUsed: converted.conversionModelUsed,
+					conversionPreprocessStrategy: converted.conversionPreprocessStrategy,
+					conversionInputCharsRaw: converted.conversionInputCharsRaw,
+					conversionInputCharsPrepared: converted.conversionInputCharsPrepared,
+					usedSubagent: converted.usedSubagent,
+					fallbackReason: converted.fallbackReason,
+					scanScore: scan.finalScore,
+					scanDecision: scan.decision,
+				},
+				ctx,
+			);
+			debug.addEvent(
 				`run complete subagent=${converted.usedSubagent} modelUsed=${converted.conversionModelUsed ?? "<none>"} input=${converted.conversionInputCharsPrepared ?? 0}/${converted.conversionInputCharsRaw ?? 0} strategy=${converted.conversionPreprocessStrategy ?? "n/a"} fallback=${converted.fallbackReason ?? "<none>"}`,
 				ctx,
 			);
