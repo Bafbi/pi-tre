@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 import { fetchWithCurl } from "./fetch.js";
-import { fallbackMarkdown } from "./markdown.js";
+import { deterministicTextMarkdown, fallbackMarkdown, shouldUseSubagentConversion } from "./markdown.js";
 import { scanPromptInjection } from "./scan.js";
 import { convertWithSubagent } from "./subagent.js";
 import type { MarkdownConversionResult, WebfetchDetails, WebfetchMode, WebfetchOptions } from "./types.js";
@@ -93,6 +93,14 @@ async function convertToMarkdown(
 			markdown: fallbackMarkdown(bodyText, contentType, url),
 			usedSubagent: false,
 			fallbackReason: "extract_only mode",
+		};
+	}
+
+	if (!shouldUseSubagentConversion(contentType, bodyText)) {
+		return {
+			markdown: deterministicTextMarkdown(bodyText, contentType),
+			usedSubagent: false,
+			fallbackReason: "deterministic text conversion",
 		};
 	}
 

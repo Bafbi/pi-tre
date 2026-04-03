@@ -8,6 +8,41 @@ function guessTitle(body: string, url: string): string {
 	return url;
 }
 
+function inferCodeLanguage(contentType: string, body: string): string {
+	const normalized = contentType.toLowerCase();
+	if (normalized.includes("shellscript") || normalized.includes("x-sh") || normalized.includes("bash")) return "sh";
+	if (normalized.includes("javascript")) return "js";
+	if (normalized.includes("typescript")) return "ts";
+	if (normalized.includes("json")) return "json";
+	if (normalized.includes("xml")) return "xml";
+	if (normalized.includes("yaml") || normalized.includes("yml")) return "yaml";
+	if (normalized.includes("toml")) return "toml";
+	if (normalized.includes("markdown")) return "md";
+	if (normalized.includes("csv")) return "csv";
+
+	if (body.startsWith("#!/bin/sh") || body.startsWith("#!/usr/bin/env sh")) return "sh";
+	if (body.startsWith("#!/bin/bash") || body.startsWith("#!/usr/bin/env bash")) return "bash";
+	if (body.startsWith("#!/usr/bin/env node")) return "js";
+	return "text";
+}
+
+export function shouldUseSubagentConversion(contentType: string, body: string): boolean {
+	const normalizedType = contentType.toLowerCase();
+	if (normalizedType.includes("text/html") || normalizedType.includes("application/xhtml+xml")) return true;
+	if (normalizedType === "" && /<html\b/i.test(body)) return true;
+	return false;
+}
+
+export function deterministicTextMarkdown(body: string, contentType: string): string {
+	const normalizedType = contentType.toLowerCase();
+	const normalizedBody = body.replace(/\r\n/g, "\n").trimEnd();
+
+	if (normalizedType.includes("markdown")) return normalizedBody;
+
+	const lang = inferCodeLanguage(contentType, normalizedBody);
+	return `\`\`\`${lang}\n${normalizedBody}\n\`\`\``;
+}
+
 export function fallbackMarkdown(body: string, contentType: string, url: string): string {
 	const title = guessTitle(body, url);
 	const text = extractVisibleText(body, contentType);
