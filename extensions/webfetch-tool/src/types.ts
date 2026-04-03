@@ -74,6 +74,7 @@ export interface MarkdownConversionResult {
 }
 
 export interface WebfetchDetails {
+	webfetchDetailsVersion: number;
 	url: string;
 	statusCode: number;
 	contentType: string;

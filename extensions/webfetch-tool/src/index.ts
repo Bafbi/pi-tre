@@ -6,6 +6,7 @@ import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { z } from "zod";
 
+import { WEBFETCH_DETAILS_VERSION, validateWebfetchDetails } from "./details/index.js";
 import { fetchWithCurl } from "./fetch.js";
 import { deterministicTextMarkdown, fallbackMarkdown, shouldUseSubagentConversion } from "./markdown.js";
 import { preprocessHtmlForConversion } from "./preprocess-html.js";
@@ -159,12 +160,8 @@ function toOptions(
 	};
 }
 
-function summarizeHits(details: WebfetchDetails): string {
-	if (details.scan.hits.length === 0) return "none";
-	return details.scan.hits
-		.slice(0, 4)
-		.map((hit) => `${hit.engine}:${hit.ruleId} (${hit.context})`)
-		.join(", ");
+function topDetectorHits(details: WebfetchDetails): string[] {
+	return details.scan.hits.slice(0, 4).map((hit) => `${hit.engine}:${hit.ruleId} (${hit.context})`);
 }
 
 function formatToolCallUrl(url: string | undefined, maxLength = 90): string {
@@ -182,34 +179,62 @@ function truncateMarkdown(markdown: string, maxChars: number): { markdown: strin
 	};
 }
 
-function summarizeReason(value: string | undefined, maxLength = 220): string {
-	if (!value) return "<none>";
+function summarizeReason(value: string | undefined, maxLength = 220): string | undefined {
+	if (!value) return undefined;
 	const compact = value.replace(/\s+/g, " ").trim();
 	if (compact.length <= maxLength) return compact;
 	return `${compact.slice(0, maxLength)}...`;
 }
 
+function yamlQuote(value: string): string {
+	return JSON.stringify(value);
+}
+
+function yamlStringList(key: string, values: string[]): string[] {
+	if (values.length === 0) return [`${key}: []`];
+	return [`${key}:`, ...values.map((value) => `  - ${yamlQuote(value)}`)];
+}
+
 function buildReport(markdown: string, details: WebfetchDetails): string {
-	const redirects = details.redirects.length;
 	const warnings: string[] = [];
 	if (details.scan.decision !== "allow") warnings.push(`risk=${details.scan.decision}`);
 	if (details.truncated) warnings.push("body-truncated");
 	if (details.markdownTruncated) warnings.push("markdown-truncated");
 	if (!details.usedSubagent && details.fallbackReason) warnings.push("fallback-converter");
 
-	const header = [
-		`Webfetch: ${details.url}`,
-		`Status: ${details.statusCode} | Type: ${details.contentType || "unknown"} | Bytes: ${details.bodyBytes}`,
-		`Risk score: ${details.scan.finalScore} (semgrep=${details.scan.semgrepScore}, fuzzy=${details.scan.fuzzyScore}, boost=${details.scan.contextBoost})`,
-		`Redirects: ${redirects} | Mode: ${details.mode}`,
-		`Conversion model used: ${details.conversionModelUsed ?? "<none>"}`,
-		`Conversion input: ${details.conversionInputCharsPrepared ?? 0}/${details.conversionInputCharsRaw ?? 0} chars (${details.conversionPreprocessStrategy ?? "n/a"})`,
-		`Detector hits: ${summarizeHits(details)}`,
-		`Warnings: ${warnings.length > 0 ? warnings.join(", ") : "none"}`,
-		`Fallback reason: ${summarizeReason(details.fallbackReason)}`,
+	const detectorHits = topDetectorHits(details);
+	const fallbackReason = summarizeReason(details.fallbackReason);
+
+	const frontmatterLines = [
+		"---",
+		`webfetchDetailsVersion: ${details.webfetchDetailsVersion}`,
+		`url: ${yamlQuote(details.url)}`,
+		`statusCode: ${details.statusCode}`,
+		`contentType: ${yamlQuote(details.contentType || "unknown")}`,
+		`bodyBytes: ${details.bodyBytes}`,
+		`mode: ${yamlQuote(details.mode)}`,
+		`redirectCount: ${details.redirects.length}`,
+		`truncatedBody: ${details.truncated}`,
+		`markdownTruncated: ${details.markdownTruncated}`,
+		"risk:",
+		`  decision: ${yamlQuote(details.scan.decision)}`,
+		`  finalScore: ${details.scan.finalScore}`,
+		`  semgrepScore: ${details.scan.semgrepScore}`,
+		`  fuzzyScore: ${details.scan.fuzzyScore}`,
+		`  contextBoost: ${details.scan.contextBoost}`,
+		"conversion:",
+		`  usedSubagent: ${details.usedSubagent}`,
+		`  modelUsed: ${details.conversionModelUsed ? yamlQuote(details.conversionModelUsed) : "null"}`,
+		`  preprocessStrategy: ${details.conversionPreprocessStrategy ? yamlQuote(details.conversionPreprocessStrategy) : "null"}`,
+		`  inputCharsRaw: ${details.conversionInputCharsRaw ?? 0}`,
+		`  inputCharsPrepared: ${details.conversionInputCharsPrepared ?? 0}`,
+		...yamlStringList("warnings", warnings),
+		...yamlStringList("detectorHits", detectorHits),
+		`fallbackReason: ${fallbackReason ? yamlQuote(fallbackReason) : "null"}`,
+		"---",
 	];
 
-	return `${header.join("\n")}\n\n---\n\n${markdown}`;
+	return `${frontmatterLines.join("\n")}\n\n${markdown}`;
 }
 
 async function convertToMarkdown(
@@ -495,6 +520,7 @@ export default function (pi: ExtensionAPI) {
 			const scan = scanPromptInjection(fetch.bodyText, fetch.contentType, options.strictSafety);
 			addDebugEvent(`scan score=${scan.finalScore} decision=${scan.decision} hits=${scan.hits.length}`, ctx);
 			const detailsBase: Omit<WebfetchDetails, "usedSubagent" | "fallbackReason" | "markdownTruncated"> = {
+				webfetchDetailsVersion: WEBFETCH_DETAILS_VERSION,
 				url: fetch.url,
 				statusCode: fetch.statusCode,
 				contentType: fetch.contentType,
@@ -524,12 +550,12 @@ export default function (pi: ExtensionAPI) {
 					"Use mode='raw_markdown' to review risky source content when explicitly needed.",
 				].join(" ");
 
-				const details: WebfetchDetails = {
+				const details = validateWebfetchDetails({
 					...detailsBase,
 					usedSubagent: false,
 					fallbackReason: "blocked by safety policy",
 					markdownTruncated: false,
-				};
+				});
 				addDebugEvent(`run blocked by safety policy score=${scan.finalScore}`, ctx);
 				return {
 					content: [{ type: "text", text: blockMessage }],
@@ -560,7 +586,7 @@ export default function (pi: ExtensionAPI) {
 			);
 			const truncated = truncateMarkdown(converted.markdown, options.maxMarkdownChars);
 
-			const details: WebfetchDetails = {
+			const details = validateWebfetchDetails({
 				...detailsBase,
 				conversionModelUsed: converted.conversionModelUsed,
 				conversionPreprocessStrategy: converted.conversionPreprocessStrategy,
@@ -569,7 +595,7 @@ export default function (pi: ExtensionAPI) {
 				usedSubagent: converted.usedSubagent,
 				fallbackReason: converted.fallbackReason,
 				markdownTruncated: truncated.truncated,
-			};
+			});
 			lastSnapshot = {
 				url: fetch.url,
 				mode: options.mode,

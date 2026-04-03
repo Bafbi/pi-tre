@@ -9,6 +9,7 @@ Pi extension that adds a `webfetch` tool.
 3. Applies a safety decision (`allow`, `allow_with_warning`, `block`)
 4. Converts content to markdown using a constrained sub-agent
 5. Falls back to a deterministic converter if sub-agent conversion fails
+6. Returns markdown with YAML frontmatter metadata (safety/provenance/conversion diagnostics), including `webfetchDetailsVersion` schema marker
 
 ## Tool parameters
 
