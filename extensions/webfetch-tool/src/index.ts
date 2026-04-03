@@ -1,16 +1,28 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { type ExtensionAPI, getAgentDir } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 import { fetchWithCurl } from "./fetch.js";
 import { deterministicTextMarkdown, fallbackMarkdown, shouldUseSubagentConversion } from "./markdown.js";
 import { scanPromptInjection } from "./scan.js";
 import { convertWithSubagent } from "./subagent.js";
-import type { MarkdownConversionResult, WebfetchDetails, WebfetchMode, WebfetchOptions } from "./types.js";
+import type {
+	MarkdownConversionResult,
+	WebfetchDetails,
+	WebfetchExtensionConfig,
+	WebfetchMode,
+	WebfetchOptions,
+} from "./types.js";
 
 const DEFAULT_MAX_BYTES = 400_000;
 const DEFAULT_TIMEOUT_SEC = 25;
 const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_MAX_MARKDOWN_CHARS = 30_000;
+const CONVERSION_MODEL_ENV = "PI_WEBFETCH_CONVERSION_MODEL";
+const CONVERSION_MODEL_FLAG = "webfetch-conversion-model";
+const EXTENSION_CONFIG_FILE = "webfetch-tool.json";
 
 function normalizeMode(input: string | undefined): WebfetchMode {
 	if (input === "raw_markdown") return "raw_markdown";
@@ -18,20 +30,58 @@ function normalizeMode(input: string | undefined): WebfetchMode {
 	return "safe_markdown";
 }
 
+function normalizeModelValue(input: unknown): string | undefined {
+	if (typeof input !== "string") return undefined;
+	const trimmed = input.trim();
+	if (!trimmed) return undefined;
+	if (trimmed.toLowerCase() === "default") return undefined;
+	return trimmed;
+}
+
+function readConfigFile(path: string): WebfetchExtensionConfig {
+	if (!existsSync(path)) return {};
+	try {
+		const raw = readFileSync(path, "utf8");
+		const parsed = JSON.parse(raw) as WebfetchExtensionConfig;
+		if (!parsed || typeof parsed !== "object") return {};
+		return parsed;
+	} catch {
+		return {};
+	}
+}
+
+function loadExtensionConfig(cwd: string): WebfetchExtensionConfig {
+	const globalConfigPath = join(getAgentDir(), "extensions", EXTENSION_CONFIG_FILE);
+	const projectConfigPath = join(cwd, ".pi", "extensions", EXTENSION_CONFIG_FILE);
+	const globalConfig = readConfigFile(globalConfigPath);
+	const projectConfig = readConfigFile(projectConfigPath);
+	return {
+		...globalConfig,
+		...projectConfig,
+	};
+}
+
 function clampNumber(input: unknown, fallback: number, min: number, max: number): number {
 	if (typeof input !== "number" || Number.isNaN(input)) return fallback;
 	return Math.max(min, Math.min(max, Math.floor(input)));
 }
 
-function toOptions(input: {
-	url: string;
-	mode?: string;
-	strictSafety?: boolean;
-	maxBytes?: number;
-	timeoutSec?: number;
-	maxRedirects?: number;
-	maxMarkdownChars?: number;
-}): WebfetchOptions {
+function toOptions(
+	input: {
+		url: string;
+		mode?: string;
+		strictSafety?: boolean;
+		maxBytes?: number;
+		timeoutSec?: number;
+		maxRedirects?: number;
+		maxMarkdownChars?: number;
+	},
+	defaults: {
+		flagConversionModel?: string;
+		configConversionModel?: string;
+		envConversionModel?: string;
+	},
+): WebfetchOptions {
 	return {
 		url: input.url,
 		mode: normalizeMode(input.mode),
@@ -40,6 +90,7 @@ function toOptions(input: {
 		timeoutSec: clampNumber(input.timeoutSec, DEFAULT_TIMEOUT_SEC, 5, 120),
 		maxRedirects: clampNumber(input.maxRedirects, DEFAULT_MAX_REDIRECTS, 0, 8),
 		maxMarkdownChars: clampNumber(input.maxMarkdownChars, DEFAULT_MAX_MARKDOWN_CHARS, 2_000, 120_000),
+		conversionModel: defaults.flagConversionModel ?? defaults.configConversionModel ?? defaults.envConversionModel,
 	};
 }
 
@@ -72,6 +123,7 @@ function buildReport(markdown: string, details: WebfetchDetails): string {
 		`Status: ${details.statusCode} | Type: ${details.contentType || "unknown"} | Bytes: ${details.bodyBytes}`,
 		`Risk score: ${details.scan.finalScore} (semgrep=${details.scan.semgrepScore}, fuzzy=${details.scan.fuzzyScore}, boost=${details.scan.contextBoost})`,
 		`Redirects: ${redirects} | Mode: ${details.mode}`,
+		`Conversion model used: ${details.conversionModelUsed ?? "<none>"}`,
 		`Detector hits: ${summarizeHits(details)}`,
 		`Warnings: ${warnings.length > 0 ? warnings.join(", ") : "none"}`,
 	];
@@ -86,6 +138,7 @@ async function convertToMarkdown(
 	url: string,
 	cwd: string,
 	timeoutSec: number,
+	conversionModel: string | undefined,
 	signal?: AbortSignal,
 ): Promise<MarkdownConversionResult> {
 	if (mode === "extract_only") {
@@ -106,10 +159,11 @@ async function convertToMarkdown(
 
 	try {
 		const sourceText = bodyText.slice(0, 120_000);
-		const converted = await convertWithSubagent(sourceText, url, cwd, timeoutSec, signal);
+		const converted = await convertWithSubagent(sourceText, url, cwd, timeoutSec, conversionModel, signal);
 		return {
 			markdown: converted.markdown,
 			usedSubagent: true,
+			conversionModelUsed: converted.modelUsed,
 		};
 	} catch (error) {
 		return {
@@ -121,6 +175,11 @@ async function convertToMarkdown(
 }
 
 export default function (pi: ExtensionAPI) {
+	pi.registerFlag(CONVERSION_MODEL_FLAG, {
+		description: "Default model for webfetch markdown conversion sub-agent",
+		type: "string",
+	});
+
 	pi.registerTool({
 		name: "webfetch",
 		label: "Web Fetch",
@@ -142,7 +201,14 @@ export default function (pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_toolCallId, input, signal, onUpdate, ctx) {
-			const options = toOptions(input);
+			const flagConversionModel = normalizeModelValue(pi.getFlag(CONVERSION_MODEL_FLAG));
+			const configConversionModel = normalizeModelValue(loadExtensionConfig(ctx.cwd).conversionModel);
+			const envConversionModel = normalizeModelValue(process.env[CONVERSION_MODEL_ENV]);
+			const options = toOptions(input, {
+				flagConversionModel,
+				configConversionModel,
+				envConversionModel,
+			});
 
 			onUpdate?.({
 				content: [{ type: "text", text: `webfetch: validating + fetching ${options.url}` }],
@@ -195,7 +261,12 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			onUpdate?.({
-				content: [{ type: "text", text: "webfetch: converting content to markdown" }],
+				content: [
+					{
+						type: "text",
+						text: `webfetch: converting content to markdown${options.conversionModel ? ` (model=${options.conversionModel})` : ""}`,
+					},
+				],
 				details: { phase: "convert" },
 			});
 
@@ -206,12 +277,14 @@ export default function (pi: ExtensionAPI) {
 				fetch.url,
 				ctx.cwd,
 				options.timeoutSec,
+				options.conversionModel,
 				signal,
 			);
 			const truncated = truncateMarkdown(converted.markdown, options.maxMarkdownChars);
 
 			const details: WebfetchDetails = {
 				...detailsBase,
+				conversionModelUsed: converted.conversionModelUsed,
 				usedSubagent: converted.usedSubagent,
 				fallbackReason: converted.fallbackReason,
 				markdownTruncated: truncated.truncated,

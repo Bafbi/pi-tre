@@ -8,6 +8,11 @@ export interface WebfetchOptions {
 	timeoutSec: number;
 	maxRedirects: number;
 	maxMarkdownChars: number;
+	conversionModel?: string;
+}
+
+export interface WebfetchExtensionConfig {
+	conversionModel?: string;
 }
 
 export interface RedirectHop {
@@ -51,6 +56,7 @@ export interface ScanResult {
 export interface MarkdownConversionResult {
 	markdown: string;
 	usedSubagent: boolean;
+	conversionModelUsed?: string;
 	fallbackReason?: string;
 }
 
@@ -63,6 +69,7 @@ export interface WebfetchDetails {
 	redirects: RedirectHop[];
 	scan: ScanResult;
 	mode: WebfetchMode;
+	conversionModelUsed?: string;
 	usedSubagent: boolean;
 	fallbackReason?: string;
 	markdownTruncated: boolean;

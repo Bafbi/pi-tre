@@ -20,6 +20,31 @@ Pi extension that adds a `webfetch` tool.
 - `maxRedirects` (default `3`)
 - `maxMarkdownChars` (default `30000`)
 
+## Markdown model configuration
+
+Conversion model precedence (highest to lowest):
+
+1. CLI flag: `--webfetch-conversion-model <provider/model|model>`
+2. extension config files (project overrides global):
+   - `.pi/extensions/webfetch-tool.json`
+   - `~/.pi/agent/extensions/webfetch-tool.json`
+3. env var: `PI_WEBFETCH_CONVERSION_MODEL`
+4. Pi default model selection
+
+Example config file:
+
+```json
+{
+  "$schema": "../../extensions/webfetch-tool/webfetch-tool.config.schema.json",
+  "conversionModel": "anthropic/claude-sonnet-4-5"
+}
+```
+
+Schema file:
+- `extensions/webfetch-tool/webfetch-tool.config.schema.json`
+
+If your Pi setup has the same model ID under multiple providers, use `provider/model` to avoid ambiguous selection (for example `openrouter/gpt-4o` instead of `gpt-4o`).
+
 ## Notes
 
 - Only `http`/`https` URLs are allowed.

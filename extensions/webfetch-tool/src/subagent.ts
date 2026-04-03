@@ -6,6 +6,13 @@ import { join } from "node:path";
 
 interface SubagentResult {
 	markdown: string;
+	modelUsed?: string;
+}
+
+interface ParsedModelReference {
+	provider?: string;
+	model: string;
+	raw: string;
 }
 
 interface PiMessageTextPart {
@@ -16,6 +23,7 @@ interface PiMessageTextPart {
 interface PiMessage {
 	role: "assistant" | "user" | "tool";
 	content: Array<PiMessageTextPart | { type: string }>;
+	model?: string;
 }
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
@@ -36,11 +44,34 @@ function extractAssistantText(message: PiMessage): string {
 		.trim();
 }
 
+export function parseModelReference(value: string): ParsedModelReference {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		throw new Error("Invalid conversion model reference: value cannot be empty.");
+	}
+
+	const firstSlash = trimmed.indexOf("/");
+	if (firstSlash === -1) {
+		return { model: trimmed, raw: trimmed };
+	}
+
+	const provider = trimmed.slice(0, firstSlash).trim();
+	const model = trimmed.slice(firstSlash + 1).trim();
+	if (!provider || !model) {
+		throw new Error(
+			`Invalid conversion model reference '${trimmed}'. Use 'provider/model' (for example: 'anthropic/claude-sonnet-4-5').`,
+		);
+	}
+
+	return { provider, model, raw: trimmed };
+}
+
 export async function convertWithSubagent(
 	sourceText: string,
 	url: string,
 	cwd: string,
 	timeoutSec: number,
+	model: string | undefined,
 	signal?: AbortSignal,
 ): Promise<SubagentResult> {
 	const scratchDir = await mkdtemp(join(tmpdir(), "pi-webfetch-subagent-"));
@@ -65,19 +96,33 @@ export async function convertWithSubagent(
 		"Do not add new claims.",
 	].join(" ");
 
-	const args = [
-		"--mode",
-		"json",
-		"-p",
-		"--no-session",
-		"--tools",
-		"read",
-		"--append-system-prompt",
-		systemPromptPath,
-		task,
-	];
+	const args = ["--mode", "json", "-p", "--no-session", "--tools", "read"];
+
+	const trimmedModel = model?.trim();
+	const requestedModelRef = trimmedModel ? parseModelReference(trimmedModel) : undefined;
+	if (requestedModelRef) {
+		if (requestedModelRef.provider) {
+			args.push("--provider", requestedModelRef.provider, "--model", requestedModelRef.model);
+		} else {
+			args.push("--model", requestedModelRef.model);
+		}
+	}
+
+	args.push("--append-system-prompt", systemPromptPath, task);
 
 	const invocation = getPiInvocation(args);
+
+	const resolveModelUsed = (childModel: string | undefined): string | undefined => {
+		const normalizedChild = childModel?.trim();
+		if (normalizedChild) {
+			if (normalizedChild.includes("/")) return normalizedChild;
+			if (requestedModelRef?.provider) {
+				return `${requestedModelRef.provider}/${normalizedChild}`;
+			}
+			return normalizedChild;
+		}
+		return requestedModelRef?.raw;
+	};
 
 	try {
 		const result = await new Promise<SubagentResult>((resolve, reject) => {
@@ -90,6 +135,7 @@ export async function convertWithSubagent(
 			let stdoutBuffer = "";
 			let stderr = "";
 			let finalAssistantText = "";
+			let finalAssistantModel: string | undefined;
 
 			const killProcess = () => {
 				proc.kill("SIGTERM");
@@ -119,6 +165,9 @@ export async function convertWithSubagent(
 
 				if (!event || typeof event !== "object") return;
 				const parsed = event as { type?: string; message?: PiMessage };
+				if (parsed.message?.model && typeof parsed.message.model === "string") {
+					finalAssistantModel = parsed.message.model;
+				}
 				if (parsed.type !== "message_end" || !parsed.message) return;
 
 				const candidate = extractAssistantText(parsed.message);
@@ -152,7 +201,10 @@ export async function convertWithSubagent(
 					reject(new Error("Sub-agent returned no markdown output."));
 					return;
 				}
-				resolve({ markdown: finalAssistantText });
+				resolve({
+					markdown: finalAssistantText,
+					modelUsed: resolveModelUsed(finalAssistantModel),
+				});
 			});
 		});
 
