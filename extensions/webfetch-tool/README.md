@@ -74,6 +74,15 @@ Use:
 - `status`: show whether debug is enabled
 - `dump`: write a full diagnostic report into the editor
 
+When debug is ON, each run stores artifacts under `.pi/webfetch-debug/<timestamp>/`:
+- raw curl HTML (`curl-response.html`)
+- preprocessed HTML (`preprocessed.html`, when sub-agent conversion path is used)
+- sub-agent event stream (`subagent-events.jsonl`)
+- sub-agent conversation transcript (`subagent-conversation.md`)
+- final conversion output (`conversion-output.md`)
+
+Artifact references are included in `/webfetch-debug dump`.
+
 ## Notes
 
 - Only `http`/`https` URLs are allowed.

@@ -4,15 +4,39 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { type DefaultTreeAdapterTypes, parse, serializeOuter } from "parse5";
+
 interface SubagentResult {
 	markdown: string;
 	modelUsed?: string;
+}
+
+export type SubagentProgressStage = "launching" | "reading-source" | "converting" | "completed";
+
+export interface SubagentProgressUpdate {
+	stage: SubagentProgressStage;
+	assistantText?: string;
+}
+
+export interface SubagentDebugEvent {
+	rawLine: string;
+	parsed?: unknown;
+	parseError?: string;
 }
 
 interface ParsedModelReference {
 	provider?: string;
 	model: string;
 	raw: string;
+}
+
+type DomNode = DefaultTreeAdapterTypes.Node;
+type DomElement = DefaultTreeAdapterTypes.Element;
+
+interface SubagentInputSections {
+	mainHtml: string;
+	navigationHtml: string;
+	footerHtml: string;
 }
 
 interface PiMessageTextPart {
@@ -26,6 +50,78 @@ interface PiMessage {
 	model?: string;
 	errorMessage?: string;
 	stopReason?: string;
+}
+
+function isDomElement(node: DomNode): node is DomElement {
+	return "tagName" in node;
+}
+
+function getAttributeValue(element: DomElement, name: string): string | undefined {
+	return element.attrs.find((attr) => attr.name.toLowerCase() === name)?.value;
+}
+
+function walkDom(node: DomNode, visitor: (element: DomElement) => void): void {
+	if (isDomElement(node)) visitor(node);
+	if (!("childNodes" in node)) return;
+	for (const child of node.childNodes) {
+		walkDom(child, visitor);
+	}
+}
+
+function hasMatchingAncestor(element: DomElement, predicate: (candidate: DomElement) => boolean): boolean {
+	let current = (element as { parentNode?: DomNode }).parentNode;
+	while (current) {
+		if (isDomElement(current) && predicate(current)) return true;
+		current = (current as { parentNode?: DomNode }).parentNode;
+	}
+	return false;
+}
+
+function collectUniqueElements(
+	document: DefaultTreeAdapterTypes.Document,
+	predicate: (element: DomElement) => boolean,
+): DomElement[] {
+	const collected: DomElement[] = [];
+	walkDom(document, (element) => {
+		if (!predicate(element)) return;
+		if (hasMatchingAncestor(element, predicate)) return;
+		collected.push(element);
+	});
+	return collected;
+}
+
+function combineSerialized(elements: DomElement[]): string {
+	if (elements.length === 0) return "";
+	return elements
+		.map((element) => serializeOuter(element))
+		.join("\n\n")
+		.trim();
+}
+
+function buildSubagentInputSections(sourceText: string): SubagentInputSections {
+	const document = parse(sourceText);
+
+	const mainHtml = combineSerialized(
+		collectUniqueElements(document, (element) => {
+			if (element.tagName === "main" || element.tagName === "article") return true;
+			const role = (getAttributeValue(element, "role") ?? "").toLowerCase();
+			return role === "main";
+		}),
+	);
+
+	const navigationHtml = combineSerialized(
+		collectUniqueElements(document, (element) => {
+			return element.tagName === "header" || element.tagName === "nav" || element.tagName === "aside";
+		}),
+	);
+
+	const footerHtml = combineSerialized(collectUniqueElements(document, (element) => element.tagName === "footer"));
+
+	return {
+		mainHtml: mainHtml || sourceText,
+		navigationHtml: navigationHtml || "<section><p>(no header/nav/aside section found)</p></section>",
+		footerHtml: footerHtml || "<footer><p>(no footer section found)</p></footer>",
+	};
 }
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
@@ -91,15 +187,20 @@ export async function convertWithSubagent(
 	timeoutSec: number,
 	model: string | undefined,
 	signal?: AbortSignal,
+	onProgress?: (update: SubagentProgressUpdate) => void,
+	onDebugEvent?: (event: SubagentDebugEvent) => void,
 ): Promise<SubagentResult> {
 	if (signal?.aborted) {
 		throw new Error("Conversion aborted before starting.");
 	}
+	onProgress?.({ stage: "launching" });
 
 	let scratchDir: string | undefined;
 	try {
 		scratchDir = await mkdtemp(join(tmpdir(), "pi-webfetch-subagent-"));
-		const sourcePath = join(scratchDir, "source.txt");
+		const sourceMainPath = join(scratchDir, "source-main.html");
+		const sourceNavigationPath = join(scratchDir, "source-navigation.html");
+		const sourceFooterPath = join(scratchDir, "source-footer.html");
 		const systemPromptPath = join(scratchDir, "system-prompt.txt");
 
 		const systemPrompt = [
@@ -110,15 +211,20 @@ export async function convertWithSubagent(
 			"Do not use tools other than read.",
 		].join("\n");
 
-		await writeFile(sourcePath, sourceText, "utf8");
+		const sections = buildSubagentInputSections(sourceText);
+		await writeFile(sourceMainPath, sections.mainHtml, "utf8");
+		await writeFile(sourceNavigationPath, sections.navigationHtml, "utf8");
+		await writeFile(sourceFooterPath, sections.footerHtml, "utf8");
 		await writeFile(systemPromptPath, systemPrompt, "utf8");
 
 		const task = [
-			`Read '${sourcePath}'.`,
-			`Convert its HTML contents from ${url} into clean markdown.`,
-			"Extract core content, prioritizing <main> or <article> when present.",
-			"Also extract navigational context from <header>, <nav>, and <aside>.",
-			"Append a final section titled '## Discovery / Routing' with valid navigation links as markdown bullets.",
+			`Read '${sourceMainPath}', '${sourceNavigationPath}', and '${sourceFooterPath}'.`,
+			`Convert their HTML contents from ${url} into clean markdown.`,
+			"Treat source-main.html as the primary content source.",
+			"Treat source-navigation.html as routing/navigation context.",
+			"Treat source-footer.html as supplemental context.",
+			"Extract core content, prioritizing <main> or <article> from source-main.html.",
+			"Append a final section titled '## Discovery / Routing' with valid navigation links from source-navigation.html and source-footer.html.",
 			"For link labels, prefer anchor text, then aria-label/title/data-category when useful.",
 			"Do not add new claims and do not invent links.",
 		].join(" ");
@@ -165,6 +271,7 @@ export async function convertWithSubagent(
 			let finalAssistantError: string | undefined;
 			let timedOut = false;
 			let abortedByParent = false;
+			let lastProgressText = "";
 
 			const killProcess = () => {
 				proc.kill("SIGTERM");
@@ -200,22 +307,45 @@ export async function convertWithSubagent(
 				let event: unknown;
 				try {
 					event = JSON.parse(trimmed);
-				} catch {
+				} catch (error) {
+					onDebugEvent?.({
+						rawLine: trimmed,
+						parseError: error instanceof Error ? error.message : "json-parse-failed",
+					});
 					return;
 				}
 
+				onDebugEvent?.({ rawLine: trimmed, parsed: event });
 				if (!event || typeof event !== "object") return;
-				const parsed = event as { type?: string; message?: PiMessage };
+				const parsed = event as {
+					type?: string;
+					message?: PiMessage;
+					toolName?: string;
+				};
+				if (parsed.type === "tool_execution_start" && parsed.toolName === "read") {
+					onProgress?.({ stage: "reading-source" });
+				}
 				if (parsed.message?.model && typeof parsed.message.model === "string") {
 					finalAssistantModel = parsed.message.model;
 				}
 				if (parsed.message?.errorMessage && typeof parsed.message.errorMessage === "string") {
 					finalAssistantError = parsed.message.errorMessage;
 				}
-				if (parsed.type !== "message_end" || !parsed.message) return;
 
-				const candidate = extractAssistantText(parsed.message);
-				if (candidate) finalAssistantText = candidate;
+				if (
+					(parsed.type === "message_update" || parsed.type === "message_end") &&
+					parsed.message &&
+					parsed.message.role === "assistant"
+				) {
+					const candidate = extractAssistantText(parsed.message);
+					if (candidate && candidate !== lastProgressText) {
+						lastProgressText = candidate;
+						onProgress?.({ stage: "converting", assistantText: candidate });
+					}
+					if (parsed.type === "message_end") {
+						finalAssistantText = candidate;
+					}
+				}
 			};
 
 			proc.stdout.on("data", (chunk: Buffer) => {
@@ -260,6 +390,7 @@ export async function convertWithSubagent(
 					reject(new Error(reasons.join(" ")));
 					return;
 				}
+				onProgress?.({ stage: "completed", assistantText: finalAssistantText });
 				resolve({
 					markdown: finalAssistantText,
 					modelUsed: resolveModelUsed(finalAssistantModel),

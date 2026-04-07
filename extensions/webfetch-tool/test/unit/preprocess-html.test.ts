@@ -26,7 +26,9 @@ describe("preprocessHtmlForConversion", () => {
 		expect(result.htmlForConversion).toContain("<header");
 		expect(result.htmlForConversion).toContain("<nav");
 		expect(result.htmlForConversion).toContain("<footer");
-		expect(result.htmlForConversion).toContain('class="top-bar"');
+		expect(result.htmlForConversion).toContain("\n<nav");
+		expect(result.htmlForConversion).toContain('\n  <a href="/docs"');
+		expect(result.htmlForConversion).not.toContain('class="top-bar"');
 		expect(result.htmlForConversion).toContain('id="content"');
 		expect(result.htmlForConversion).toContain('aria-label="Main Menu"');
 		expect(result.htmlForConversion).toContain('data-category="AI"');

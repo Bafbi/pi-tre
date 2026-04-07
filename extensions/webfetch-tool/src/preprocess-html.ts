@@ -34,7 +34,7 @@ const REMOVE_INTERACTION_TAGS = new Set(["form", "input", "textarea", "select", 
 
 const DROP_ATTRIBUTE_NAMES = new Set(["style", "width", "height", "target", "rel", "tabindex"]);
 
-const KEEP_CORE_ATTRIBUTE_NAMES = new Set(["href", "title", "alt", "role", "class", "id", "type"]);
+const KEEP_CORE_ATTRIBUTE_NAMES = new Set(["href", "title", "alt", "role", "id", "type"]);
 
 const KEEP_ARIA_ATTRIBUTE_NAMES = new Set(["aria-label", "aria-labelledby", "aria-current"]);
 
@@ -48,6 +48,23 @@ const FLUFF_CLASS_OR_ID_PATTERNS: RegExp[] = [
 	/\b(share|social-icons|comments|disqus)\b/i,
 	/\b(skeleton|spinner|placeholder)\b/i,
 ];
+
+const VOID_HTML_TAGS = new Set([
+	"area",
+	"base",
+	"br",
+	"col",
+	"embed",
+	"hr",
+	"img",
+	"input",
+	"link",
+	"meta",
+	"param",
+	"source",
+	"track",
+	"wbr",
+]);
 
 function isDomElement(node: DomNode): node is DomElement {
 	return "tagName" in node;
@@ -298,13 +315,56 @@ function preprocessFragmentHtml(html: string): string {
 	return serialize(fragment);
 }
 
+function countLeadingClosingTags(line: string): number {
+	const leading = line.match(/^(?:<\/[a-zA-Z][\w:-]*\s*>\s*)+/)?.[0];
+	if (!leading) return 0;
+	return leading.match(/<\/[a-zA-Z][\w:-]*\s*>/g)?.length ?? 0;
+}
+
+function countOpeningAndClosingTags(line: string): { openingCount: number; closingCount: number } {
+	const closingCount = line.match(/<\/[a-zA-Z][\w:-]*\s*>/g)?.length ?? 0;
+	let openingCount = 0;
+	for (const match of line.matchAll(/<([a-zA-Z][\w:-]*)(\s[^>]*)?>/g)) {
+		const wholeTag = match[0] ?? "";
+		const tagName = (match[1] ?? "").toLowerCase();
+		if (!tagName) continue;
+		if (/\/\s*>$/.test(wholeTag)) continue;
+		if (VOID_HTML_TAGS.has(tagName)) continue;
+		openingCount++;
+	}
+	return { openingCount, closingCount };
+}
+
+function applyIndentation(html: string): string {
+	const lines = html
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	if (lines.length === 0) return "";
+
+	const indentedLines: string[] = [];
+	let depth = 0;
+
+	for (const line of lines) {
+		const leadingClosingTags = countLeadingClosingTags(line);
+		const indentDepth = Math.max(0, depth - leadingClosingTags);
+		indentedLines.push(`${"  ".repeat(indentDepth)}${line}`);
+
+		const { openingCount, closingCount } = countOpeningAndClosingTags(line);
+		depth = Math.max(0, depth + openingCount - closingCount);
+	}
+
+	return indentedLines.join("\n");
+}
+
 function normalizeWhitespace(html: string): string {
-	return html
+	const normalized = html
 		.replace(/\r\n/g, "\n")
 		.replace(/[ \t]+\n/g, "\n")
+		.replace(/>\s+</g, ">\n<")
 		.replace(/\n{3,}/g, "\n\n")
-		.replace(/>\s+</g, "> <")
 		.trim();
+	return applyIndentation(normalized);
 }
 
 function finalizeResult(processed: string, rawChars: number, maxChars: number, strategy: string): HtmlPreprocessResult {

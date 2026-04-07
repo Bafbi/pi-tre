@@ -8,6 +8,15 @@ const MAX_DEBUG_EVENTS = 20;
 
 type UiCtx = Pick<ExtensionContext, "hasUI" | "ui">;
 
+export interface WebfetchDebugArtifactRefs {
+	runDir: string;
+	curlHtmlPath?: string;
+	preprocessedHtmlPath?: string;
+	subagentEventsPath?: string;
+	subagentConversationPath?: string;
+	conversionOutputPath?: string;
+}
+
 export interface WebfetchDebugSnapshot {
 	url: string;
 	mode: WebfetchMode;
@@ -23,10 +32,12 @@ export interface WebfetchDebugSnapshot {
 	fallbackReason?: string;
 	scanScore: number;
 	scanDecision: string;
+	debugArtifacts?: WebfetchDebugArtifactRefs;
 }
 
 export interface WebfetchDebugController {
 	registerCommand(): void;
+	isEnabled(): boolean;
 	addEvent(message: string, ctx?: UiCtx): void;
 	setSnapshot(snapshot: WebfetchDebugSnapshot | undefined, ctx?: UiCtx): void;
 }
@@ -50,6 +61,9 @@ export function createWebfetchDebugController(pi: ExtensionAPI): WebfetchDebugCo
 				lines.push(`last fallback: ${lastSnapshot.fallbackReason}`);
 			}
 			lines.push(`last scan: ${lastSnapshot.scanScore} (${lastSnapshot.scanDecision})`);
+			if (lastSnapshot.debugArtifacts?.runDir) {
+				lines.push(`artifacts: ${lastSnapshot.debugArtifacts.runDir}`);
+			}
 		}
 		if (debugEvents.length > 0) {
 			lines.push("recent events:");
@@ -104,6 +118,15 @@ export function createWebfetchDebugController(pi: ExtensionAPI): WebfetchDebugCo
 			lines.push(`- usedSubagent: ${lastSnapshot.usedSubagent}`);
 			lines.push(`- fallbackReason: ${lastSnapshot.fallbackReason ?? "<none>"}`);
 			lines.push(`- scan: ${lastSnapshot.scanScore} (${lastSnapshot.scanDecision})`);
+			if (lastSnapshot.debugArtifacts) {
+				lines.push("- debugArtifacts:");
+				lines.push(`  - runDir: ${lastSnapshot.debugArtifacts.runDir}`);
+				lines.push(`  - curlHtmlPath: ${lastSnapshot.debugArtifacts.curlHtmlPath ?? "<none>"}`);
+				lines.push(`  - preprocessedHtmlPath: ${lastSnapshot.debugArtifacts.preprocessedHtmlPath ?? "<none>"}`);
+				lines.push(`  - subagentEventsPath: ${lastSnapshot.debugArtifacts.subagentEventsPath ?? "<none>"}`);
+				lines.push(`  - subagentConversationPath: ${lastSnapshot.debugArtifacts.subagentConversationPath ?? "<none>"}`);
+				lines.push(`  - conversionOutputPath: ${lastSnapshot.debugArtifacts.conversionOutputPath ?? "<none>"}`);
+			}
 		}
 		lines.push("");
 		lines.push("## recent-events");
@@ -176,6 +199,7 @@ export function createWebfetchDebugController(pi: ExtensionAPI): WebfetchDebugCo
 
 	return {
 		registerCommand,
+		isEnabled: () => debugEnabled,
 		addEvent,
 		setSnapshot,
 	};

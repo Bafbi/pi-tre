@@ -1,18 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { type ExtensionAPI, getAgentDir } from "@mariozechner/pi-coding-agent";
+import { type ExtensionAPI, type Theme, getAgentDir, keyHint } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { z } from "zod";
 
-import { createWebfetchDebugController } from "./debug.js";
+import { type WebfetchDebugArtifactRefs, createWebfetchDebugController } from "./debug.js";
 import { WEBFETCH_DETAILS_VERSION, validateWebfetchDetails } from "./details/index.js";
 import { fetchWithCurl } from "./fetch.js";
 import { deterministicTextMarkdown, fallbackMarkdown, shouldUseSubagentConversion } from "./markdown.js";
 import { preprocessHtmlForConversion } from "./preprocess-html.js";
 import { scanPromptInjection } from "./scan.js";
-import { convertWithSubagent } from "./subagent.js";
+import { type SubagentDebugEvent, type SubagentProgressUpdate, convertWithSubagent } from "./subagent.js";
 import type {
 	MarkdownConversionResult,
 	WebfetchDetails,
@@ -42,6 +43,227 @@ const extensionConfigSchema = z
 		defaultMode: z.enum(["safe_markdown", "raw_markdown", "extract_only"]).optional(),
 	})
 	.strict();
+
+type WebfetchProgressPhase = "fetch" | "scan" | "convert" | "convert-subagent";
+
+interface WebfetchProgressDetails {
+	phase: WebfetchProgressPhase;
+	message: string;
+	subagentPreview?: string;
+}
+
+interface ConversionDebugHooks {
+	onPreprocessedHtml?: (html: string) => Promise<void> | void;
+	onSubagentEvent?: (event: SubagentDebugEvent) => void;
+	onFinalOutput?: (markdown: string) => Promise<void> | void;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isWebfetchDetailsPayload(value: unknown): value is WebfetchDetails {
+	if (!isRecord(value)) return false;
+	if (value.webfetchDetailsVersion !== WEBFETCH_DETAILS_VERSION) return false;
+	if (typeof value.url !== "string") return false;
+	if (typeof value.statusCode !== "number") return false;
+	if (!isRecord(value.scan)) return false;
+	return true;
+}
+
+function isWebfetchProgressDetails(value: unknown): value is WebfetchProgressDetails {
+	if (!isRecord(value)) return false;
+	if (typeof value.phase !== "string") return false;
+	if (typeof value.message !== "string") return false;
+	if (value.subagentPreview !== undefined && typeof value.subagentPreview !== "string") return false;
+	return true;
+}
+
+async function initializeDebugArtifacts(cwd: string): Promise<WebfetchDebugArtifactRefs> {
+	const runId = new Date().toISOString().replace(/[:.]/g, "-");
+	const runDir = join(cwd, ".pi", "webfetch-debug", runId);
+	await mkdir(runDir, { recursive: true });
+	return { runDir };
+}
+
+async function writeDebugArtifact(runDir: string, fileName: string, content: string): Promise<string> {
+	const path = join(runDir, fileName);
+	await writeFile(path, content, "utf8");
+	return path;
+}
+
+function extractSubagentMessageText(message: unknown): string {
+	if (!isRecord(message)) return "";
+	const content = message.content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((part): part is { type: string; text?: string } => isRecord(part) && typeof part.type === "string")
+		.filter((part) => part.type === "text")
+		.map((part) => (typeof part.text === "string" ? part.text : ""))
+		.join("\n")
+		.trim();
+}
+
+function buildSubagentConversationMarkdown(events: SubagentDebugEvent[]): string {
+	const lines: string[] = [];
+	lines.push("# subagent conversation");
+	lines.push("");
+	lines.push(`- eventCount: ${events.length}`);
+	lines.push(`- parsedCount: ${events.filter((event) => event.parsed !== undefined).length}`);
+	lines.push(`- parseErrorCount: ${events.filter((event) => event.parseError !== undefined).length}`);
+	lines.push("");
+
+	let messageIndex = 0;
+	for (const event of events) {
+		if (!isRecord(event.parsed)) continue;
+		if (event.parsed.type !== "message_end") continue;
+		if (!isRecord(event.parsed.message)) continue;
+
+		const message = event.parsed.message;
+		const role = typeof message.role === "string" ? message.role : "unknown";
+		const model = typeof message.model === "string" ? message.model : undefined;
+		const stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
+		const errorMessage = typeof message.errorMessage === "string" ? message.errorMessage : undefined;
+		const text = extractSubagentMessageText(message);
+
+		lines.push(`## [${messageIndex}] role=${role}${model ? ` model=${model}` : ""}`);
+		if (stopReason) lines.push(`- stopReason: ${stopReason}`);
+		if (errorMessage) lines.push(`- errorMessage: ${errorMessage}`);
+		lines.push("");
+		lines.push("~~~text");
+		lines.push(text || "(no text content)");
+		lines.push("~~~");
+		lines.push("");
+		messageIndex++;
+	}
+
+	if (messageIndex === 0) {
+		lines.push("(no message_end events captured)");
+		lines.push("");
+	}
+
+	return lines.join("\n");
+}
+
+function serializeSubagentEventsJsonl(events: SubagentDebugEvent[]): string {
+	return events.map((event) => JSON.stringify(event)).join("\n");
+}
+
+function extractToolResultText(result: { content: Array<{ type: string; text?: string }> }): string {
+	return result.content
+		.filter((entry) => entry.type === "text")
+		.map((entry) => entry.text ?? "")
+		.join("\n")
+		.trim();
+}
+
+function summarizePreview(text: string, maxLines = 6, maxLineChars = 140): string[] {
+	const lines = text
+		.split(/\r?\n/)
+		.map((line) => line.replace(/\s+/g, " ").trim())
+		.filter(Boolean);
+	if (lines.length === 0) return [];
+	return lines
+		.slice(-maxLines)
+		.map((line) => (line.length <= maxLineChars ? line : `${line.slice(0, maxLineChars)}...`));
+}
+
+function phaseLabel(phase: WebfetchProgressPhase): string {
+	switch (phase) {
+		case "fetch":
+			return "fetching";
+		case "scan":
+			return "scanning";
+		case "convert":
+			return "converting";
+		case "convert-subagent":
+			return "sub-agent converting";
+		default:
+			return "working";
+	}
+}
+
+function renderWebfetchResult(
+	result: { content: Array<{ type: string; text?: string }>; details: unknown },
+	options: { expanded: boolean; isPartial: boolean },
+	theme: Theme,
+): Text {
+	const title = theme.fg("toolTitle", theme.bold("webfetch"));
+	const textOutput = extractToolResultText(result);
+
+	if (options.isPartial) {
+		const progress = isWebfetchProgressDetails(result.details)
+			? result.details
+			: ({ phase: "convert", message: textOutput || "working" } satisfies WebfetchProgressDetails);
+		let text = `${title} ${theme.fg("warning", phaseLabel(progress.phase))}`;
+		text += `\n${theme.fg("muted", progress.message)}`;
+		if (progress.subagentPreview) {
+			text += `\n${theme.fg("accent", "sub-agent stream")}`;
+			for (const line of summarizePreview(progress.subagentPreview)) {
+				text += `\n${theme.fg("dim", line)}`;
+			}
+		}
+		return new Text(text, 0, 0);
+	}
+
+	if (!isWebfetchDetailsPayload(result.details)) {
+		return new Text(textOutput || `${title} ${theme.fg("success", "done")}`, 0, 0);
+	}
+
+	const details = result.details;
+	const riskColor =
+		details.scan.decision === "block"
+			? "error"
+			: details.scan.decision === "allow_with_warning"
+				? "warning"
+				: "success";
+	const summaryBits = [
+		theme.fg("success", `${details.statusCode}`),
+		theme.fg("muted", details.contentType || "unknown"),
+		theme.fg(riskColor, `risk=${details.scan.decision}:${details.scan.finalScore}`),
+		theme.fg("muted", `conv=${details.usedSubagent ? "subagent" : "fallback"}`),
+	];
+
+	let text = `${title} ${summaryBits.join(" ")}`;
+	if (!options.expanded) {
+		const warnings: string[] = [];
+		if (details.truncated) warnings.push("body-truncated");
+		if (details.markdownTruncated) warnings.push("markdown-truncated");
+		if (!details.usedSubagent && details.fallbackReason) warnings.push("fallback");
+		if (warnings.length > 0) {
+			text += `\n${theme.fg("warning", warnings.join(", "))}`;
+		}
+		text += `\n${keyHint("app.tools.expand", "to expand")}`;
+		return new Text(text, 0, 0);
+	}
+
+	text += `\n${theme.fg("accent", "url:")} ${theme.fg("dim", details.url)}`;
+	text += `\n${theme.fg("accent", "redirects:")} ${theme.fg("dim", String(details.redirects.length))}`;
+	text += `\n${theme.fg("accent", "bytes:")} ${theme.fg("dim", String(details.bodyBytes))}`;
+	text += `\n${theme.fg("accent", "conversion:")} ${theme.fg("dim", details.conversionPreprocessStrategy ?? "unknown")}`;
+	if (details.conversionInputCharsPrepared !== undefined && details.conversionInputCharsRaw !== undefined) {
+		text += ` ${theme.fg("dim", `(${details.conversionInputCharsPrepared}/${details.conversionInputCharsRaw} chars)`)} `;
+	}
+	if (details.fallbackReason) {
+		text += `\n${theme.fg("warning", `fallback: ${summarizeReason(details.fallbackReason, 160)}`)}`;
+	}
+	if (details.scan.hits.length > 0) {
+		text += `\n${theme.fg("accent", "detectors:")}`;
+		for (const hit of topDetectorHits(details)) {
+			text += `\n${theme.fg("dim", `- ${hit}`)}`;
+		}
+	}
+
+	const previewLines = summarizePreview(textOutput, 10, 160);
+	if (previewLines.length > 0) {
+		text += `\n${theme.fg("accent", "output preview:")}`;
+		for (const line of previewLines) {
+			text += `\n${theme.fg("dim", line)}`;
+		}
+	}
+
+	return new Text(text, 0, 0);
+}
 
 function normalizeMode(input: string | undefined): WebfetchMode {
 	if (input === "raw_markdown") return "raw_markdown";
@@ -199,6 +421,28 @@ function buildReport(markdown: string, details: WebfetchDetails): string {
 	return `${frontmatterLines.join("\n")}\n\n${markdown}`;
 }
 
+function buildSubagentPreview(text: string, maxChars = 900): string {
+	const compact = text.replace(/\r/g, "").trim();
+	if (!compact) return "";
+	if (compact.length <= maxChars) return compact;
+	return `...${compact.slice(compact.length - maxChars)}`;
+}
+
+function mapSubagentProgressStageToMessage(stage: SubagentProgressUpdate["stage"]): string {
+	switch (stage) {
+		case "launching":
+			return "starting markdown sub-agent";
+		case "reading-source":
+			return "sub-agent reading prepared HTML source";
+		case "converting":
+			return "sub-agent generating markdown";
+		case "completed":
+			return "sub-agent finished conversion";
+		default:
+			return "sub-agent converting";
+	}
+}
+
 async function convertToMarkdown(
 	mode: WebfetchMode,
 	bodyText: string,
@@ -207,11 +451,16 @@ async function convertToMarkdown(
 	cwd: string,
 	timeoutSec: number,
 	conversionModel: string | undefined,
-	signal?: AbortSignal,
+	signal: AbortSignal | undefined,
+	onProgress?: (details: WebfetchProgressDetails) => void,
+	debugHooks?: ConversionDebugHooks,
 ): Promise<MarkdownConversionResult> {
 	if (mode === "extract_only") {
+		onProgress?.({ phase: "convert", message: "extract_only mode: using deterministic fallback markdown" });
+		const markdown = fallbackMarkdown(bodyText, contentType, url);
+		await debugHooks?.onFinalOutput?.(markdown);
 		return {
-			markdown: fallbackMarkdown(bodyText, contentType, url),
+			markdown,
 			usedSubagent: false,
 			conversionPreprocessStrategy: "extract-only",
 			conversionInputCharsRaw: bodyText.length,
@@ -221,8 +470,11 @@ async function convertToMarkdown(
 	}
 
 	if (!shouldUseSubagentConversion(contentType, bodyText)) {
+		onProgress?.({ phase: "convert", message: "deterministic text conversion (non-HTML content)" });
+		const markdown = deterministicTextMarkdown(bodyText, contentType);
+		await debugHooks?.onFinalOutput?.(markdown);
 		return {
-			markdown: deterministicTextMarkdown(bodyText, contentType),
+			markdown,
 			usedSubagent: false,
 			conversionPreprocessStrategy: "deterministic-text",
 			conversionInputCharsRaw: bodyText.length,
@@ -234,6 +486,11 @@ async function convertToMarkdown(
 	const preprocessed = preprocessHtmlForConversion(bodyText, {
 		maxChars: DEFAULT_SUBAGENT_INPUT_MAX_CHARS,
 	});
+	await debugHooks?.onPreprocessedHtml?.(preprocessed.htmlForConversion);
+	onProgress?.({
+		phase: "convert-subagent",
+		message: `prepared HTML with strategy='${preprocessed.strategy}' (${preprocessed.preparedChars}/${preprocessed.rawChars} chars)`,
+	});
 
 	try {
 		const converted = await convertWithSubagent(
@@ -243,7 +500,18 @@ async function convertToMarkdown(
 			timeoutSec,
 			conversionModel,
 			signal,
+			(update) => {
+				onProgress?.({
+					phase: "convert-subagent",
+					message: mapSubagentProgressStageToMessage(update.stage),
+					subagentPreview: update.assistantText ? buildSubagentPreview(update.assistantText) : undefined,
+				});
+			},
+			(event) => {
+				debugHooks?.onSubagentEvent?.(event);
+			},
 		);
+		await debugHooks?.onFinalOutput?.(converted.markdown);
 		return {
 			markdown: converted.markdown,
 			usedSubagent: true,
@@ -260,8 +528,10 @@ async function convertToMarkdown(
 		if (error instanceof Error && error.name === "AbortError") {
 			throw error;
 		}
+		const markdown = fallbackMarkdown(bodyText, contentType, url);
+		await debugHooks?.onFinalOutput?.(markdown);
 		return {
-			markdown: fallbackMarkdown(bodyText, contentType, url),
+			markdown,
 			usedSubagent: false,
 			conversionPreprocessStrategy: preprocessed.strategy,
 			conversionInputCharsRaw: preprocessed.rawChars,
@@ -289,9 +559,18 @@ export default function (pi: ExtensionAPI) {
 			"Use webfetch for web pages. It performs URL policy checks, injection scoring, and markdown conversion before returning content.",
 		renderCall(args, theme, _context) {
 			const url = formatToolCallUrl(typeof args.url === "string" ? args.url : undefined);
+			const mode = typeof args.mode === "string" ? args.mode : "safe_markdown";
 			const title = theme.fg("toolTitle", theme.bold("webfetch"));
 			const urlDisplay = theme.fg("accent", url);
-			return new Text(`${title} ${urlDisplay}`, 0, 0);
+			const modeDisplay = theme.fg("dim", `(${mode})`);
+			return new Text(`${title} ${urlDisplay} ${modeDisplay}`, 0, 0);
+		},
+		renderResult(result, options, theme, _context) {
+			return renderWebfetchResult(
+				result as { content: Array<{ type: string; text?: string }>; details: unknown },
+				options,
+				theme,
+			);
 		},
 		parameters: Type.Object({
 			url: Type.String({ description: "HTTP(S) URL to fetch." }),
@@ -322,10 +601,26 @@ export default function (pi: ExtensionAPI) {
 				ctx,
 			);
 
-			onUpdate?.({
-				content: [{ type: "text", text: `webfetch: validating + fetching ${options.url}` }],
-				details: { phase: "fetch" },
-			});
+			let debugArtifacts: WebfetchDebugArtifactRefs | undefined;
+			const subagentDebugEvents: SubagentDebugEvent[] = [];
+			if (debug.isEnabled()) {
+				debugArtifacts = await initializeDebugArtifacts(ctx.cwd);
+				debug.addEvent(`debug artifacts initialized runDir=${debugArtifacts.runDir}`, ctx);
+			}
+
+			let lastProgressUpdateMs = 0;
+			const emitProgress = (progress: WebfetchProgressDetails) => {
+				const now = Date.now();
+				const shouldThrottle = progress.phase === "convert-subagent" && progress.subagentPreview !== undefined;
+				if (shouldThrottle && now - lastProgressUpdateMs < 220) return;
+				lastProgressUpdateMs = now;
+				onUpdate?.({
+					content: [{ type: "text", text: `webfetch: ${progress.message}` }],
+					details: progress,
+				});
+			};
+
+			emitProgress({ phase: "fetch", message: `validating + fetching ${options.url}` });
 
 			const fetch = await fetchWithCurl({
 				url: options.url,
@@ -339,11 +634,16 @@ export default function (pi: ExtensionAPI) {
 				`fetch done url=${fetch.url} status=${fetch.statusCode} type=${fetch.contentType || "unknown"} bytes=${fetch.bodyBytes} redirects=${fetch.redirects.length}`,
 				ctx,
 			);
+			if (debugArtifacts) {
+				debugArtifacts.curlHtmlPath = await writeDebugArtifact(
+					debugArtifacts.runDir,
+					"curl-response.html",
+					fetch.bodyText,
+				);
+				debug.addEvent(`debug artifact curlHtmlPath=${debugArtifacts.curlHtmlPath}`, ctx);
+			}
 
-			onUpdate?.({
-				content: [{ type: "text", text: `webfetch: scanning ${fetch.url} for prompt injection` }],
-				details: { phase: "scan" },
-			});
+			emitProgress({ phase: "scan", message: `scanning ${fetch.url} for prompt injection` });
 
 			const scan = scanPromptInjection(fetch.bodyText, fetch.contentType, options.strictSafety);
 			debug.addEvent(`scan score=${scan.finalScore} decision=${scan.decision} hits=${scan.hits.length}`, ctx);
@@ -372,6 +672,7 @@ export default function (pi: ExtensionAPI) {
 						fallbackReason: "blocked by safety policy",
 						scanScore: scan.finalScore,
 						scanDecision: scan.decision,
+						debugArtifacts,
 					},
 					ctx,
 				);
@@ -394,14 +695,9 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			onUpdate?.({
-				content: [
-					{
-						type: "text",
-						text: `webfetch: converting content to markdown${options.conversionModel ? ` (model=${options.conversionModel})` : ""}`,
-					},
-				],
-				details: { phase: "convert" },
+			emitProgress({
+				phase: "convert",
+				message: `converting content to markdown${options.conversionModel ? ` (model=${options.conversionModel})` : ""}`,
 			});
 
 			const converted = await convertToMarkdown(
@@ -413,7 +709,47 @@ export default function (pi: ExtensionAPI) {
 				options.timeoutSec,
 				options.conversionModel,
 				signal,
+				(progress) => emitProgress(progress),
+				debugArtifacts
+					? {
+							onPreprocessedHtml: async (html) => {
+								debugArtifacts.preprocessedHtmlPath = await writeDebugArtifact(
+									debugArtifacts.runDir,
+									"preprocessed.html",
+									html,
+								);
+								debug.addEvent(`debug artifact preprocessedHtmlPath=${debugArtifacts.preprocessedHtmlPath}`, ctx);
+							},
+							onSubagentEvent: (event) => {
+								subagentDebugEvents.push(event);
+							},
+							onFinalOutput: async (markdown) => {
+								debugArtifacts.conversionOutputPath = await writeDebugArtifact(
+									debugArtifacts.runDir,
+									"conversion-output.md",
+									markdown,
+								);
+								debug.addEvent(`debug artifact conversionOutputPath=${debugArtifacts.conversionOutputPath}`, ctx);
+							},
+						}
+					: undefined,
 			);
+			if (debugArtifacts && subagentDebugEvents.length > 0) {
+				debugArtifacts.subagentEventsPath = await writeDebugArtifact(
+					debugArtifacts.runDir,
+					"subagent-events.jsonl",
+					serializeSubagentEventsJsonl(subagentDebugEvents),
+				);
+				debugArtifacts.subagentConversationPath = await writeDebugArtifact(
+					debugArtifacts.runDir,
+					"subagent-conversation.md",
+					buildSubagentConversationMarkdown(subagentDebugEvents),
+				);
+				debug.addEvent(
+					`debug artifacts subagentEvents=${debugArtifacts.subagentEventsPath} subagentConversation=${debugArtifacts.subagentConversationPath}`,
+					ctx,
+				);
+			}
 			const truncated = truncateMarkdown(converted.markdown, options.maxMarkdownChars);
 
 			const details = validateWebfetchDetails({
@@ -442,6 +778,7 @@ export default function (pi: ExtensionAPI) {
 					fallbackReason: converted.fallbackReason,
 					scanScore: scan.finalScore,
 					scanDecision: scan.decision,
+					debugArtifacts,
 				},
 				ctx,
 			);
