@@ -14,7 +14,6 @@ import { preprocessHtmlForConversion } from "./preprocess-html.js";
 import { scanPromptInjection } from "./scan.js";
 import { convertWithSubagent } from "./subagent.js";
 import type {
-	HtmlPreprocessor,
 	MarkdownConversionResult,
 	WebfetchDetails,
 	WebfetchExtensionConfig,
@@ -28,16 +27,13 @@ const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_MAX_MARKDOWN_CHARS = 30_000;
 const DEFAULT_SUBAGENT_INPUT_MAX_CHARS = 60_000;
 const CONVERSION_MODEL_ENV = "PI_WEBFETCH_CONVERSION_MODEL";
-const HTML_PREPROCESSOR_ENV = "PI_WEBFETCH_HTML_PREPROCESSOR";
 const CONVERSION_MODEL_FLAG = "webfetch-conversion-model";
-const HTML_PREPROCESSOR_FLAG = "webfetch-html-preprocessor";
 const EXTENSION_CONFIG_FILE = "webfetch-tool.json";
 
 const extensionConfigSchema = z
 	.object({
 		$schema: z.string().optional(),
 		conversionModel: z.string().min(3).optional(),
-		htmlPreprocessor: z.enum(["regex", "dom"]).optional(),
 		strictSafety: z.boolean().optional(),
 		maxBytes: z.number().int().optional(),
 		timeoutSec: z.number().int().optional(),
@@ -65,14 +61,6 @@ function normalizeModelValue(input: unknown): string | undefined {
 	if (!trimmed) return undefined;
 	if (trimmed.toLowerCase() === "default") return undefined;
 	return trimmed;
-}
-
-function normalizeHtmlPreprocessor(input: unknown): HtmlPreprocessor | undefined {
-	if (typeof input !== "string") return undefined;
-	const trimmed = input.trim().toLowerCase();
-	if (trimmed === "dom") return "dom";
-	if (trimmed === "regex") return "regex";
-	return undefined;
 }
 
 function readConfigFile(path: string): WebfetchExtensionConfig {
@@ -114,9 +102,6 @@ function toOptions(
 		flagConversionModel?: string;
 		configConversionModel?: string;
 		envConversionModel?: string;
-		flagHtmlPreprocessor?: HtmlPreprocessor;
-		configHtmlPreprocessor?: HtmlPreprocessor;
-		envHtmlPreprocessor?: HtmlPreprocessor;
 		configStrictSafety?: boolean;
 		configMaxBytes?: number;
 		configTimeoutSec?: number;
@@ -134,8 +119,6 @@ function toOptions(
 		maxRedirects: clampNumber(defaults.configMaxRedirects, DEFAULT_MAX_REDIRECTS, 0, 8),
 		maxMarkdownChars: clampNumber(defaults.configMaxMarkdownChars, DEFAULT_MAX_MARKDOWN_CHARS, 2_000, 120_000),
 		conversionModel: defaults.flagConversionModel ?? defaults.configConversionModel ?? defaults.envConversionModel,
-		htmlPreprocessor:
-			defaults.flagHtmlPreprocessor ?? defaults.configHtmlPreprocessor ?? defaults.envHtmlPreprocessor ?? "regex",
 	};
 }
 
@@ -224,7 +207,6 @@ async function convertToMarkdown(
 	cwd: string,
 	timeoutSec: number,
 	conversionModel: string | undefined,
-	htmlPreprocessor: HtmlPreprocessor,
 	signal?: AbortSignal,
 ): Promise<MarkdownConversionResult> {
 	if (mode === "extract_only") {
@@ -251,7 +233,6 @@ async function convertToMarkdown(
 
 	const preprocessed = preprocessHtmlForConversion(bodyText, {
 		maxChars: DEFAULT_SUBAGENT_INPUT_MAX_CHARS,
-		preprocessor: htmlPreprocessor,
 	});
 
 	try {
@@ -299,11 +280,6 @@ export default function (pi: ExtensionAPI) {
 		type: "string",
 	});
 
-	pi.registerFlag(HTML_PREPROCESSOR_FLAG, {
-		description: "HTML preprocessing engine for webfetch conversion (regex|dom)",
-		type: "string",
-	});
-
 	pi.registerTool({
 		name: "webfetch",
 		label: "Web Fetch",
@@ -330,16 +306,10 @@ export default function (pi: ExtensionAPI) {
 			const flagConversionModel = normalizeModelValue(pi.getFlag(CONVERSION_MODEL_FLAG));
 			const configConversionModel = normalizeModelValue(extensionConfig.conversionModel);
 			const envConversionModel = normalizeModelValue(process.env[CONVERSION_MODEL_ENV]);
-			const flagHtmlPreprocessor = normalizeHtmlPreprocessor(pi.getFlag(HTML_PREPROCESSOR_FLAG));
-			const configHtmlPreprocessor = normalizeHtmlPreprocessor(extensionConfig.htmlPreprocessor);
-			const envHtmlPreprocessor = normalizeHtmlPreprocessor(process.env[HTML_PREPROCESSOR_ENV]);
 			const options = toOptions(input, {
 				flagConversionModel,
 				configConversionModel,
 				envConversionModel,
-				flagHtmlPreprocessor,
-				configHtmlPreprocessor,
-				envHtmlPreprocessor,
 				configStrictSafety: extensionConfig.strictSafety,
 				configMaxBytes: extensionConfig.maxBytes,
 				configTimeoutSec: extensionConfig.timeoutSec,
@@ -348,7 +318,7 @@ export default function (pi: ExtensionAPI) {
 				configDefaultMode: normalizeConfiguredMode(extensionConfig.defaultMode),
 			});
 			debug.addEvent(
-				`run start url=${options.url} mode=${options.mode} strict=${options.strictSafety} timeout=${options.timeoutSec}s maxBytes=${options.maxBytes} model=${options.conversionModel ?? "<default>"} preprocessor=${options.htmlPreprocessor}`,
+				`run start url=${options.url} mode=${options.mode} strict=${options.strictSafety} timeout=${options.timeoutSec}s maxBytes=${options.maxBytes} model=${options.conversionModel ?? "<default>"}`,
 				ctx,
 			);
 
@@ -442,7 +412,6 @@ export default function (pi: ExtensionAPI) {
 				ctx.cwd,
 				options.timeoutSec,
 				options.conversionModel,
-				options.htmlPreprocessor,
 				signal,
 			);
 			const truncated = truncateMarkdown(converted.markdown, options.maxMarkdownChars);

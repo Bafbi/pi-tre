@@ -29,17 +29,6 @@ Conversion model precedence (highest to lowest):
 3. env var: `PI_WEBFETCH_CONVERSION_MODEL`
 4. Pi default model selection
 
-## HTML preprocessor configuration
-
-Preprocessor precedence (highest to lowest):
-
-1. CLI flag: `--webfetch-html-preprocessor <regex|dom>`
-2. extension config files (project overrides global):
-   - `.pi/extensions/webfetch-tool.json`
-   - `~/.pi/agent/extensions/webfetch-tool.json`
-3. env var: `PI_WEBFETCH_HTML_PREPROCESSOR`
-4. default: `regex`
-
 ## Extension config settings
 
 Config file locations:
@@ -48,7 +37,6 @@ Config file locations:
 
 Supported keys:
 - `conversionModel` (string)
-- `htmlPreprocessor` (`regex` | `dom`)
 - `strictSafety` (boolean, default `true`)
 - `maxBytes` (int, default `400000`)
 - `timeoutSec` (int, default `25`)
@@ -62,7 +50,6 @@ Example config file:
 {
   "$schema": "https://raw.githubusercontent.com/Bafbi/pi-tre/main/extensions/webfetch-tool/webfetch-tool.config.schema.json",
   "conversionModel": "anthropic/claude-sonnet-4-5",
-  "htmlPreprocessor": "dom",
   "strictSafety": true,
   "timeoutSec": 30,
   "defaultMode": "safe_markdown"
@@ -92,5 +79,4 @@ Use:
 - Only `http`/`https` URLs are allowed.
 - Localhost/private IP targets are blocked.
 - Redirects are followed manually and validated per hop.
-- HTML is preprocessed before sub-agent conversion to reduce boilerplate and token load (`main/article/content` extraction + script/style/nav/footer removal).
-- `dom` preprocessing uses `parse5`; `regex` remains available as the default.
+- HTML is preprocessed before sub-agent conversion to reduce boilerplate and token load (`main/article/content` extraction + script/style/nav/footer removal) using `parse5` for proper DOM parsing.

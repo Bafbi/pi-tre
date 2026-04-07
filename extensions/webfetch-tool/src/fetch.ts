@@ -79,8 +79,18 @@ function runProcess(
 		let stdout = "";
 		let stderr = "";
 		let settled = false;
+		let timedOut = false;
+		let abortedByUser = false;
+
+		const cleanup = () => {
+			clearTimeout(timeout);
+			if (options.signal) {
+				options.signal.removeEventListener("abort", onAbort);
+			}
+		};
 
 		const onAbort = () => {
+			abortedByUser = true;
 			proc.kill("SIGTERM");
 			setTimeout(() => {
 				if (proc.exitCode === null) proc.kill("SIGKILL");
@@ -88,12 +98,18 @@ function runProcess(
 		};
 
 		const timeout = setTimeout(() => {
+			timedOut = true;
 			onAbort();
 		}, options.timeoutMs);
 
 		if (options.signal) {
-			if (options.signal.aborted) onAbort();
-			else options.signal.addEventListener("abort", onAbort, { once: true });
+			if (options.signal.aborted) {
+				abortedByUser = true;
+				cleanup();
+				reject(new Error("Request aborted."));
+				return;
+			}
+			options.signal.addEventListener("abort", onAbort, { once: true });
 		}
 
 		proc.stdout.on("data", (chunk: Buffer) => {
@@ -106,14 +122,24 @@ function runProcess(
 		proc.on("error", (error) => {
 			if (settled) return;
 			settled = true;
-			clearTimeout(timeout);
+			cleanup();
 			reject(error);
 		});
 
 		proc.on("close", (exitCode) => {
 			if (settled) return;
 			settled = true;
-			clearTimeout(timeout);
+			cleanup();
+
+			if (abortedByUser) {
+				reject(new Error("Request aborted."));
+				return;
+			}
+			if (timedOut) {
+				reject(new Error(`Request timed out after ${Math.floor(options.timeoutMs / 1000)}s.`));
+				return;
+			}
+
 			resolve({
 				stdout,
 				stderr,

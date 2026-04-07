@@ -1,7 +1,5 @@
 export type WebfetchMode = "safe_markdown" | "raw_markdown" | "extract_only";
 
-export type HtmlPreprocessor = "regex" | "dom";
-
 export interface WebfetchOptions {
 	url: string;
 	mode: WebfetchMode;
@@ -11,12 +9,10 @@ export interface WebfetchOptions {
 	maxRedirects: number;
 	maxMarkdownChars: number;
 	conversionModel?: string;
-	htmlPreprocessor: HtmlPreprocessor;
 }
 
 export interface WebfetchExtensionConfig {
 	conversionModel?: string;
-	htmlPreprocessor?: HtmlPreprocessor;
 	strictSafety?: boolean;
 	maxBytes?: number;
 	timeoutSec?: number;

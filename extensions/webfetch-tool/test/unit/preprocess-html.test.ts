@@ -72,7 +72,7 @@ describe("preprocessHtmlForConversion", () => {
 		expect(result.preparedChars).toBe(2_000);
 	});
 
-	test("dom preprocessor keeps warning aside and picks dense main", () => {
+	test("keeps warning aside and picks dense main", () => {
 		const html = `
 			<main><p>tiny</p></main>
 			<main>
@@ -83,12 +83,9 @@ describe("preprocessHtmlForConversion", () => {
 			</main>
 		`;
 
-		const result = preprocessHtmlForConversion(html, {
-			maxChars: 20_000,
-			preprocessor: "dom",
-		});
+		const result = preprocessHtmlForConversion(html, { maxChars: 20_000 });
 
-		expect(result.strategy).toBe("dom-main");
+		expect(result.strategy).toBe("main");
 		expect(result.htmlForConversion).toContain("Primary content");
 		expect(result.htmlForConversion).toContain("Read this warning");
 		expect(result.htmlForConversion).not.toContain("TOC");

@@ -1,7 +1,5 @@
 import { type DefaultTreeAdapterTypes, parse, parseFragment, serialize, serializeOuter } from "parse5";
 
-import type { HtmlPreprocessor } from "./types.js";
-
 export interface HtmlPreprocessResult {
 	htmlForConversion: string;
 	strategy: string;
@@ -12,7 +10,6 @@ export interface HtmlPreprocessResult {
 
 interface HtmlPreprocessOptions {
 	maxChars: number;
-	preprocessor?: HtmlPreprocessor;
 }
 
 const PRESERVE_ASIDE_SIGNALS = [
@@ -44,92 +41,6 @@ function removeNoise(html: string): string {
 		.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
 		.replace(/<template\b[^>]*>[\s\S]*?<\/template>/gi, " ")
 		.replace(/<!--([\s\S]*?)-->/g, " ");
-}
-
-function textDensityScore(html: string): number {
-	const text = html
-		.replace(/<[^>]+>/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
-	return text.length;
-}
-
-function pickBestCandidate(matches: string[]): string | undefined {
-	if (matches.length === 0) return undefined;
-	let best = matches[0];
-	let bestScore = textDensityScore(best);
-
-	for (let i = 1; i < matches.length; i++) {
-		const candidate = matches[i];
-		const score = textDensityScore(candidate);
-		if (score > bestScore) {
-			best = candidate;
-			bestScore = score;
-		}
-	}
-
-	return best;
-}
-
-function extractMainCandidateRegex(html: string): { strategy: string; html: string } {
-	const mainMatches = Array.from(html.matchAll(/<main\b[^>]*>[\s\S]*?<\/main>/gi)).map((match) => match[0]);
-	const bestMain = pickBestCandidate(mainMatches);
-	if (bestMain) {
-		return { strategy: "main", html: bestMain };
-	}
-
-	const articleMatches = Array.from(html.matchAll(/<article\b[^>]*>[\s\S]*?<\/article>/gi)).map((match) => match[0]);
-	const bestArticle = pickBestCandidate(articleMatches);
-	if (bestArticle) {
-		return { strategy: "article", html: bestArticle };
-	}
-
-	const roleMainMatches = Array.from(html.matchAll(/<[^>]*\brole=["']main["'][^>]*>[\s\S]*?<\/[^>]+>/gi)).map(
-		(match) => match[0],
-	);
-	const bestRoleMain = pickBestCandidate(roleMainMatches);
-	if (bestRoleMain) {
-		return { strategy: "role-main", html: bestRoleMain };
-	}
-
-	const contentContainerMatches = Array.from(
-		html.matchAll(
-			/<(?:div|section)\b[^>]*(?:id|class)=["'][^"']*(?:content|main|article|docs?|markdown|post)[^"']*["'][^>]*>[\s\S]*?<\/(?:div|section)>/gi,
-		),
-	).map((match) => match[0]);
-	const bestContentContainer = pickBestCandidate(contentContainerMatches);
-	if (bestContentContainer) {
-		return { strategy: "content-container", html: bestContentContainer };
-	}
-
-	return { strategy: "full", html };
-}
-
-function removeBoilerplateBlocksRegex(html: string): string {
-	return html
-		.replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, " ")
-		.replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, " ")
-		.replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, " ")
-		.replace(/<aside\b([^>]*)>[\s\S]*?<\/aside>/gi, (match, attrs: string) => {
-			const normalizedAttrs = attrs.toLowerCase();
-			if (PRESERVE_ASIDE_SIGNALS.some((signal) => normalizedAttrs.includes(signal))) {
-				return match;
-			}
-			if (
-				normalizedAttrs.includes('role="complementary"') ||
-				normalizedAttrs.includes("role='complementary'") ||
-				REMOVE_ASIDE_SIGNALS.some((signal) => normalizedAttrs.includes(signal))
-			) {
-				return " ";
-			}
-			return match;
-		})
-		.replace(/<form\b[^>]*>[\s\S]*?<\/form>/gi, " ")
-		.replace(/<dialog\b[^>]*>[\s\S]*?<\/dialog>/gi, " ");
-}
-
-function stripNonEssentialAttributesRegex(html: string): string {
-	return html.replace(/\s(?:class|style|id|data-[\w:-]+|aria-[\w:-]+)=("[^"]*"|'[^']*')/gi, "");
 }
 
 function isDomElement(node: DomNode): node is DomElement {
@@ -203,19 +114,19 @@ function findElements(
 	return results;
 }
 
-function extractMainCandidateDom(html: string): { strategy: string; html: string } {
+function extractMainCandidate(html: string): { strategy: string; html: string } {
 	const document = parse(html);
 
 	const main = pickBestElement(findElements(document, (element) => element.tagName === "main"));
-	if (main) return { strategy: "dom-main", html: serializeOuter(main) };
+	if (main) return { strategy: "main", html: serializeOuter(main) };
 
 	const article = pickBestElement(findElements(document, (element) => element.tagName === "article"));
-	if (article) return { strategy: "dom-article", html: serializeOuter(article) };
+	if (article) return { strategy: "article", html: serializeOuter(article) };
 
 	const roleMain = pickBestElement(
 		findElements(document, (element) => (getAttributeValue(element, "role") ?? "").toLowerCase() === "main"),
 	);
-	if (roleMain) return { strategy: "dom-role-main", html: serializeOuter(roleMain) };
+	if (roleMain) return { strategy: "role-main", html: serializeOuter(roleMain) };
 
 	const contentContainer = pickBestElement(
 		findElements(document, (element) => {
@@ -225,10 +136,10 @@ function extractMainCandidateDom(html: string): { strategy: string; html: string
 		}),
 	);
 	if (contentContainer) {
-		return { strategy: "dom-content-container", html: serializeOuter(contentContainer) };
+		return { strategy: "content-container", html: serializeOuter(contentContainer) };
 	}
 
-	return { strategy: "dom-full", html };
+	return { strategy: "full", html };
 }
 
 function shouldRemoveElement(element: DomElement): boolean {
@@ -273,13 +184,13 @@ function pruneDomTree(parent: DomParentNode): void {
 	parent.childNodes = retained;
 }
 
-function removeBoilerplateBlocksDom(html: string): string {
+function removeBoilerplateBlocks(html: string): string {
 	const fragment = parseFragment(html);
 	pruneDomTree(fragment);
 	return serialize(fragment);
 }
 
-function stripNonEssentialAttributesDom(html: string): string {
+function stripNonEssentialAttributes(html: string): string {
 	const fragment = parseFragment(html);
 	walkDom(fragment, (element) => {
 		element.attrs = element.attrs.filter((attr) => {
@@ -313,41 +224,13 @@ function finalizeResult(processed: string, rawChars: number, maxChars: number, s
 	};
 }
 
-function preprocessWithRegex(html: string, maxChars: number): HtmlPreprocessResult {
-	const rawChars = html.length;
-	const cleaned = removeNoise(html);
-	const candidate = extractMainCandidateRegex(cleaned);
-	let processed = removeBoilerplateBlocksRegex(candidate.html);
-	processed = stripNonEssentialAttributesRegex(processed);
-	processed = normalizeWhitespace(processed);
-
-	return finalizeResult(processed, rawChars, maxChars, candidate.strategy);
-}
-
-function preprocessWithDom(html: string, maxChars: number): HtmlPreprocessResult {
-	const rawChars = html.length;
-	const cleaned = removeNoise(html);
-	const candidate = extractMainCandidateDom(cleaned);
-	let processed = removeBoilerplateBlocksDom(candidate.html);
-	processed = stripNonEssentialAttributesDom(processed);
-	processed = normalizeWhitespace(processed);
-
-	return finalizeResult(processed, rawChars, maxChars, candidate.strategy);
-}
-
 export function preprocessHtmlForConversion(html: string, options: HtmlPreprocessOptions): HtmlPreprocessResult {
-	const preprocessor = options.preprocessor ?? "regex";
-	if (preprocessor === "dom") {
-		try {
-			return preprocessWithDom(html, options.maxChars);
-		} catch {
-			const fallback = preprocessWithRegex(html, options.maxChars);
-			return {
-				...fallback,
-				strategy: `dom-fallback-${fallback.strategy}`,
-			};
-		}
-	}
+	const rawChars = html.length;
+	const cleaned = removeNoise(html);
+	const candidate = extractMainCandidate(cleaned);
+	let processed = removeBoilerplateBlocks(candidate.html);
+	processed = stripNonEssentialAttributes(processed);
+	processed = normalizeWhitespace(processed);
 
-	return preprocessWithRegex(html, options.maxChars);
+	return finalizeResult(processed, rawChars, options.maxChars, candidate.strategy);
 }
