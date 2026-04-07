@@ -13,8 +13,8 @@
 		"conversionModel": {
 			"type": "string",
 			"minLength": 3,
-			"pattern": "^[^/\\s]+/.+$",
-			"description": "Model reference in provider/model form (for example: anthropic/claude-sonnet-4-5)."
+			"pattern": "^(?:[^/\\s]+/.+|[^/\\s]+)$",
+			"description": "Model reference in provider/model form or bare model form (for example: anthropic/claude-sonnet-4-5 or claude-sonnet-4-5)."
 		},
 		"htmlPreprocessor": {
 			"type": "string",

@@ -40,7 +40,7 @@ export function deterministicTextMarkdown(body: string, contentType: string): st
 	if (normalizedType.includes("markdown")) return normalizedBody;
 
 	const lang = inferCodeLanguage(contentType, normalizedBody);
-	return `\`\`\`${lang}\n${normalizedBody}\n\`\`\``;
+	return `~~~${lang}\n${normalizedBody}\n~~~`;
 }
 
 export function fallbackMarkdown(body: string, contentType: string, url: string): string {

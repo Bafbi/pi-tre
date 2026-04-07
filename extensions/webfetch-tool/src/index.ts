@@ -272,6 +272,13 @@ async function convertToMarkdown(
 			conversionInputCharsPrepared: preprocessed.preparedChars,
 		};
 	} catch (error) {
+		// Detect parent cancellation and rethrow to preserve AbortSignal
+		if (signal?.aborted) {
+			throw error;
+		}
+		if (error instanceof Error && error.name === "AbortError") {
+			throw error;
+		}
 		return {
 			markdown: fallbackMarkdown(bodyText, contentType, url),
 			usedSubagent: false,

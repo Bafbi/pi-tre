@@ -7,7 +7,7 @@ describe("markdown conversion strategy", () => {
 		const body = "#!/bin/sh\nssh exe.dev </dev/tty\n";
 		const markdown = deterministicTextMarkdown(body, "text/x-shellscript");
 
-		expect(markdown).toBe("```sh\n#!/bin/sh\nssh exe.dev </dev/tty\n```");
+		expect(markdown).toBe("~~~sh\n#!/bin/sh\nssh exe.dev </dev/tty\n~~~");
 	});
 
 	test("uses subagent only for html-like documents", () => {

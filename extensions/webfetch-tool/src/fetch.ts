@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { FetchResult, RedirectHop } from "./types.js";
-import { enforceUrlPolicy, normalizeUrl } from "./url-policy.js";
+import { type ResolvedAddress, enforceUrlPolicy, normalizeUrl } from "./url-policy.js";
 
 interface ProcessResult {
 	stdout: string;
@@ -32,10 +32,8 @@ export interface CurlFetchInput {
 }
 
 function parseWriteOut(stdout: string): { statusCode: number; contentType: string; effectiveUrl: string } {
-	const lines = stdout
-		.split(/\r?\n/)
-		.map((line) => line.trim())
-		.filter(Boolean);
+	const lines = stdout.split(/\r?\n/).map((line) => line.trim());
+	// DoNOT .filter(Boolean) - empty content-type must be preserved for correct indexing
 
 	if (lines.length < 3) {
 		throw new Error(`Unexpected curl output: ${stdout}`);
@@ -48,7 +46,7 @@ function parseWriteOut(stdout: string): { statusCode: number; contentType: strin
 
 	return {
 		statusCode,
-		contentType: lines[1],
+		contentType: lines[1], // May be empty string if content-type missing
 		effectiveUrl: lines[2],
 	};
 }
@@ -85,7 +83,7 @@ function runProcess(
 		const onAbort = () => {
 			proc.kill("SIGTERM");
 			setTimeout(() => {
-				if (!proc.killed) proc.kill("SIGKILL");
+				if (proc.exitCode === null) proc.kill("SIGKILL");
 			}, 500).unref();
 		};
 
@@ -125,13 +123,19 @@ function runProcess(
 	});
 }
 
-async function curlOnce(url: URL, maxBytes: number, timeoutSec: number, signal?: AbortSignal): Promise<CurlStepResult> {
+async function curlOnce(
+	url: URL,
+	resolvedAddresses: ResolvedAddress[],
+	maxBytes: number,
+	timeoutSec: number,
+	signal?: AbortSignal,
+): Promise<CurlStepResult> {
 	const scratchDir = await mkdtemp(join(tmpdir(), "pi-webfetch-"));
 	const headersPath = join(scratchDir, "headers.txt");
 	const bodyPath = join(scratchDir, "body.bin");
 
 	try {
-		const args = [
+		const args: string[] = [
 			"--silent",
 			"--show-error",
 			"--compressed",
@@ -143,6 +147,15 @@ async function curlOnce(url: URL, maxBytes: number, timeoutSec: number, signal?:
 			String(timeoutSec),
 			"--max-filesize",
 			String(maxBytes),
+		];
+
+		// Pin resolved addresses to prevent DNS rebinding attacks
+		const port = url.protocol === "https:" ? 443 : 80;
+		for (const resolved of resolvedAddresses) {
+			args.push("--resolve", `${url.hostname}:${port}:${resolved.address}`);
+		}
+
+		args.push(
 			"--dump-header",
 			headersPath,
 			"--output",
@@ -150,7 +163,7 @@ async function curlOnce(url: URL, maxBytes: number, timeoutSec: number, signal?:
 			"--write-out",
 			"%{http_code}\\n%{content_type}\\n%{url_effective}\\n",
 			url.toString(),
-		];
+		);
 
 		const result = await runProcess("curl", args, {
 			signal,
@@ -197,8 +210,8 @@ export async function fetchWithCurl(input: CurlFetchInput): Promise<FetchResult>
 	let currentUrl = initialUrl;
 
 	for (let attempt = 0; attempt <= input.maxRedirects; attempt++) {
-		await enforceUrlPolicy(currentUrl, input.allowPrivateHosts);
-		const step = await curlOnce(currentUrl, input.maxBytes, input.timeoutSec, input.signal);
+		const resolvedAddresses = await enforceUrlPolicy(currentUrl, input.allowPrivateHosts);
+		const step = await curlOnce(currentUrl, resolvedAddresses, input.maxBytes, input.timeoutSec, input.signal);
 		const effective = normalizeUrl(step.effectiveUrl || currentUrl.toString());
 
 		if (isRedirectStatus(step.statusCode)) {

@@ -60,7 +60,7 @@ Example config file:
 
 ```json
 {
-  "$schema": "../../extensions/webfetch-tool/webfetch-tool.config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/Bafbi/pi-tre/main/extensions/webfetch-tool/webfetch-tool.config.schema.json",
   "conversionModel": "anthropic/claude-sonnet-4-5",
   "htmlPreprocessor": "dom",
   "strictSafety": true,
@@ -70,7 +70,8 @@ Example config file:
 ```
 
 Schema file:
-- `extensions/webfetch-tool/webfetch-tool.config.schema.json`
+- GitHub: `https://raw.githubusercontent.com/Bafbi/pi-tre/main/extensions/webfetch-tool/webfetch-tool.config.schema.json`
+- Local development: `extensions/webfetch-tool/webfetch-tool.config.schema.json`
 
 If your Pi setup has the same model ID under multiple providers, use `provider/model` to avoid ambiguous selection (for example `openrouter/gpt-4o` instead of `gpt-4o`).
 

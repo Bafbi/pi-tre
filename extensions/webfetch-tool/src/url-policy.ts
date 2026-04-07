@@ -63,28 +63,47 @@ function isPrivateAddress(address: string): boolean {
 	return false;
 }
 
-export async function enforceUrlPolicy(url: URL, allowPrivateHosts: boolean): Promise<void> {
+export interface ResolvedAddress {
+	address: string;
+	family: 4 | 6;
+}
+
+export async function enforceUrlPolicy(url: URL, allowPrivateHosts: boolean): Promise<ResolvedAddress[]> {
 	const hostname = url.hostname.toLowerCase();
 	if (hostname === "localhost" || hostname.endsWith(".localhost")) {
-		throw new Error("Blocked URL: localhost is not allowed.");
+		if (!allowPrivateHosts) {
+			throw new Error("Blocked URL: localhost is not allowed.");
+		}
+		// localhost with allowPrivateHosts=true: resolve to loopback
+		return [{ address: "127.0.0.1", family: 4 }];
 	}
 
-	if (allowPrivateHosts) return;
-
 	if (isPrivateAddress(hostname)) {
-		throw new Error(`Blocked URL: private IP host '${hostname}' is not allowed.`);
+		if (!allowPrivateHosts) {
+			throw new Error(`Blocked URL: private IP host '${hostname}' is not allowed.`);
+		}
+		return [{ address: hostname, family: net.isIP(hostname) === 6 ? 6 : 4 }];
 	}
 
 	try {
 		const addresses = await lookup(hostname, { all: true, verbatim: true });
+		const resolved: ResolvedAddress[] = [];
 		for (const entry of addresses) {
 			if (isPrivateAddress(entry.address)) {
-				throw new Error(`Blocked URL: '${hostname}' resolves to private address '${entry.address}'.`);
+				if (!allowPrivateHosts) {
+					throw new Error(`Blocked URL: '${hostname}' resolves to private address '${entry.address}'.`);
+				}
+			} else {
+				resolved.push({ address: entry.address, family: entry.family as 4 | 6 });
 			}
 		}
+		return resolved;
 	} catch (error) {
 		if (error instanceof Error && error.message.startsWith("Blocked URL:")) {
 			throw error;
 		}
+		throw new Error(
+			`DNS verification failed for '${hostname}': ${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 }

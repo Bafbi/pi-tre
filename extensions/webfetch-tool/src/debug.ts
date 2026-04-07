@@ -72,12 +72,13 @@ export function createWebfetchDebugController(pi: ExtensionAPI): WebfetchDebugCo
 	};
 
 	const addEvent = (message: string, ctx?: UiCtx) => {
+		if (!debugEnabled) return;
 		const line = `${new Date().toISOString()} ${message}`;
 		debugEvents.push(line);
 		if (debugEvents.length > MAX_DEBUG_EVENTS) {
 			debugEvents.splice(0, debugEvents.length - MAX_DEBUG_EVENTS);
 		}
-		if (debugEnabled && ctx) {
+		if (ctx) {
 			syncDebugUi(ctx);
 		}
 	};
@@ -115,8 +116,9 @@ export function createWebfetchDebugController(pi: ExtensionAPI): WebfetchDebugCo
 	};
 
 	const setSnapshot = (snapshot: WebfetchDebugSnapshot | undefined, ctx?: UiCtx) => {
+		if (!debugEnabled) return;
 		lastSnapshot = snapshot;
-		if (debugEnabled && ctx) {
+		if (ctx) {
 			syncDebugUi(ctx);
 		}
 	};

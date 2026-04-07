@@ -95,9 +95,21 @@ function visibleTextFromHtml(html: string): string {
 	);
 }
 
+function isHtmlContent(body: string): boolean {
+	const bodyLower = body.toLowerCase();
+	return (
+		bodyLower.includes("<!doctype") ||
+		bodyLower.includes("<html") ||
+		bodyLower.includes("<head") ||
+		bodyLower.includes("<body") ||
+		bodyLower.includes("<script") ||
+		bodyLower.includes("<meta")
+	);
+}
+
 function extractSegments(body: string, contentType: string): ScanSegment[] {
 	const normalizedType = contentType.toLowerCase();
-	if (!normalizedType.includes("html") && !body.includes("<html")) {
+	if (!normalizedType.includes("html") && !isHtmlContent(body)) {
 		return [{ context: "document", hidden: false, text: body }];
 	}
 

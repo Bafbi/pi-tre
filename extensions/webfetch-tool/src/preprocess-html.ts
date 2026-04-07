@@ -297,7 +297,7 @@ function normalizeWhitespace(html: string): string {
 		.replace(/\r\n/g, "\n")
 		.replace(/[ \t]+\n/g, "\n")
 		.replace(/\n{3,}/g, "\n\n")
-		.replace(/>\s+</g, "><")
+		.replace(/>\s+</g, "> <")
 		.trim();
 }
 
