@@ -149,9 +149,16 @@ function runProcess(
 	});
 }
 
+function orderResolvedAddresses(resolvedAddresses: ResolvedAddress[]): ResolvedAddress[] {
+	return [...resolvedAddresses].sort((left, right) => {
+		if (left.family === right.family) return 0;
+		return left.family === 4 ? -1 : 1;
+	});
+}
+
 async function curlOnce(
 	url: URL,
-	resolvedAddresses: ResolvedAddress[],
+	resolvedAddress: ResolvedAddress,
 	maxBytes: number,
 	timeoutSec: number,
 	signal?: AbortSignal,
@@ -177,9 +184,7 @@ async function curlOnce(
 
 		// Pin resolved addresses to prevent DNS rebinding attacks
 		const port = url.protocol === "https:" ? 443 : 80;
-		for (const resolved of resolvedAddresses) {
-			args.push("--resolve", `${url.hostname}:${port}:${resolved.address}`);
-		}
+		args.push("--resolve", `${url.hostname}:${port}:${resolvedAddress.address}`);
 
 		args.push(
 			"--dump-header",
@@ -220,6 +225,38 @@ async function curlOnce(
 	}
 }
 
+function isRetryableCurlError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	return /curl failed \((?:7|28)\)/.test(error.message);
+}
+
+async function curlOnceWithFallback(
+	url: URL,
+	resolvedAddresses: ResolvedAddress[],
+	maxBytes: number,
+	timeoutSec: number,
+	signal?: AbortSignal,
+): Promise<CurlStepResult> {
+	const ordered = orderResolvedAddresses(resolvedAddresses);
+	let lastError: unknown;
+
+	for (const resolvedAddress of ordered) {
+		try {
+			return await curlOnce(url, resolvedAddress, maxBytes, timeoutSec, signal);
+		} catch (error) {
+			lastError = error;
+			if (!isRetryableCurlError(error)) {
+				throw error;
+			}
+		}
+	}
+
+	if (lastError) {
+		throw lastError;
+	}
+	throw new Error(`curl failed for '${url.toString()}' with no resolved addresses.`);
+}
+
 function isTextLikeContentType(contentType: string): boolean {
 	const normalized = contentType.toLowerCase();
 	if (!normalized) return true;
@@ -237,7 +274,13 @@ export async function fetchWithCurl(input: CurlFetchInput): Promise<FetchResult>
 
 	for (let attempt = 0; attempt <= input.maxRedirects; attempt++) {
 		const resolvedAddresses = await enforceUrlPolicy(currentUrl, input.allowPrivateHosts);
-		const step = await curlOnce(currentUrl, resolvedAddresses, input.maxBytes, input.timeoutSec, input.signal);
+		const step = await curlOnceWithFallback(
+			currentUrl,
+			resolvedAddresses,
+			input.maxBytes,
+			input.timeoutSec,
+			input.signal,
+		);
 		const effective = normalizeUrl(step.effectiveUrl || currentUrl.toString());
 
 		if (isRedirectStatus(step.statusCode)) {
