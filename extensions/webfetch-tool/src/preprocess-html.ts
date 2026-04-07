@@ -12,194 +12,289 @@ interface HtmlPreprocessOptions {
 	maxChars: number;
 }
 
-const PRESERVE_ASIDE_SIGNALS = [
-	"warning",
-	"note",
-	"tip",
-	"caution",
-	"admonition",
-	"callout",
-	"important",
-	"alert",
-	"danger",
-];
-
-const REMOVE_ASIDE_SIGNALS = ["sidebar", "toc", "navigation", "menu", "related", "share", "social", "meta"];
-
-const CONTENT_HINT_PATTERN = /(content|main|article|docs?|markdown|post)/i;
-
 type DomNode = DefaultTreeAdapterTypes.Node;
 type DomParentNode = DefaultTreeAdapterTypes.ParentNode;
 type DomChildNode = DefaultTreeAdapterTypes.ChildNode;
 type DomElement = DefaultTreeAdapterTypes.Element;
 type DomTextNode = DefaultTreeAdapterTypes.TextNode;
 
-function removeNoise(html: string): string {
-	return html
-		.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-		.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-		.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
-		.replace(/<template\b[^>]*>[\s\S]*?<\/template>/gi, " ")
-		.replace(/<!--([\s\S]*?)-->/g, " ");
-}
+const ALWAYS_REMOVE_TAGS = new Set([
+	"style",
+	"svg",
+	"canvas",
+	"video",
+	"audio",
+	"iframe",
+	"map",
+	"noscript",
+	"template",
+]);
+
+const REMOVE_INTERACTION_TAGS = new Set(["form", "input", "textarea", "select", "option", "dialog"]);
+
+const DROP_ATTRIBUTE_NAMES = new Set(["style", "width", "height", "target", "rel", "tabindex"]);
+
+const KEEP_CORE_ATTRIBUTE_NAMES = new Set(["href", "title", "alt", "role", "class", "id", "type"]);
+
+const KEEP_ARIA_ATTRIBUTE_NAMES = new Set(["aria-label", "aria-labelledby", "aria-current"]);
+
+const KEEP_DATA_PREFIXES = ["data-category", "data-label", "data-author", "data-type"];
+const DROP_DATA_PREFIXES = ["data-react", "data-v-", "data-track", "data-analytics"];
+
+const FLUFF_CLASS_OR_ID_PATTERNS: RegExp[] = [
+	/\b(cookie|consent|gdpr|onetrust|cmp|terms-banner)\b/i,
+	/\b(modal|popup|interstitial|overlay|newsletter|paywall)\b/i,
+	/(?:^|[-_])(ad|ads)(?:[-_]|$)|\b(advertisement|sponsor|taboola|outbrain|promo)\b/i,
+	/\b(share|social-icons|comments|disqus)\b/i,
+	/\b(skeleton|spinner|placeholder)\b/i,
+];
 
 function isDomElement(node: DomNode): node is DomElement {
 	return "tagName" in node;
 }
 
-function isDomTextNode(node: DomNode): node is DomTextNode {
+function isTextNode(node: DomNode): node is DomTextNode {
 	return node.nodeName === "#text";
+}
+
+function isCommentNode(node: DomNode): boolean {
+	return node.nodeName === "#comment";
 }
 
 function getAttributeValue(element: DomElement, name: string): string | undefined {
 	return element.attrs.find((attr) => attr.name.toLowerCase() === name)?.value;
 }
 
-function getElementSignals(element: DomElement): string {
+function hasAttribute(element: DomElement, name: string): boolean {
+	return element.attrs.some((attr) => attr.name.toLowerCase() === name);
+}
+
+function escapeHtmlText(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/\"/g, "&quot;")
+		.replace(/'/g, "&#39;");
+}
+
+function parseSpanNode(htmlText: string): DomChildNode[] {
+	const fragment = parseFragment(htmlText);
+	return [...fragment.childNodes];
+}
+
+function imageAltReplacementNodes(altText: string): DomChildNode[] {
+	return parseSpanNode(`<span>[Image: ${escapeHtmlText(altText)}]</span>`);
+}
+
+function isJsonLdScript(element: DomElement): boolean {
+	if (element.tagName !== "script") return false;
+	const type = (getAttributeValue(element, "type") ?? "").trim().toLowerCase();
+	return type.startsWith("application/ld+json");
+}
+
+function isAriaHiddenTrue(element: DomElement): boolean {
+	const value = (getAttributeValue(element, "aria-hidden") ?? "").trim().toLowerCase();
+	return value === "true";
+}
+
+function classAndIdSignals(element: DomElement): string {
 	const classValue = getAttributeValue(element, "class") ?? "";
 	const idValue = getAttributeValue(element, "id") ?? "";
-	const roleValue = getAttributeValue(element, "role") ?? "";
-	return `${classValue} ${idValue} ${roleValue}`.toLowerCase();
+	return `${classValue} ${idValue}`.toLowerCase();
 }
 
-function walkDom(node: DomNode, onElement: (element: DomElement) => void): void {
-	if (isDomElement(node)) {
-		onElement(node);
-	}
+function isFluffByClassOrId(element: DomElement): boolean {
+	const signals = classAndIdSignals(element);
+	if (!signals.trim()) return false;
+	return FLUFF_CLASS_OR_ID_PATTERNS.some((pattern) => pattern.test(signals));
+}
 
-	if (!("childNodes" in node)) return;
+function isNavigationalHref(rawHref: string | undefined): boolean {
+	if (!rawHref) return false;
+	const href = rawHref.trim();
+	if (!href) return false;
+
+	const lower = href.toLowerCase();
+	if (lower === "#" || lower.startsWith("#")) return false;
+	if (lower.startsWith("javascript:")) return false;
+	if (lower.startsWith("mailto:")) return false;
+	if (lower.startsWith("tel:")) return false;
+	return true;
+}
+
+function containsNavigationalLink(node: DomNode): boolean {
+	if (isDomElement(node) && node.tagName === "a") {
+		return isNavigationalHref(getAttributeValue(node, "href"));
+	}
+	if (!("childNodes" in node)) return false;
 	for (const child of node.childNodes) {
-		walkDom(child, onElement);
+		if (containsNavigationalLink(child)) return true;
 	}
+	return false;
 }
 
-function textLengthFromDom(node: DomNode): number {
-	if (isDomTextNode(node)) {
-		return node.value.replace(/\s+/g, " ").trim().length;
+function shouldKeepDataAttribute(name: string, value: string): boolean {
+	const lowerName = name.toLowerCase();
+	for (const prefix of DROP_DATA_PREFIXES) {
+		if (lowerName.startsWith(prefix)) return false;
 	}
-	if (!("childNodes" in node)) return 0;
 
-	let total = 0;
-	for (const child of node.childNodes) {
-		total += textLengthFromDom(child);
-	}
-	return total;
+	const compactValue = value.trim();
+	if (compactValue.length === 0 || compactValue.length > 60) return false;
+
+	return KEEP_DATA_PREFIXES.some((prefix) => lowerName === prefix || lowerName.startsWith(`${prefix}-`));
 }
 
-function pickBestElement(elements: DomElement[]): DomElement | undefined {
-	if (elements.length === 0) return undefined;
-	let best = elements[0];
-	let bestScore = textLengthFromDom(best);
+function shouldKeepAttribute(element: DomElement, name: string, value: string): boolean {
+	const lowerName = name.toLowerCase();
 
-	for (let i = 1; i < elements.length; i++) {
-		const candidate = elements[i];
-		const score = textLengthFromDom(candidate);
-		if (score > bestScore) {
-			best = candidate;
-			bestScore = score;
-		}
+	if (lowerName.startsWith("on")) return false;
+	if (DROP_ATTRIBUTE_NAMES.has(lowerName)) return false;
+	if (lowerName === "aria-hidden") return false;
+	if (lowerName === "hidden") return false;
+
+	if (lowerName.startsWith("aria-")) {
+		return KEEP_ARIA_ATTRIBUTE_NAMES.has(lowerName);
 	}
 
-	return best;
+	if (lowerName.startsWith("data-")) {
+		return shouldKeepDataAttribute(lowerName, value);
+	}
+
+	if (element.tagName === "script" && isJsonLdScript(element) && lowerName === "type") return true;
+
+	return KEEP_CORE_ATTRIBUTE_NAMES.has(lowerName);
 }
 
-function findElements(
-	document: DefaultTreeAdapterTypes.Document,
-	predicate: (element: DomElement) => boolean,
-): DomElement[] {
-	const results: DomElement[] = [];
-	walkDom(document, (element) => {
-		if (predicate(element)) results.push(element);
-	});
-	return results;
-}
-
-function extractMainCandidate(html: string): { strategy: string; html: string } {
-	const document = parse(html);
-
-	const main = pickBestElement(findElements(document, (element) => element.tagName === "main"));
-	if (main) return { strategy: "main", html: serializeOuter(main) };
-
-	const article = pickBestElement(findElements(document, (element) => element.tagName === "article"));
-	if (article) return { strategy: "article", html: serializeOuter(article) };
-
-	const roleMain = pickBestElement(
-		findElements(document, (element) => (getAttributeValue(element, "role") ?? "").toLowerCase() === "main"),
-	);
-	if (roleMain) return { strategy: "role-main", html: serializeOuter(roleMain) };
-
-	const contentContainer = pickBestElement(
-		findElements(document, (element) => {
-			if (element.tagName !== "div" && element.tagName !== "section") return false;
-			const signals = getElementSignals(element);
-			return CONTENT_HINT_PATTERN.test(signals);
-		}),
-	);
-	if (contentContainer) {
-		return { strategy: "content-container", html: serializeOuter(contentContainer) };
-	}
-
-	return { strategy: "full", html };
-}
-
-function shouldRemoveElement(element: DomElement): boolean {
-	const tag = element.tagName;
-	if (
-		tag === "nav" ||
-		tag === "header" ||
-		tag === "footer" ||
-		tag === "form" ||
-		tag === "dialog" ||
-		tag === "script" ||
-		tag === "style" ||
-		tag === "noscript" ||
-		tag === "template"
-	) {
-		return true;
-	}
-
-	if (tag !== "aside") return false;
-
-	const signals = getElementSignals(element);
-	if (PRESERVE_ASIDE_SIGNALS.some((signal) => signals.includes(signal))) {
-		return false;
-	}
-	if (signals.includes("complementary")) {
-		return true;
-	}
-	return REMOVE_ASIDE_SIGNALS.some((signal) => signals.includes(signal));
-}
-
-function pruneDomTree(parent: DomParentNode): void {
-	const retained: DomChildNode[] = [];
-	for (const child of parent.childNodes) {
-		if (isDomElement(child) && shouldRemoveElement(child)) {
+function getSignificantChildren(element: DomElement): DomChildNode[] {
+	const significant: DomChildNode[] = [];
+	for (const child of element.childNodes) {
+		if (isTextNode(child)) {
+			if (child.value.trim().length === 0) continue;
+			significant.push(child);
 			continue;
 		}
-		if ("childNodes" in child) {
-			pruneDomTree(child);
-		}
-		retained.push(child);
+		significant.push(child);
 	}
-	parent.childNodes = retained;
+	return significant;
 }
 
-function removeBoilerplateBlocks(html: string): string {
-	const fragment = parseFragment(html);
-	pruneDomTree(fragment);
-	return serialize(fragment);
+function shouldUnwrapContainer(element: DomElement): boolean {
+	if (element.tagName !== "div" && element.tagName !== "span") return false;
+	if (element.attrs.length > 0) return false;
+
+	const significant = getSignificantChildren(element);
+	if (significant.length === 0) return false;
+	if (significant.every((node) => isTextNode(node))) return true;
+	return significant.length === 1 && isDomElement(significant[0]);
 }
 
-function stripNonEssentialAttributes(html: string): string {
+function reparentNodes(nodes: DomChildNode[], parent: DomParentNode): DomChildNode[] {
+	for (const node of nodes) {
+		if ("parentNode" in node) {
+			(node as { parentNode: DomParentNode }).parentNode = parent;
+		}
+	}
+	return nodes;
+}
+
+type ElementAction =
+	| { kind: "remove" }
+	| { kind: "keep" }
+	| { kind: "unwrap" }
+	| { kind: "replace"; nodes: DomChildNode[] };
+
+function classifyElementAction(element: DomElement): ElementAction {
+	if (isAriaHiddenTrue(element)) return { kind: "remove" };
+	if (hasAttribute(element, "hidden")) return { kind: "remove" };
+
+	if (ALWAYS_REMOVE_TAGS.has(element.tagName)) return { kind: "remove" };
+	if (REMOVE_INTERACTION_TAGS.has(element.tagName)) return { kind: "remove" };
+	if (isFluffByClassOrId(element)) return { kind: "remove" };
+
+	if (element.tagName === "script") {
+		return isJsonLdScript(element) ? { kind: "keep" } : { kind: "remove" };
+	}
+
+	if (element.tagName === "img") {
+		const alt = (getAttributeValue(element, "alt") ?? "").trim();
+		if (!alt) return { kind: "remove" };
+		return { kind: "replace", nodes: imageAltReplacementNodes(alt) };
+	}
+
+	if (element.tagName === "button") {
+		if (containsNavigationalLink(element)) return { kind: "unwrap" };
+		return { kind: "remove" };
+	}
+
+	if (element.tagName === "a") {
+		if (!isNavigationalHref(getAttributeValue(element, "href"))) return { kind: "unwrap" };
+	}
+
+	return { kind: "keep" };
+}
+
+function transformParentNode(parent: DomParentNode): void {
+	const transformedChildren: DomChildNode[] = [];
+
+	for (const child of parent.childNodes) {
+		if (isCommentNode(child)) {
+			continue;
+		}
+
+		if (!isDomElement(child)) {
+			transformedChildren.push(child);
+			continue;
+		}
+
+		const action = classifyElementAction(child);
+		if (action.kind === "remove") {
+			continue;
+		}
+
+		if (action.kind === "replace") {
+			transformedChildren.push(...reparentNodes(action.nodes, parent));
+			continue;
+		}
+
+		transformParentNode(child);
+		child.attrs = child.attrs.filter((attr) => shouldKeepAttribute(child, attr.name, attr.value));
+
+		if (action.kind === "unwrap" || shouldUnwrapContainer(child)) {
+			transformedChildren.push(...reparentNodes([...child.childNodes], parent));
+			continue;
+		}
+
+		transformedChildren.push(child);
+	}
+
+	parent.childNodes = transformedChildren;
+}
+
+function findFirstElementByTag(document: DefaultTreeAdapterTypes.Document, tagName: string): DomElement | undefined {
+	const stack: DomNode[] = [...document.childNodes];
+	while (stack.length > 0) {
+		const node = stack.shift();
+		if (!node) break;
+		if (isDomElement(node) && node.tagName === tagName) return node;
+		if ("childNodes" in node) {
+			stack.unshift(...node.childNodes);
+		}
+	}
+	return undefined;
+}
+
+function extractBroadCandidate(html: string): { strategy: string; html: string } {
+	const document = parse(html);
+	const body = findFirstElementByTag(document, "body");
+	if (body) return { strategy: "body-broad", html: serializeOuter(body) };
+	return { strategy: "full-broad", html };
+}
+
+function preprocessFragmentHtml(html: string): string {
 	const fragment = parseFragment(html);
-	walkDom(fragment, (element) => {
-		element.attrs = element.attrs.filter((attr) => {
-			const name = attr.name.toLowerCase();
-			if (name === "class" || name === "style" || name === "id") return false;
-			if (name.startsWith("data-") || name.startsWith("aria-")) return false;
-			return true;
-		});
-	});
+	transformParentNode(fragment);
 	return serialize(fragment);
 }
 
@@ -226,11 +321,7 @@ function finalizeResult(processed: string, rawChars: number, maxChars: number, s
 
 export function preprocessHtmlForConversion(html: string, options: HtmlPreprocessOptions): HtmlPreprocessResult {
 	const rawChars = html.length;
-	const cleaned = removeNoise(html);
-	const candidate = extractMainCandidate(cleaned);
-	let processed = removeBoilerplateBlocks(candidate.html);
-	processed = stripNonEssentialAttributes(processed);
-	processed = normalizeWhitespace(processed);
-
+	const candidate = extractBroadCandidate(html);
+	const processed = normalizeWhitespace(preprocessFragmentHtml(candidate.html));
 	return finalizeResult(processed, rawChars, options.maxChars, candidate.strategy);
 }

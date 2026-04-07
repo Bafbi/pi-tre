@@ -79,4 +79,4 @@ Use:
 - Only `http`/`https` URLs are allowed.
 - Localhost/private IP targets are blocked.
 - Redirects are followed manually and validated per hop.
-- HTML is preprocessed before sub-agent conversion to reduce boilerplate and token load (`main/article/content` extraction + script/style/nav/footer removal) using `parse5` for proper DOM parsing.
+- HTML is preprocessed before sub-agent conversion with in-place DOM filtering: broad structure is preserved (`header/nav/aside/main`), executable/visual noise is removed (except JSON-LD scripts), fluff and interaction widgets are pruned, links are cleaned, and attributes are filtered with semantic allowlists (`aria-label|labelledby|current`, selected `data-*`) using `parse5`.

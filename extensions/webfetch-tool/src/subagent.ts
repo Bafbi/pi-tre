@@ -115,9 +115,12 @@ export async function convertWithSubagent(
 
 		const task = [
 			`Read '${sourcePath}'.`,
-			`Convert its contents from ${url} into clean markdown.`,
-			"Preserve headings and links when obvious.",
-			"Do not add new claims.",
+			`Convert its HTML contents from ${url} into clean markdown.`,
+			"Extract core content, prioritizing <main> or <article> when present.",
+			"Also extract navigational context from <header>, <nav>, and <aside>.",
+			"Append a final section titled '## Discovery / Routing' with valid navigation links as markdown bullets.",
+			"For link labels, prefer anchor text, then aria-label/title/data-category when useful.",
+			"Do not add new claims and do not invent links.",
 		].join(" ");
 
 		const args = ["--mode", "json", "-p", "--no-session", "--tools", "read"];
