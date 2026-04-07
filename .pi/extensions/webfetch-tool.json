@@ -1,0 +1,5 @@
+{
+	"$schema": "../../extensions/webfetch-tool/webfetch-tool.config.schema.json",
+	"conversionModel": "opencode-go/minimax-m2.5",
+	"timeoutSec": 120
+}

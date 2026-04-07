@@ -46,6 +46,10 @@ run = "pi"
 description = "Start pi with the stale-write-guard extension explicitly"
 run = "pi -e .pi/extensions/stale-write-guard.ts"
 
+[tasks.dev_webfetch_tool]
+description = "Start pi with the webfetch-tool extension explicitly"
+run = "pi -e .pi/extensions/webfetch-tool.ts"
+
 [tasks.btca_resources]
 description = "List configured btca resources"
 run = "btca resources"

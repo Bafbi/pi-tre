@@ -12,6 +12,8 @@ Built for fast local iteration with:
 
 - **stale-write-guard**  
   Docs: [`extensions/stale-write-guard/README.md`](./extensions/stale-write-guard/README.md)
+- **webfetch-tool**  
+  Docs: [`extensions/webfetch-tool/README.md`](./extensions/webfetch-tool/README.md)
 
 ## Install from GitHub
 
@@ -35,6 +37,7 @@ pi -e git:github.com/Bafbi/pi-tre
 
 # from local checkout
 pi -e ./extensions/stale-write-guard/src/index.ts
+pi -e ./extensions/webfetch-tool/src/index.ts
 ```
 
 ## Local development
