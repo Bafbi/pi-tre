@@ -13,6 +13,8 @@ import {
 	discoverAndLoadExtensions,
 } from "@mariozechner/pi-coding-agent";
 
+import { setTestExplorerImpl } from "../../src/explorer.js";
+
 const tempDirs: string[] = [];
 
 function makeRunnerCwd(): string {
@@ -36,6 +38,7 @@ afterEach(async () => {
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
 	}
+	setTestExplorerImpl(undefined);
 });
 
 describe("repo-query extension", () => {
@@ -100,6 +103,10 @@ describe("repo-query extension", () => {
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
+		// Always mock the explorer in this test — we are inside vitest, not a real pi process,
+		// so subagent spawning via getPiInvocation() would fail.
+		setTestExplorerImpl(async () => ({ answer: "README.md, main.ts" }));
+
 		const result = await repoQueryTool.definition.execute(
 			"test-call-1",
 			{ query: "What files are in this repo?", repos: [localRepo] },
@@ -112,8 +119,11 @@ describe("repo-query extension", () => {
 		expect(result.content).toBeDefined();
 		expect(result.content.length).toBeGreaterThan(0);
 
-		// Should succeed since it's a valid local repo
 		const text = result.content[0]?.text ?? "";
 		expect(text.length).toBeGreaterThan(0);
+		expect(text).toContain("README.md");
+
+		const details = result.details as { results: Array<{ status: string }> };
+		expect(details.results[0]?.status).toBe("success");
 	}, 30000);
 });

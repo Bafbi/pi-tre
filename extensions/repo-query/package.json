@@ -8,7 +8,8 @@
 		"extensions": ["./src/index.ts"]
 	},
 	"scripts": {
-		"typecheck": "tsc -p tsconfig.json --noEmit"
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"generate-schema": "bun run scripts/generate-schema.ts"
 	},
 	"peerDependencies": {
 		"@mariozechner/pi-coding-agent": "*",

@@ -11,6 +11,7 @@ import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 import { ensureRepoCloned } from "./clone.js";
+import { loadRepoQueryConfig, resolveModel } from "./config.js";
 import {
 	addDebugEvent,
 	buildDebugDump,
@@ -139,6 +140,8 @@ export default function (pi: ExtensionAPI) {
 				`execute: query="${params.query.substring(0, 60)}..." repos=[${params.repos.join(", ")}]`,
 				ctx,
 			);
+
+			const config = loadRepoQueryConfig(ctx.cwd);
 
 			const workspace = await getWorkspacePath(ctx);
 			activeWorkspaces.add(workspace);
@@ -318,7 +321,7 @@ export default function (pi: ExtensionAPI) {
 			// ── Phase 3: Explore ────────────────────────────────────────
 			const readyRepos = reposToExplore.filter(({ parsed }) => {
 				const result = results.find((r) => r.identifier === parsed.raw);
-				return result && (result.status === "success" || result.status === "archived");
+				return result && (result.status === "success" || result.status === "archived" || result.status === "skipped");
 			});
 
 			addDebugEvent(debug, `phase: explore (${readyRepos.length} ready repos)`, ctx);
@@ -340,12 +343,21 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
+			const resolvedModel = resolveModel(
+				config,
+				readyRepos.map((r) => r.parsed),
+			);
+			if (resolvedModel) {
+				addDebugEvent(debug, `model: ${resolvedModel}`, ctx);
+			}
+
 			emitPhase("exploring");
 			addDebugEvent(debug, `subagent spawn: ${readyRepos.length} repo(s)`, ctx);
 			const exploration = await runExplorer({
 				workspace,
 				repos: readyRepos.map((r) => r.parsed),
 				query: params.query,
+				model: resolvedModel,
 				signal,
 				onUpdate: (partial) => {
 					// Update the result text with streaming answer

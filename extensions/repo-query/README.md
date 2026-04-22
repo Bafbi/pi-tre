@@ -11,6 +11,7 @@ Pi extension for querying code across one or more git repositories.
 - **Archive warnings**: flags archived/deprecated repositories
 - **Branch support**: specify branches via `:branch` or `@branch` suffixes
 - **Shallow clones**: `--depth 1 --single-branch` for fast, disk-efficient cloning
+- **Per-repo model config**: choose which LLM model explores each repository
 
 ## Usage
 
@@ -48,6 +49,55 @@ The agent will call the tool with:
 
 - No API validation (no search suggestions on failure)
 - Clone failure → returns error with branch info
+
+## Model configuration
+
+You can configure which model the exploration subagent uses per repository.
+
+### Config files
+
+| Scope | Path |
+|-------|------|
+| Global | `~/.pi/agent/extensions/repo-query.json` |
+| Project-local | `<cwd>/.pi/extensions/repo-query.json` |
+
+Project-local overrides global. The config is a JSON file:
+
+```json
+{
+  "defaultModel": "anthropic/claude-sonnet-4-20250514",
+  "models": {
+    "facebook/react": "openai/gpt-4o",
+    "torvalds/linux": "anthropic/claude-haiku"
+  }
+}
+```
+
+### Resolution order
+
+1. Per-repo config matching the first repo's display name (`owner/repo`)
+2. `defaultModel` from config
+3. `TEST_MODEL` environment variable
+4. Subagent default (no `--model` passed)
+
+### `TEST_MODEL` environment variable
+
+For CI or shared workstations, set `TEST_MODEL` as a fallback:
+
+```bash
+export TEST_MODEL="anthropic/claude-sonnet-4-20250514"
+```
+
+This is used when no config file specifies a model.
+
+### JSON schema
+
+A JSON Schema is generated from the TypeScript config type and committed as `repo-query.schema.json`. Regenerate it after changing the config shape:
+
+```bash
+cd extensions/repo-query
+bun run scripts/generate-schema.ts
+```
 
 ## Install
 
@@ -87,5 +137,12 @@ extensions/repo-query/
 │   ├── workspace.ts   # Session-persistent workspace management
 │   ├── clone.ts       # Shallow clone logic
 │   ├── explorer.ts    # Subagent spawning
+│   ├── config.ts      # Config loading + model resolution
 │   └── types.ts       # Shared types
+├── scripts/
+│   └── generate-schema.ts  # Schema generator from TypeBox
+├── repo-query.schema.json  # Generated JSON Schema
+└── test/
+    ├── unit/          # Unit tests (github, config)
+    └── integration/   # Integration tests via ExtensionRunner
 ```

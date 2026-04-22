@@ -19,6 +19,7 @@ interface SubagentOptions {
 	workspace: string;
 	repos: ParsedRepo[];
 	query: string;
+	model?: string;
 	signal: AbortSignal | undefined;
 	onUpdate?: (partial: AgentToolResult<{ answer: string; thought?: string }>) => void;
 }
@@ -28,6 +29,19 @@ interface ExplorationResult {
 	error?: string;
 }
 
+const TEST_REGISTRY_KEY = "__repoQueryExplorerMock";
+
+function getMockExplorer(): ((options: SubagentOptions) => Promise<ExplorationResult>) | undefined {
+	return (globalThis as Record<string, unknown>)[TEST_REGISTRY_KEY] as
+		| ((options: SubagentOptions) => Promise<ExplorationResult>)
+		| undefined;
+}
+
+/** Test-only: inject a mock implementation for runExplorer. */
+export function setTestExplorerImpl(impl: typeof getMockExplorer): void {
+	(globalThis as Record<string, unknown>)[TEST_REGISTRY_KEY] = impl;
+}
+
 /**
  * Spawn a pi subagent to explore the cloned repositories and answer the query.
  *
@@ -35,13 +49,22 @@ interface ExplorationResult {
  * For multiple repos, the subagent's cwd is the workspace parent.
  */
 export async function runExplorer(options: SubagentOptions): Promise<ExplorationResult> {
-	const { workspace, repos, query, signal, onUpdate } = options;
+	const mock = getMockExplorer();
+	if (mock) {
+		return mock(options);
+	}
+
+	const { workspace, repos, query, model, signal, onUpdate } = options;
 	const isSingle = repos.length === 1;
 	const cwd = isSingle ? join(workspace, repos[0].dirName) : workspace;
 
 	const systemPrompt = buildSystemPrompt(repos, query, isSingle);
 
 	const args = ["--mode", "json", "-p", "--no-session", "--tools", "read,grep,find,ls,bash"];
+
+	if (model) {
+		args.push("--model", model);
+	}
 
 	// Write system prompt to temp file
 	const tmpDir = await mkdtemp(join(tmpdir(), "pi-rq-agent-"));
