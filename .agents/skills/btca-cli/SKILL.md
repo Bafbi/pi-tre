@@ -1,64 +1,76 @@
 ---
 name: btca-cli
-description: Operate the btca CLI for local resources and source-first answers. Use when setting up btca in a project, connecting a provider, adding or managing resources, and asking questions via btca commands. Invoke this skill when the user says "use btca" or needs to do more detailed research on a specific library or framework.
+description: Use the btca CLI for source-first research across repositories, tools, and documentation. Trigger this skill when the user says "use btca" or when answers should be grounded in real project/library sources (not guesses), especially for architecture, implementation details, or cross-repo/tooling questions.
 ---
 
 # btca CLI
 
-`btca` is a source-first research CLI. It hydrates resources (git, local, npm) into searchable context, then answers questions grounded in those sources. Use configured resources for ongoing work, or one-off anonymous resources directly in `btca ask`.
+Use `btca` to answer questions from real sources (local repos, remote repos, tools, docs repos) with a clear, repeatable flow.
 
-Full CLI reference: https://docs.btca.dev/guides/cli-reference
+## Default workflow
 
-Add resources:
+1. **Check available resources first**
+   ```bash
+   btca resources
+   ```
+2. **Pick the best resource(s)** for the question.
+3. **Use the local repo as the focused query anchor** when the question is project-specific.
+4. **Ask an atomic query** (one focused question).
+5. **If unsure where the answer is, query multiple resources in one ask.**
+6. **Follow up with narrower atomic questions** until the result is actionable.
 
-```bash
-# Git resource
-btca add -n svelte-dev https://github.com/sveltejs/svelte.dev
+## Resource strategy
 
-# Local directory
-btca add -n my-docs -t local /absolute/path/to/docs
+Prefer resources in this order:
+1. Current local project repo
+2. Relevant upstream/related repo
+3. Official docs repository
+4. Tool/framework repository
 
-# npm package
-btca add npm:@types/node@22.10.1 -n node-types -t npm
-```
-
-Verify resources:
-
-```bash
-btca resources
-```
-
-Ask a question:
-
-```bash
-btca ask -r svelte-dev -q "How do I define remote functions?"
-```
-
-## Common Tasks
-
-- Ask with multiple resources:
+Add resources only when needed:
 
 ```bash
-btca ask -r react -r typescript -q "How do I type useState?"
+# Add local project repo
+btca add -n kube-local -t local /absolute/path/to/repo
+
+# Add related upstream repos
+btca add -n kubespray https://github.com/kubernetes-sigs/kubespray
+btca add -n cilium https://github.com/cilium/cilium
 ```
 
-- Ask with anonymous one-off resources (not saved to config):
+Use one-off resources when you don’t want to persist config:
 
 ```bash
-# One-off git repo
-btca ask -r https://github.com/sveltejs/svelte -q "Where is the implementation of writable stores?"
-
-# One-off npm package
-btca ask -r npm:react@19.0.0 -q "How is useTransition exported?"
+btca ask -r https://github.com/cilium/cilium -q "Where is policy enforcement initialized?"
 ```
 
-## Config Overview
+## Ask atomic queries
 
-- Config lives in `btca.config.jsonc` (project) and `~/.config/btca/btca.config.jsonc` (global).
-- Project config overrides global and controls provider/model and resources.
+Good atomic queries are:
+- single-purpose
+- scoped to one behavior/component
+- answerable with concrete evidence (files/functions/config)
 
-## Troubleshooting
+Examples:
 
-- "No resources configured": add resources with `btca add ...` and re-run `btca resources`.
-- "Provider not connected": run `btca connect` and follow the prompts.
-- "Unknown resource": use `btca resources` for configured names, or pass a valid HTTPS git URL / `npm:<package>` as an anonymous one-off in `btca ask`.
+```bash
+btca ask -r kube-local -q "Where is ENVIRONMENT_ID defined and how is it consumed?"
+btca ask -r kubespray -q "Which role installs containerd, and what tasks run first?"
+```
+
+Avoid broad prompts like: “Explain the whole architecture.”
+Split broad topics into small steps.
+
+## When unsure: use multiple resources
+
+```bash
+btca ask -r kube-local -r kubespray -q "How is CNI selected and applied during cluster setup?"
+```
+
+Then narrow with follow-up atomic queries on the most relevant resource.
+
+## Quick troubleshooting
+
+- **No resources listed:** add one with `btca add ...`
+- **Unknown resource name:** run `btca resources` and use exact names
+- **Provider/model issue:** run `btca connect` and retry
