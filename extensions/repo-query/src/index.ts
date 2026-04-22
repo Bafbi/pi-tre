@@ -424,9 +424,8 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			let text = theme.fg("toolTitle", theme.bold("repo_query "));
-			text += theme.fg("accent", `${args.repos.length}`);
-			text += `\n  ${theme.fg("dim", `"${args.query}"`)}`;
-			text += `\n  ${theme.fg("muted", repoText)}`;
+			text += theme.fg("dim", repoText);
+			text += `\n  ${theme.fg("muted", `"${args.query}"`)}`;
 			return new Text(text, 0, 0);
 		},
 
