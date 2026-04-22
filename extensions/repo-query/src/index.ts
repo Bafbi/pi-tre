@@ -171,12 +171,12 @@ export default function (pi: ExtensionAPI) {
 				}
 			};
 
-			const makeDetails = (phase: RepoQueryPhase): RepoQueryDetails => ({
+			const makeDetails = (phase: RepoQueryPhase, thoughtOverride?: string): RepoQueryDetails => ({
 				query: params.query,
 				workspacePath: workspace,
 				results: [...results],
 				phase,
-				thought: buildThought(phase),
+				thought: thoughtOverride || buildThought(phase),
 			});
 
 			const emitPhase = (phase: RepoQueryPhase) => {
@@ -359,9 +359,14 @@ export default function (pi: ExtensionAPI) {
 							}
 						}
 					}
+					// Stream actual subagent thinking if available
+					const subagentThought =
+						partial.details && typeof partial.details === "object" && "thought" in partial.details
+							? String((partial.details as Record<string, unknown>).thought)
+							: "";
 					onUpdate?.({
 						content: partial.content,
-						details: makeDetails("exploring"),
+						details: makeDetails("exploring", subagentThought || undefined),
 					});
 				},
 			});

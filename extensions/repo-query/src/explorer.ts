@@ -20,7 +20,7 @@ interface SubagentOptions {
 	repos: ParsedRepo[];
 	query: string;
 	signal: AbortSignal | undefined;
-	onUpdate?: (partial: AgentToolResult<{ answer: string }>) => void;
+	onUpdate?: (partial: AgentToolResult<{ answer: string; thought?: string }>) => void;
 }
 
 interface ExplorationResult {
@@ -55,7 +55,8 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 	const invocation = getPiInvocation();
 	let buffer = "";
-	let finalAnswer = "";
+	let answerText = "";
+	let thinkingText = "";
 	let errorMessage = "";
 
 	try {
@@ -73,13 +74,24 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				const lines = buffer.split("\n");
 				buffer = lines.pop() ?? "";
 				for (const line of lines) {
-					processSubagentLine(line, (text) => {
-						finalAnswer = text;
-						onUpdate?.({
-							content: [{ type: "text", text: text || "(exploring...)" }],
-							details: { answer: text },
-						});
-					});
+					processSubagentLine(
+						line,
+						(delta) => {
+							answerText += delta;
+							onUpdate?.({
+								content: [{ type: "text", text: answerText || "(exploring...)" }],
+								details: { answer: answerText, thought: thinkingText },
+							});
+						},
+						(delta) => {
+							thinkingText += delta;
+							// Also stream when thinking updates so caller sees activity
+							onUpdate?.({
+								content: [{ type: "text", text: answerText || "(exploring...)" }],
+								details: { answer: answerText, thought: thinkingText },
+							});
+						},
+					);
 				}
 			});
 
@@ -89,9 +101,15 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
-					processSubagentLine(buffer, (text) => {
-						finalAnswer = text;
-					});
+					processSubagentLine(
+						buffer,
+						(delta) => {
+							answerText += delta;
+						},
+						(delta) => {
+							thinkingText += delta;
+						},
+					);
 				}
 				resolve(code ?? 0);
 			});
@@ -111,7 +129,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 			}
 		});
 
-		if (exitCode !== 0 && !finalAnswer) {
+		if (exitCode !== 0 && !answerText) {
 			return {
 				answer: "",
 				error: `Exploration failed (exit ${exitCode}). ${errorMessage || ""}`.trim(),
@@ -120,9 +138,9 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 		// Truncate if needed
 		const answer =
-			finalAnswer.length > MAX_OUTPUT_CHARS
-				? `${finalAnswer.slice(0, MAX_OUTPUT_CHARS)}...\n[Answer truncated]`
-				: finalAnswer;
+			answerText.length > MAX_OUTPUT_CHARS
+				? `${answerText.slice(0, MAX_OUTPUT_CHARS)}...\n[Answer truncated]`
+				: answerText;
 
 		return { answer };
 	} finally {
@@ -136,7 +154,11 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 	}
 }
 
-function processSubagentLine(line: string, onAnswer: (text: string) => void): void {
+function processSubagentLine(
+	line: string,
+	onAnswer: (text: string) => void,
+	onThinking: (thinking: string) => void,
+): void {
 	if (!line.trim()) return;
 	let event: unknown;
 	try {
@@ -145,7 +167,20 @@ function processSubagentLine(line: string, onAnswer: (text: string) => void): vo
 		return;
 	}
 
-	if (isMessageEndEvent(event) && event.message) {
+	if (!isObject(event)) return;
+
+	// Accumulate text from message_update events (streaming deltas)
+	if (event.type === "message_update" && hasAssistantMessageEvent(event)) {
+		const ame = event.assistantMessageEvent as AssistantMessageEvent;
+		if (ame.type === "text_delta" && typeof ame.delta === "string") {
+			onAnswer(ame.delta);
+		} else if (ame.type === "thinking_delta" && typeof ame.delta === "string") {
+			onThinking(ame.delta);
+		}
+	}
+
+	// Final message — capture complete text
+	if (event.type === "message_end" && event.message) {
 		const msg = event.message as Message;
 		if (msg.role === "assistant") {
 			for (const part of msg.content) {
@@ -157,13 +192,18 @@ function processSubagentLine(line: string, onAnswer: (text: string) => void): vo
 	}
 }
 
-interface MessageEndEvent {
-	type: "message_end";
-	message?: unknown;
+type AssistantMessageEvent = { type: string; delta?: string };
+
+function isObject(v: unknown): v is Record<string, unknown> {
+	return typeof v === "object" && v !== null;
 }
 
-function isMessageEndEvent(event: unknown): event is MessageEndEvent {
-	return typeof event === "object" && event !== null && (event as Record<string, unknown>).type === "message_end";
+function hasAssistantMessageEvent(event: Record<string, unknown>): boolean {
+	return (
+		event.assistantMessageEvent !== undefined &&
+		isObject(event.assistantMessageEvent) &&
+		typeof (event.assistantMessageEvent as Record<string, unknown>).type === "string"
+	);
 }
 
 function getPiInvocation(): { command: string; args: string[] } {
