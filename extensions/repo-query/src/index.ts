@@ -5,6 +5,15 @@ import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 import { ensureRepoCloned } from "./clone.js";
+import {
+	addDebugEvent,
+	buildDebugDump,
+	createDebugState,
+	setDebugEnabled,
+	setWorkspacePath,
+	syncDebugUi,
+	trackRepo,
+} from "./debug.js";
 import { runExplorer } from "./explorer.js";
 import { validateGitHubRepo } from "./github.js";
 import { parseRepoIdentifier } from "./resolver.js";
@@ -29,6 +38,14 @@ const RepoQueryParams = Type.Object({
 export default function (pi: ExtensionAPI) {
 	// Track active temp directories for emergency cleanup
 	const activeWorkspaces = new Set<string>();
+	const debug = createDebugState();
+
+	pi.on("session_start", async (_event, ctx) => {
+		debug.events.length = 0;
+		debug.trackedRepos.clear();
+		debug.workspacePath = null;
+		addDebugEvent(debug, "session_start: state reset", ctx);
+	});
 
 	pi.on("session_shutdown", async () => {
 		clearWorkspaceCache();
@@ -40,6 +57,56 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 		activeWorkspaces.clear();
+	});
+
+	pi.registerCommand("repo-query-debug", {
+		description: "Debug repo-query (on|off|status|toggle|dump)",
+		handler: async (args, ctx) => {
+			const [subcommandRaw] = args.trim().split(/\s+/).filter(Boolean);
+			const subcommand = subcommandRaw ?? "toggle";
+
+			switch (subcommand) {
+				case "on": {
+					setDebugEnabled(debug, true, ctx);
+					addDebugEvent(debug, "debug enabled", ctx);
+					break;
+				}
+				case "off": {
+					setDebugEnabled(debug, false, ctx);
+					addDebugEvent(debug, "debug disabled", ctx);
+					break;
+				}
+				case "status": {
+					addDebugEvent(debug, "debug status requested", ctx);
+					break;
+				}
+				case "dump": {
+					const report = buildDebugDump(debug, ctx);
+					addDebugEvent(debug, "debug dump generated", ctx);
+					if (ctx.hasUI) {
+						ctx.ui.setEditorText(report);
+						ctx.ui.notify("repo-query debug dump copied to editor", "info");
+					}
+					break;
+				}
+				case "toggle": {
+					setDebugEnabled(debug, !debug.enabled, ctx);
+					addDebugEvent(debug, `debug ${debug.enabled ? "enabled" : "disabled"} (toggle)`, ctx);
+					break;
+				}
+				default: {
+					if (ctx.hasUI) {
+						ctx.ui.notify("Unknown subcommand. Use: /repo-query-debug [on|off|status|toggle|dump]", "warning");
+					}
+					return;
+				}
+			}
+
+			if (ctx.hasUI && subcommand !== "dump") {
+				const status = debug.enabled ? "ON" : "OFF";
+				ctx.ui.notify(`repo-query debug: ${status}`, "info");
+			}
+		},
 	});
 
 	pi.registerTool({
@@ -61,18 +128,33 @@ export default function (pi: ExtensionAPI) {
 		parameters: RepoQueryParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			addDebugEvent(
+				debug,
+				`execute: query="${params.query.substring(0, 60)}..." repos=[${params.repos.join(", ")}]`,
+				ctx,
+			);
+
 			const workspace = await getWorkspacePath(ctx);
 			activeWorkspaces.add(workspace);
+			setWorkspacePath(debug, workspace);
+			addDebugEvent(debug, `workspace: ${workspace}`, ctx);
 
 			const results: RepoResult[] = [];
 			const reposToExplore: Array<{ parsed: ReturnType<typeof parseRepoIdentifier>; dirName: string }> = [];
 
 			// ── Phase 1: Parse and validate ─────────────────────────────
+			addDebugEvent(debug, "phase: parse and validate", ctx);
 			for (const raw of params.repos) {
 				let parsed: ReturnType<typeof parseRepoIdentifier>;
 				try {
 					parsed = parseRepoIdentifier(raw);
+					addDebugEvent(
+						debug,
+						`parsed: ${raw} → ${parsed.host}/${parsed.displayName} (branch=${parsed.branch ?? "default"})`,
+						ctx,
+					);
 				} catch (err) {
+					addDebugEvent(debug, `parse failed: ${raw} → ${err instanceof Error ? err.message : String(err)}`, ctx);
 					results.push({
 						identifier: raw,
 						status: "skipped",
@@ -82,11 +164,19 @@ export default function (pi: ExtensionAPI) {
 					continue;
 				}
 
+				trackRepo(debug, raw, { status: "parsed", cloned: false, branch: parsed.branch });
+
 				// GitHub-specific validation
 				if (parsed.host === "github" && parsed.owner && parsed.repo) {
 					try {
+						addDebugEvent(debug, `github validate: ${parsed.owner}/${parsed.repo}`, ctx);
 						const validation = await validateGitHubRepo(parsed.owner, parsed.repo);
 						if (!validation.valid) {
+							addDebugEvent(
+								debug,
+								`github not_found: ${parsed.displayName} suggestions=[${validation.suggestions?.join(", ") ?? ""}]`,
+								ctx,
+							);
 							results.push({
 								identifier: raw,
 								status: "not_found",
@@ -95,20 +185,27 @@ export default function (pi: ExtensionAPI) {
 								suggestions: validation.suggestions,
 								error: `Repository '${parsed.displayName}' not found on GitHub.`,
 							});
+							trackRepo(debug, raw, { status: "not_found", cloned: false });
 							continue;
 						}
 						if (validation.warning) {
-							// Continue but mark warning — will be shown in results
+							addDebugEvent(debug, `github archived: ${parsed.displayName}`, ctx);
 							results.push({
 								identifier: raw,
 								status: "archived",
 								cloneUrl: parsed.cloneUrl,
 								warnings: [validation.warning],
 							});
+							trackRepo(debug, raw, { status: "archived", cloned: false });
 							// Still add to explore list
 						}
 					} catch (err) {
 						// GitHub API failure — don't block, proceed with clone attempt
+						addDebugEvent(
+							debug,
+							`github api error: ${parsed.displayName} → ${err instanceof Error ? err.message : String(err)}`,
+							ctx,
+						);
 						results.push({
 							identifier: raw,
 							status: "skipped",
@@ -124,12 +221,19 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// ── Phase 2: Clone ──────────────────────────────────────────
+			addDebugEvent(debug, `phase: clone (${reposToExplore.length} repos to clone)`, ctx);
 			for (const { parsed } of reposToExplore) {
 				// Check if already have a result (e.g., archived warning)
 				const existing = results.find((r) => r.identifier === parsed.raw);
 				if (existing && existing.status === "not_found") continue;
 
+				addDebugEvent(debug, `clone start: ${parsed.raw} → ${parsed.dirName}`, ctx);
 				const cloneResult = await ensureRepoCloned(parsed, workspace, signal, pi);
+				addDebugEvent(
+					debug,
+					`clone result: ${parsed.raw} → ${cloneResult.status}${cloneResult.error ? ` (${cloneResult.error})` : ""}`,
+					ctx,
+				);
 
 				if (cloneResult.status === "failed") {
 					// Update or add result
@@ -145,6 +249,7 @@ export default function (pi: ExtensionAPI) {
 							error: cloneResult.error,
 						});
 					}
+					trackRepo(debug, parsed.raw, { status: "clone_failed", cloned: false });
 				} else if (!existing) {
 					results.push({
 						identifier: parsed.raw,
@@ -153,6 +258,9 @@ export default function (pi: ExtensionAPI) {
 						localPath: `${workspace}/${parsed.dirName}`,
 						warnings: [],
 					});
+					trackRepo(debug, parsed.raw, { status: "cloned", cloned: true, branch: parsed.branch });
+				} else {
+					trackRepo(debug, parsed.raw, { status: existing.status, cloned: true, branch: parsed.branch });
 				}
 			}
 
@@ -162,7 +270,10 @@ export default function (pi: ExtensionAPI) {
 				return result && (result.status === "success" || result.status === "archived");
 			});
 
+			addDebugEvent(debug, `phase: explore (${readyRepos.length} ready repos)`, ctx);
+
 			if (readyRepos.length === 0) {
+				addDebugEvent(debug, "explore: no ready repos, returning error", ctx);
 				const errorParts = results.filter((r) => r.error).map((r) => `- ${r.identifier}: ${r.error}`);
 
 				const suggestionParts = results
@@ -189,6 +300,7 @@ export default function (pi: ExtensionAPI) {
 				details: { query: params.query, workspacePath: workspace, results } as RepoQueryDetails,
 			});
 
+			addDebugEvent(debug, `subagent spawn: ${readyRepos.length} repo(s)`, ctx);
 			const exploration = await runExplorer({
 				workspace,
 				repos: readyRepos.map((r) => r.parsed),
@@ -214,6 +326,7 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			if (exploration.error) {
+				addDebugEvent(debug, `explore failed: ${exploration.error.substring(0, 120)}`, ctx);
 				for (const r of results) {
 					if (r.status === "success" || r.status === "archived") {
 						r.status = "exploration_failed";
@@ -221,6 +334,7 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 			} else {
+				addDebugEvent(debug, `explore success: answer=${exploration.answer.length} chars`, ctx);
 				// Attach answer to all explored repos
 				for (const r of results) {
 					if (r.status === "success" || r.status === "archived") {
@@ -241,6 +355,8 @@ export default function (pi: ExtensionAPI) {
 			const hasErrors = results.some(
 				(r) => r.status === "not_found" || r.status === "clone_failed" || r.status === "exploration_failed",
 			);
+
+			addDebugEvent(debug, `execute complete: ${hasErrors ? "with errors" : "success"}`, ctx);
 
 			return {
 				content: [{ type: "text", text: truncation.content }],

@@ -60,7 +60,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 	try {
 		const exitCode = await new Promise<number>((resolve) => {
-			const proc = spawn(invocation.command, invocation.args, {
+			const proc = spawn(invocation.command, [...invocation.args, ...args], {
 				cwd,
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
