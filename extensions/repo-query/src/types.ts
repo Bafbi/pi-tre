@@ -26,10 +26,13 @@ export interface RepoResult {
 	error?: string;
 }
 
+export type RepoQueryPhase = "parsing" | "validating" | "cloning" | "exploring" | "complete";
+
 export interface RepoQueryDetails {
 	query: string;
 	workspacePath: string;
 	results: RepoResult[];
+	phase: RepoQueryPhase;
 }
 
 export interface ValidationResult {

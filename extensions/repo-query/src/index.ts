@@ -23,7 +23,7 @@ import {
 import { runExplorer } from "./explorer.js";
 import { validateGitHubRepo } from "./github.js";
 import { parseRepoIdentifier } from "./resolver.js";
-import type { RepoQueryDetails, RepoResult } from "./types.js";
+import type { RepoQueryDetails, RepoQueryPhase, RepoResult } from "./types.js";
 import { clearWorkspaceCache, getWorkspacePath } from "./workspace.js";
 
 const MAX_REPOS = 5;
@@ -148,7 +148,22 @@ export default function (pi: ExtensionAPI) {
 			const results: RepoResult[] = [];
 			const reposToExplore: Array<{ parsed: ReturnType<typeof parseRepoIdentifier>; dirName: string }> = [];
 
+			const makeDetails = (phase: RepoQueryPhase): RepoQueryDetails => ({
+				query: params.query,
+				workspacePath: workspace,
+				results: [...results],
+				phase,
+			});
+
+			const emitPhase = (phase: RepoQueryPhase) => {
+				onUpdate?.({
+					content: [{ type: "text", text: "" }],
+					details: makeDetails(phase),
+				});
+			};
+
 			// ── Phase 1: Parse and validate ─────────────────────────────
+			emitPhase("parsing");
 			addDebugEvent(debug, "phase: parse and validate", ctx);
 			for (const raw of params.repos) {
 				let parsed: ReturnType<typeof parseRepoIdentifier>;
@@ -167,6 +182,7 @@ export default function (pi: ExtensionAPI) {
 						warnings: [],
 						error: `Cannot parse identifier: ${err instanceof Error ? err.message : String(err)}`,
 					});
+					emitPhase("parsing");
 					continue;
 				}
 
@@ -174,6 +190,7 @@ export default function (pi: ExtensionAPI) {
 
 				// GitHub-specific validation
 				if (parsed.host === "github" && parsed.owner && parsed.repo) {
+					emitPhase("validating");
 					try {
 						addDebugEvent(debug, `github validate: ${parsed.owner}/${parsed.repo}`, ctx);
 						const validation = await validateGitHubRepo(parsed.owner, parsed.repo);
@@ -192,6 +209,7 @@ export default function (pi: ExtensionAPI) {
 								error: `Repository '${parsed.displayName}' not found on GitHub.`,
 							});
 							trackRepo(debug, raw, { status: "not_found", cloned: false });
+							emitPhase("validating");
 							continue;
 						}
 						if (validation.warning) {
@@ -224,6 +242,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				reposToExplore.push({ parsed, dirName: parsed.dirName });
+				emitPhase("validating");
 			}
 
 			// ── Phase 2: Clone ──────────────────────────────────────────
@@ -233,6 +252,7 @@ export default function (pi: ExtensionAPI) {
 				const existing = results.find((r) => r.identifier === parsed.raw);
 				if (existing && existing.status === "not_found") continue;
 
+				emitPhase("cloning");
 				addDebugEvent(debug, `clone start: ${parsed.raw} → ${parsed.dirName}`, ctx);
 				const cloneResult = await ensureRepoCloned(parsed, workspace, signal, pi);
 				addDebugEvent(
@@ -268,6 +288,7 @@ export default function (pi: ExtensionAPI) {
 				} else {
 					trackRepo(debug, parsed.raw, { status: existing.status, cloned: true, branch: parsed.branch });
 				}
+				emitPhase("cloning");
 			}
 
 			// ── Phase 3: Explore ────────────────────────────────────────
@@ -290,22 +311,12 @@ export default function (pi: ExtensionAPI) {
 
 				return {
 					content: [{ type: "text", text }],
-					details: { query: params.query, workspacePath: workspace, results } as RepoQueryDetails,
+					details: makeDetails("complete"),
 					isError: true,
 				};
 			}
 
-			// Stream progress
-			onUpdate?.({
-				content: [
-					{
-						type: "text",
-						text: `Exploring ${readyRepos.length} repo(s): ${readyRepos.map((r) => r.parsed.displayName).join(", ")}...`,
-					},
-				],
-				details: { query: params.query, workspacePath: workspace, results } as RepoQueryDetails,
-			});
-
+			emitPhase("exploring");
 			addDebugEvent(debug, `subagent spawn: ${readyRepos.length} repo(s)`, ctx);
 			const exploration = await runExplorer({
 				workspace,
@@ -326,7 +337,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					onUpdate?.({
 						content: partial.content,
-						details: { query: params.query, workspacePath: workspace, results } as RepoQueryDetails,
+						details: makeDetails("exploring"),
 					});
 				},
 			});
@@ -366,14 +377,13 @@ export default function (pi: ExtensionAPI) {
 
 			return {
 				content: [{ type: "text", text: truncation.content }],
-				details: { query: params.query, workspacePath: workspace, results } as RepoQueryDetails,
+				details: makeDetails("complete"),
 				isError: hasErrors && readyRepos.length === 0,
 			};
 		},
 
 		renderCall(args, theme, _context) {
 			const repoList = args.repos.slice(0, 3).map((r: string) => {
-				// Show branch suffix if present
 				const branchMatch = r.match(/[:@]([^/]+)$/);
 				const base = branchMatch ? r.slice(0, -branchMatch[0].length) : r;
 				const branch = branchMatch ? branchMatch[1] : null;
@@ -384,11 +394,10 @@ export default function (pi: ExtensionAPI) {
 				repoText += theme.fg("muted", ` +${args.repos.length - 3}`);
 			}
 
-			const preview = args.query.length > 55 ? `${args.query.slice(0, 55)}...` : args.query;
 			let text = theme.fg("toolTitle", theme.bold("repo_query "));
 			text += theme.fg("accent", `${args.repos.length}`);
-			text += `\n  ${theme.fg("dim", repoText)}`;
-			text += `\n  ${theme.fg("muted", preview)}`;
+			text += `\n  ${theme.fg("dim", `"${args.query}"`)}`;
+			text += `\n  ${theme.fg("muted", repoText)}`;
 			return new Text(text, 0, 0);
 		},
 
@@ -409,21 +418,45 @@ export default function (pi: ExtensionAPI) {
 					r.status === "skipped",
 			);
 
-			// Streaming / partial state
-			if (isPartial && !hasAnswer) {
-				const readyCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
-				const totalCount = details.results.length;
+			// Streaming / partial state — show live activity trace
+			if (isPartial) {
+				const phaseLabel =
+					details.phase === "parsing"
+						? "parsing identifiers..."
+						: details.phase === "validating"
+							? "validating GitHub repos..."
+							: details.phase === "cloning"
+								? "cloning repositories..."
+								: details.phase === "exploring"
+									? "exploring with subagent..."
+									: "working...";
+
 				let text = theme.fg("toolTitle", theme.bold("repo_query "));
-				text += theme.fg("warning", "⏳ exploring...");
-				text += `\n${theme.fg("dim", `${readyCount}/${totalCount} repos ready`)}`;
+				text += theme.fg("warning", `⏳ ${phaseLabel}`);
+
 				for (const r of details.results) {
+					const activity =
+						r.status === "success"
+							? theme.fg("dim", "cloned")
+							: r.status === "archived"
+								? theme.fg("warning", "archived")
+								: r.status === "not_found"
+									? theme.fg("error", "not found")
+									: r.status === "clone_failed"
+										? theme.fg("error", "clone failed")
+										: r.status === "skipped"
+											? theme.fg("error", "skipped")
+											: theme.fg("dim", "pending");
 					const icon =
 						r.status === "success" || r.status === "archived"
 							? theme.fg("success", "✓")
-							: r.status === "not_found" || r.status === "clone_failed"
+							: r.status === "not_found" || r.status === "clone_failed" || r.status === "skipped"
 								? theme.fg("error", "✗")
 								: theme.fg("warning", "⏳");
-					text += `\n  ${icon} ${theme.fg("accent", r.identifier)}`;
+					text += `\n  ${icon} ${theme.fg("accent", r.identifier)} ${activity}`;
+					if (r.suggestions && r.suggestions.length > 0) {
+						text += `\n    ${theme.fg("dim", `→ did you mean: ${r.suggestions[0]}?`)}`;
+					}
 				}
 				return new Text(text, 0, 0);
 			}
