@@ -447,10 +447,18 @@ export default function (pi: ExtensionAPI) {
 					r.status === "skipped",
 			);
 
-			// Streaming / partial state — show thinking phrase + live activity trace
+			// Streaming / partial state — show header + repos + last 5 lines of thought
 			if (isPartial) {
-				const thought = details.thought ?? "Working...";
-				let text = `${theme.fg("thinkingText", "💭")} ${theme.fg("dim", thought)}`;
+				const repoList = details.results
+					.map((r) => {
+						const m = r.identifier.match(/[:@]([^/]+)$/);
+						return m ? r.identifier.slice(0, -m[0].length) : r.identifier;
+					})
+					.join(", ");
+
+				let text = theme.fg("toolTitle", theme.bold("repo_query "));
+				text += theme.fg("dim", repoList);
+				text += `\n  ${theme.fg("muted", `"${details.query}"`)}`;
 
 				for (const r of details.results) {
 					const activity =
@@ -477,12 +485,16 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 
-				// During exploration, stream partial answer preview
-				if (details.phase === "exploring") {
-					const partialAnswer = details.results.find((r) => r.answer)?.answer;
-					if (partialAnswer) {
-						const preview = partialAnswer.slice(0, 180).replace(/\n/g, " ");
-						text += `\n\n${theme.fg("dim", `${preview}...`)}`;
+				// Show last 5 lines of subagent thought
+				const thought = details.thought ?? "";
+				if (thought) {
+					const lines = thought.split("\n").filter((l) => l.trim());
+					const lastLines = lines.slice(-5);
+					if (lines.length > 5) {
+						text += `\n${theme.fg("dim", "...")}`;
+					}
+					for (const line of lastLines) {
+						text += `\n${theme.fg("thinkingText", "💭")} ${theme.fg("dim", line.trim())}`;
 					}
 				}
 
