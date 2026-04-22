@@ -31,6 +31,18 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 		}
 	}
 
+	// Local paths
+	if (raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("~/")) {
+		return {
+			raw: input,
+			host: "generic",
+			cloneUrl: raw,
+			branch: explicitBranch,
+			displayName: raw.split("/").pop() || raw,
+			dirName: sanitizeDirName(raw.split("/").pop() || "repo"),
+		};
+	}
+
 	// Parse host and clone URL
 	if (raw.startsWith("http://") || raw.startsWith("https://")) {
 		return parseHttpUrl(raw, input, explicitBranch);
