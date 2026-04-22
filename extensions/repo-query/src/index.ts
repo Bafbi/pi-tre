@@ -1,7 +1,13 @@
 import { rm } from "node:fs/promises";
 
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, type ExtensionAPI, truncateHead } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import {
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+	type ExtensionAPI,
+	getMarkdownTheme,
+	truncateHead,
+} from "@mariozechner/pi-coding-agent";
+import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 import { ensureRepoCloned } from "./clone.js";
@@ -366,57 +372,152 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme, _context) {
-			const repos = args.repos.join(", ");
-			const preview = args.query.length > 50 ? `${args.query.slice(0, 50)}...` : args.query;
+			const repoList = args.repos.slice(0, 3).map((r: string) => {
+				// Show branch suffix if present
+				const branchMatch = r.match(/[:@]([^/]+)$/);
+				const base = branchMatch ? r.slice(0, -branchMatch[0].length) : r;
+				const branch = branchMatch ? branchMatch[1] : null;
+				return branch ? `${base}:${theme.fg("dim", branch)}` : base;
+			});
+			let repoText = repoList.join(", ");
+			if (args.repos.length > 3) {
+				repoText += theme.fg("muted", ` +${args.repos.length - 3}`);
+			}
+
+			const preview = args.query.length > 55 ? `${args.query.slice(0, 55)}...` : args.query;
 			let text = theme.fg("toolTitle", theme.bold("repo_query "));
-			text += theme.fg("accent", `[${args.repos.length} repo(s)]`);
-			text += `\n  ${theme.fg("muted", "repos:")} ${theme.fg("dim", repos)}`;
-			text += `\n  ${theme.fg("muted", "query:")} ${theme.fg("dim", preview)}`;
+			text += theme.fg("accent", `${args.repos.length}`);
+			text += `\n  ${theme.fg("dim", repoText)}`;
+			text += `\n  ${theme.fg("muted", preview)}`;
 			return new Text(text, 0, 0);
 		},
 
-		renderResult(result, { expanded }, theme, _context) {
+		renderResult(result, { expanded, isPartial }, theme, _context) {
 			const details = result.details as RepoQueryDetails | undefined;
 			if (!details || details.results.length === 0) {
 				const text = result.content[0];
 				return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
 			}
 
-			let text = theme.fg("toolTitle", theme.bold("repo_query "));
-			text += theme.fg("accent", `${details.results.length} repo(s)`);
+			const mdTheme = getMarkdownTheme();
+			const hasAnswer = details.results.some((r) => r.answer);
+			const allFailed = details.results.every(
+				(r) =>
+					r.status === "not_found" ||
+					r.status === "clone_failed" ||
+					r.status === "exploration_failed" ||
+					r.status === "skipped",
+			);
 
-			for (const r of details.results) {
-				const icon =
+			// Streaming / partial state
+			if (isPartial && !hasAnswer) {
+				const readyCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
+				const totalCount = details.results.length;
+				let text = theme.fg("toolTitle", theme.bold("repo_query "));
+				text += theme.fg("warning", "⏳ exploring...");
+				text += `\n${theme.fg("dim", `${readyCount}/${totalCount} repos ready`)}`;
+				for (const r of details.results) {
+					const icon =
+						r.status === "success" || r.status === "archived"
+							? theme.fg("success", "✓")
+							: r.status === "not_found" || r.status === "clone_failed"
+								? theme.fg("error", "✗")
+								: theme.fg("warning", "⏳");
+					text += `\n  ${icon} ${theme.fg("accent", r.identifier)}`;
+				}
+				return new Text(text, 0, 0);
+			}
+
+			// Expanded view: rich layout with Container + Markdown
+			if (expanded && hasAnswer) {
+				const container = new Container();
+
+				// Header
+				const successCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
+				const icon = allFailed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+				container.addChild(
+					new Text(
+						`${icon} ${theme.fg("toolTitle", theme.bold("repo_query"))} ${theme.fg("accent", `${successCount}/${details.results.length}`)}`,
+						0,
+						0,
+					),
+				);
+				container.addChild(new Spacer(1));
+
+				// Query
+				container.addChild(new Text(theme.fg("muted", "Query:"), 0, 0));
+				container.addChild(new Text(theme.fg("dim", details.query), 0, 0));
+				container.addChild(new Spacer(1));
+
+				// Workspace
+				if (details.workspacePath) {
+					container.addChild(new Text(theme.fg("muted", "Workspace:"), 0, 0));
+					container.addChild(new Text(theme.fg("dim", details.workspacePath), 0, 0));
+					container.addChild(new Spacer(1));
+				}
+
+				// Repositories
+				container.addChild(new Text(theme.fg("muted", "Repositories:"), 0, 0));
+				for (const r of details.results) {
+					const rIcon =
+						r.status === "success"
+							? theme.fg("success", "✓")
+							: r.status === "archived"
+								? theme.fg("warning", "⚠")
+								: theme.fg("error", "✗");
+					let line = `  ${rIcon} ${theme.fg("accent", r.identifier)}`;
+					if (r.localPath) line += theme.fg("dim", ` → ${r.localPath}`);
+					container.addChild(new Text(line, 0, 0));
+					if (r.warnings.length > 0) {
+						container.addChild(new Text(`    ${theme.fg("warning", r.warnings[0])}`, 0, 0));
+					}
+					if (r.error) {
+						container.addChild(new Text(`    ${theme.fg("error", r.error)}`, 0, 0));
+					}
+					if (r.suggestions && r.suggestions.length > 0) {
+						container.addChild(new Text(`    ${theme.fg("dim", `Did you mean: ${r.suggestions.join(", ")}?`)}`, 0, 0));
+					}
+				}
+				container.addChild(new Spacer(1));
+
+				// Answer as Markdown
+				const answer = details.results.find((r) => r.answer)?.answer;
+				if (answer) {
+					container.addChild(new Text(theme.fg("muted", "Answer:"), 0, 0));
+					container.addChild(new Markdown(answer.trim(), 0, 0, mdTheme));
+				}
+
+				return container;
+			}
+
+			// Collapsed view
+			const successCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
+			const icon = allFailed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+			let text = `${icon} ${theme.fg("toolTitle", theme.bold("repo_query"))} ${theme.fg("accent", `${successCount}/${details.results.length}`)}`;
+
+			for (const r of details.results.slice(0, 3)) {
+				const rIcon =
 					r.status === "success"
 						? theme.fg("success", "✓")
 						: r.status === "archived"
 							? theme.fg("warning", "⚠")
 							: theme.fg("error", "✗");
-				text += `\n${icon} ${theme.fg("accent", r.identifier)}`;
+				text += `\n${rIcon} ${theme.fg("accent", r.identifier)}`;
 				if (r.warnings.length > 0) {
-					text += ` ${theme.fg("warning", r.warnings[0])}`;
+					text += ` ${theme.fg("warning", r.warnings[0].substring(0, 40))}`;
+					if (r.warnings[0].length > 40) text += theme.fg("dim", "...");
 				}
 				if (r.error) {
-					text += `\n  ${theme.fg("error", r.error)}`;
-				}
-				if (r.suggestions && r.suggestions.length > 0) {
-					text += `\n  ${theme.fg("dim", `Did you mean: ${r.suggestions.join(", ")}?`)}`;
+					text += `\n  ${theme.fg("error", r.error.substring(0, 60))}`;
+					if (r.error.length > 60) text += theme.fg("dim", "...");
 				}
 			}
+			if (details.results.length > 3) {
+				text += `\n${theme.fg("muted", `... +${details.results.length - 3} more`)}`;
+			}
 
-			if (expanded) {
-				const answer = details.results.find((r) => r.answer)?.answer;
-				if (answer) {
-					text += `\n\n${theme.fg("muted", "─── Answer ───")}`;
-					// Show first few lines
-					const lines = answer.split("\n").slice(0, 20);
-					for (const line of lines) {
-						text += `\n${theme.fg("toolOutput", line)}`;
-					}
-					if (answer.split("\n").length > 20) {
-						text += `\n${theme.fg("dim", "... (truncated)")}`;
-					}
-				}
+			if (hasAnswer) {
+				text += `\n${theme.fg("dim", "(Ctrl+O to expand)")}`;
 			}
 
 			return new Text(text, 0, 0);
