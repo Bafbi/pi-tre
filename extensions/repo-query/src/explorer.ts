@@ -69,6 +69,33 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 			let wasAborted = false;
 
+			// Append text without duplicating when the same full text arrives
+			// from both text_delta (incremental or full) and message_end (full).
+			const safeAppendText = (text: string) => {
+				if (!text) return;
+				if (answerText === text || answerText.endsWith(text)) return;
+				if (text.startsWith(answerText) && text.length > answerText.length) {
+					answerText = text;
+					return;
+				}
+				answerText += text;
+			};
+			const safeAppendThinking = (text: string) => {
+				if (!text) return;
+				if (thinkingText === text || thinkingText.endsWith(text)) return;
+				if (text.startsWith(thinkingText) && text.length > thinkingText.length) {
+					thinkingText = text;
+					return;
+				}
+				thinkingText += text;
+			};
+			const emitUpdate = () => {
+				onUpdate?.({
+					content: [{ type: "text", text: answerText || "(exploring...)" }],
+					details: { answer: answerText, thought: thinkingText },
+				});
+			};
+
 			proc.stdout.on("data", (data: Buffer) => {
 				buffer += data.toString();
 				const lines = buffer.split("\n");
@@ -76,20 +103,13 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				for (const line of lines) {
 					processSubagentLine(
 						line,
-						(delta) => {
-							answerText += delta;
-							onUpdate?.({
-								content: [{ type: "text", text: answerText || "(exploring...)" }],
-								details: { answer: answerText, thought: thinkingText },
-							});
+						(text) => {
+							safeAppendText(text);
+							emitUpdate();
 						},
-						(delta) => {
-							thinkingText += delta;
-							// Also stream when thinking updates so caller sees activity
-							onUpdate?.({
-								content: [{ type: "text", text: answerText || "(exploring...)" }],
-								details: { answer: answerText, thought: thinkingText },
-							});
+						(text) => {
+							safeAppendThinking(text);
+							emitUpdate();
 						},
 					);
 				}
@@ -103,11 +123,11 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				if (buffer.trim()) {
 					processSubagentLine(
 						buffer,
-						(delta) => {
-							answerText += delta;
+						(text) => {
+							safeAppendText(text);
 						},
-						(delta) => {
-							thinkingText += delta;
+						(text) => {
+							safeAppendThinking(text);
 						},
 					);
 				}
