@@ -17,6 +17,7 @@ auto = true
 
 [tasks.lint]
 description = "Run Biome lint checks"
+depends = ["format"]
 run = "pnpm lint"
 
 [tasks.format]
@@ -25,10 +26,12 @@ run = "pnpm format"
 
 [tasks.typecheck]
 description = "Type-check all workspace packages"
+depends = ["format"]
 run = "pnpm typecheck"
 
 [tasks.test]
 description = "Run test suite"
+depends = ["format"]
 run = "pnpm test"
 
 [tasks.test_watch]
