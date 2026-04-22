@@ -447,18 +447,10 @@ export default function (pi: ExtensionAPI) {
 					r.status === "skipped",
 			);
 
-			// Streaming / partial state — show header + repos + last 5 lines of thought
+			// Streaming / partial state — repo status + last 5 thought lines
+			// (Header with repos/query is already shown by renderCall above)
 			if (isPartial) {
-				const repoList = details.results
-					.map((r) => {
-						const m = r.identifier.match(/[:@]([^/]+)$/);
-						return m ? r.identifier.slice(0, -m[0].length) : r.identifier;
-					})
-					.join(", ");
-
-				let text = theme.fg("toolTitle", theme.bold("repo_query "));
-				text += theme.fg("dim", repoList);
-				text += `\n  ${theme.fg("muted", `"${details.query}"`)}`;
+				let text = "";
 
 				for (const r of details.results) {
 					const activity =
@@ -494,7 +486,7 @@ export default function (pi: ExtensionAPI) {
 						text += `\n${theme.fg("dim", "...")}`;
 					}
 					for (const line of lastLines) {
-						text += `\n${theme.fg("thinkingText", "💭")} ${theme.fg("dim", line.trim())}`;
+						text += `\n  ${theme.fg("dim", line.trim())}`;
 					}
 				}
 
