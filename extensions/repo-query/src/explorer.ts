@@ -41,7 +41,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 	const systemPrompt = buildSystemPrompt(repos, query, isSingle);
 
-	const args = ["--mode", "json", "-p", "--no-session", "--tools", "read,grep,find,ls,bash", "--cwd", cwd];
+	const args = ["--mode", "json", "-p", "--no-session", "--tools", "read,grep,find,ls,bash"];
 
 	// Write system prompt to temp file
 	const tmpDir = await mkdtemp(join(tmpdir(), "pi-rq-agent-"));
