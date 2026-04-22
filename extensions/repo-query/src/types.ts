@@ -33,6 +33,7 @@ export interface RepoQueryDetails {
 	workspacePath: string;
 	results: RepoResult[];
 	phase: RepoQueryPhase;
+	thought?: string;
 }
 
 export interface ValidationResult {

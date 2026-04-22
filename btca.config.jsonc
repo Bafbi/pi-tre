@@ -8,6 +8,12 @@
 			"url": "https://github.com/badlogic/pi-mono",
 			"branch": "main",
 			"specialNotes": "AI agent toolkit: coding agent CLI, unified LLM API, TUI & web UI libraries, Slack bot, vLLM pods"
+		},
+		{
+			"type": "git",
+			"name": "better-context",
+			"url": "https://github.com/davis7dotsh/better-context",
+			"branch": "main"
 		}
 	],
 	"model": "claude-haiku-4.5",

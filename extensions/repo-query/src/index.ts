@@ -148,11 +148,35 @@ export default function (pi: ExtensionAPI) {
 			const results: RepoResult[] = [];
 			const reposToExplore: Array<{ parsed: ReturnType<typeof parseRepoIdentifier>; dirName: string }> = [];
 
+			const buildThought = (phase: RepoQueryPhase): string => {
+				const names = params.repos
+					.slice(0, 2)
+					.map((r) => {
+						const m = r.match(/[:@]([^/]+)$/);
+						return m ? r.slice(0, -m[0].length) : r;
+					})
+					.join(", ");
+				const rest = params.repos.length > 2 ? ` and ${params.repos.length - 2} more` : "";
+				switch (phase) {
+					case "parsing":
+						return `Looking up ${names}${rest}...`;
+					case "validating":
+						return `Checking ${names}${rest} on GitHub...`;
+					case "cloning":
+						return `Cloning ${names}${rest} to search for "${params.query}"...`;
+					case "exploring":
+						return `Searching ${names}${rest} for "${params.query}"...`;
+					case "complete":
+						return `Done exploring ${names}${rest}.`;
+				}
+			};
+
 			const makeDetails = (phase: RepoQueryPhase): RepoQueryDetails => ({
 				query: params.query,
 				workspacePath: workspace,
 				results: [...results],
 				phase,
+				thought: buildThought(phase),
 			});
 
 			const emitPhase = (phase: RepoQueryPhase) => {
@@ -418,26 +442,15 @@ export default function (pi: ExtensionAPI) {
 					r.status === "skipped",
 			);
 
-			// Streaming / partial state — show live activity trace
+			// Streaming / partial state — show thinking phrase + live activity trace
 			if (isPartial) {
-				const phaseLabel =
-					details.phase === "parsing"
-						? "parsing identifiers..."
-						: details.phase === "validating"
-							? "validating GitHub repos..."
-							: details.phase === "cloning"
-								? "cloning repositories..."
-								: details.phase === "exploring"
-									? "exploring with subagent..."
-									: "working...";
-
-				let text = theme.fg("toolTitle", theme.bold("repo_query "));
-				text += theme.fg("warning", `⏳ ${phaseLabel}`);
+				const thought = details.thought ?? "Working...";
+				let text = `${theme.fg("thinkingText", "💭")} ${theme.fg("dim", thought)}`;
 
 				for (const r of details.results) {
 					const activity =
 						r.status === "success"
-							? theme.fg("dim", "cloned")
+							? theme.fg("dim", "ready")
 							: r.status === "archived"
 								? theme.fg("warning", "archived")
 								: r.status === "not_found"
@@ -458,6 +471,16 @@ export default function (pi: ExtensionAPI) {
 						text += `\n    ${theme.fg("dim", `→ did you mean: ${r.suggestions[0]}?`)}`;
 					}
 				}
+
+				// During exploration, stream partial answer preview
+				if (details.phase === "exploring") {
+					const partialAnswer = details.results.find((r) => r.answer)?.answer;
+					if (partialAnswer) {
+						const preview = partialAnswer.slice(0, 180).replace(/\n/g, " ");
+						text += `\n\n${theme.fg("dim", `${preview}...`)}`;
+					}
+				}
+
 				return new Text(text, 0, 0);
 			}
 
