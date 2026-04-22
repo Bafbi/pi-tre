@@ -143,6 +143,20 @@ extensions/repo-query/
 │   └── generate-schema.ts  # Schema generator from TypeBox
 ├── repo-query.schema.json  # Generated JSON Schema
 └── test/
-    ├── unit/          # Unit tests (github, config)
+    ├── unit/          # Unit tests (github, config, clone)
     └── integration/   # Integration tests via ExtensionRunner
+```
+
+## Testing
+
+Unit tests mock external boundaries (GitHub API via Octokit, `pi.exec` for git operations). Integration tests use `ExtensionRunner` from `@mariozechner/pi-coding-agent` to run the full extension with mocked explorers and HTTP APIs. The workspace cache is cleared between tests to avoid cross-test pollution.
+
+### Clone behavior
+
+`ensureRepoCloned` handles three outcomes:
+- **existing** — `.git` already present in workspace (reused across session queries)
+- **cloned** — shallow clone succeeded
+- **failed** — all branches failed, returns error with attempted branch list
+
+Unit tests in `test/unit/clone.test.ts` cover all three paths plus branch fallback order. Integration tests in `test/integration/extension-runner.test.ts` verify real `git clone` from a local source repo into the session workspace.
 ```

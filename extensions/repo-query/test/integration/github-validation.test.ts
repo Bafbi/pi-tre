@@ -14,6 +14,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 
 import { setTestExplorerImpl } from "../../src/explorer.js";
+import { clearWorkspaceCache } from "../../src/workspace.js";
 
 const tempDirs: string[] = [];
 
@@ -38,6 +39,8 @@ afterEach(async () => {
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
 	}
+	setTestExplorerImpl(undefined);
+	clearWorkspaceCache();
 });
 
 interface FetchMockConfig {
