@@ -2,13 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loadRepoQueryConfig, resolveModel } from "../../src/config.js";
 import type { ParsedRepo } from "../../src/types.js";
 
 const tempDirs: string[] = [];
-let originalAgentDir: string | undefined;
 
 function makeTempDir(): string {
 	const dir = mkdtempSync(join(tmpdir(), "repo-query-config-test-"));
@@ -17,25 +16,20 @@ function makeTempDir(): string {
 }
 
 beforeEach(() => {
-	originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+	vi.unstubAllEnvs();
 });
 
 afterEach(async () => {
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
 	}
-	if (originalAgentDir === undefined) {
-		// biome-ignore lint/performance/noDelete: process.env values are always strings; delete is required to truly remove a key
-		delete process.env.PI_CODING_AGENT_DIR;
-	} else {
-		process.env.PI_CODING_AGENT_DIR = originalAgentDir;
-	}
+	vi.unstubAllEnvs();
 });
 
 describe("loadRepoQueryConfig", () => {
 	it("returns empty config when no files exist", () => {
 		const agentDir = makeTempDir();
-		process.env.PI_CODING_AGENT_DIR = agentDir;
+		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
 
 		const cwd = makeTempDir();
 		const config = loadRepoQueryConfig(cwd);
@@ -44,7 +38,7 @@ describe("loadRepoQueryConfig", () => {
 
 	it("loads project-local config", () => {
 		const agentDir = makeTempDir();
-		process.env.PI_CODING_AGENT_DIR = agentDir;
+		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
 
 		const cwd = makeTempDir();
 		mkdirSync(join(cwd, ".pi", "extensions"), { recursive: true });
@@ -60,7 +54,7 @@ describe("loadRepoQueryConfig", () => {
 
 	it("merges global and project config with project taking precedence", () => {
 		const agentDir = makeTempDir();
-		process.env.PI_CODING_AGENT_DIR = agentDir;
+		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
 
 		// Global config
 		mkdirSync(join(agentDir, "extensions"), { recursive: true });
@@ -109,18 +103,10 @@ describe("resolveModel", () => {
 	});
 
 	it("returns undefined when nothing matches and TEST_MODEL is unset", () => {
-		const original = process.env.TEST_MODEL;
-		// biome-ignore lint/performance/noDelete: process.env values are always strings; delete is required to truly remove a key
-		delete process.env.TEST_MODEL;
-		try {
-			const config = {};
-			const repos = [{ displayName: "foo/bar" }] as ParsedRepo[];
-			expect(resolveModel(config, repos)).toBeUndefined();
-		} finally {
-			if (original !== undefined) {
-				process.env.TEST_MODEL = original;
-			}
-		}
+		vi.stubEnv("TEST_MODEL", undefined);
+		const config = {};
+		const repos = [{ displayName: "foo/bar" }] as ParsedRepo[];
+		expect(resolveModel(config, repos)).toBeUndefined();
 	});
 
 	it("handles empty repos array", () => {
@@ -129,19 +115,9 @@ describe("resolveModel", () => {
 	});
 
 	it("falls back to TEST_MODEL env var when no config match", () => {
-		const original = process.env.TEST_MODEL;
-		process.env.TEST_MODEL = "env-model";
-		try {
-			const config = {};
-			const repos = [{ displayName: "foo/bar" }] as ParsedRepo[];
-			expect(resolveModel(config, repos)).toBe("env-model");
-		} finally {
-			if (original === undefined) {
-				// biome-ignore lint/performance/noDelete: process.env values are always strings; delete is required to truly remove a key
-				delete process.env.TEST_MODEL;
-			} else {
-				process.env.TEST_MODEL = original;
-			}
-		}
+		vi.stubEnv("TEST_MODEL", "env-model");
+		const config = {};
+		const repos = [{ displayName: "foo/bar" }] as ParsedRepo[];
+		expect(resolveModel(config, repos)).toBe("env-model");
 	});
 });
