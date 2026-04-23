@@ -1,17 +1,15 @@
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import {
 	AuthStorage,
+	discoverAndLoadExtensions,
 	ExtensionRunner,
 	ModelRegistry,
 	SessionManager,
-	discoverAndLoadExtensions,
 } from "@mariozechner/pi-coding-agent";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setTestCloneImpl } from "../../src/clone.js";
 import { setTestExplorerImpl } from "../../src/explorer.js";

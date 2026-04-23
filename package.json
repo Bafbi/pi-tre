@@ -14,14 +14,14 @@
 	"pi": {
 		"extensions": [
 			"./extensions/stale-write-guard/src/index.ts",
-			"./extensions/leaf-copy/src/index.ts"
+			"./extensions/leaf-copy/src/index.ts",
+			"./extensions/repo-query/src/index.ts"
 		]
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^1.9.4",
-		"@mariozechner/pi-coding-agent": "^0.64.0",
-		"@types/node": "^22.15.2",
-		"typescript": "^5.8.3",
+		"@mariozechner/pi-coding-agent": "^0.68",
+		"@types/node": "^25",
+		"typescript": "^6",
 		"vitest": "^3.2.4"
 	}
 }

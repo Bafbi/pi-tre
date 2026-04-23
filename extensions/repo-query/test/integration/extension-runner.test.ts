@@ -2,16 +2,14 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-
-import { afterEach, describe, expect, it } from "vitest";
-
 import {
 	AuthStorage,
+	discoverAndLoadExtensions,
 	ExtensionRunner,
 	ModelRegistry,
 	SessionManager,
-	discoverAndLoadExtensions,
 } from "@mariozechner/pi-coding-agent";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { setTestExplorerImpl } from "../../src/explorer.js";
 import { clearWorkspaceCache } from "../../src/workspace.js";

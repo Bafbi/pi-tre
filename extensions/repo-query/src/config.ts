@@ -86,7 +86,7 @@ export function loadRepoQueryConfig(cwd: string): RepoQueryConfig {
 export function resolveModel(config: RepoQueryConfig, repos: ParsedRepo[]): string | undefined {
 	if (repos.length > 0) {
 		const firstRepo = repos[0];
-		if (firstRepo && config.models && Object.prototype.hasOwnProperty.call(config.models, firstRepo.displayName)) {
+		if (firstRepo && config.models && Object.hasOwn(config.models, firstRepo.displayName)) {
 			const value = config.models[firstRepo.displayName];
 			if (typeof value === "string" && value.length > 0) {
 				return value;

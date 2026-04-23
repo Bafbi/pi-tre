@@ -99,7 +99,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				stdio: ["ignore", "pipe", "pipe"],
 			});
 
-			let wasAborted = false;
+			let _wasAborted = false;
 
 			// Append text without duplicating when the same full text arrives
 			// from both text_delta (incremental or full) and message_end (full).
@@ -181,7 +181,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 			if (signal) {
 				const killProc = () => {
-					wasAborted = true;
+					_wasAborted = true;
 					clearTimer();
 					proc.kill("SIGTERM");
 					setTimeout(() => {
