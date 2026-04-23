@@ -17,6 +17,7 @@ import { setTestExplorerImpl } from "../../src/explorer.js";
 import { clearWorkspaceCache } from "../../src/workspace.js";
 
 const tempDirs: string[] = [];
+const workspacesToClean: string[] = [];
 
 function makeRunnerCwd(): string {
 	const dir = mkdtempSync(join(tmpdir(), "repo-query-ext-test-"));
@@ -38,6 +39,9 @@ async function createRunner(cwd: string): Promise<ExtensionRunner> {
 afterEach(async () => {
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
+	}
+	for (const ws of workspacesToClean.splice(0)) {
+		await rm(ws, { recursive: true, force: true });
 	}
 	setTestExplorerImpl(undefined);
 	clearWorkspaceCache();
@@ -100,7 +104,12 @@ describe("repo-query extension", () => {
 		expect(text.length).toBeGreaterThan(0);
 		expect(text).toContain("README.md");
 
-		const details = result.details as { results: Array<{ status: string }> };
+		const details = result.details as { results: Array<{ status: string }>; workspacePath: string };
 		expect(details.results[0]?.status).toBe("success");
+
+		// Track workspace for cleanup
+		if (details.workspacePath) {
+			workspacesToClean.push(details.workspacePath);
+		}
 	}, 30000);
 });
