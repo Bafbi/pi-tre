@@ -77,6 +77,30 @@ describe("processSubagentLine", () => {
 		expect(answers).toEqual(["final answer"]);
 	});
 
+	it("handles mixed stream of text_delta followed by message_end without duplicated callback arguments", () => {
+		const answers: string[] = [];
+		processSubagentLine(
+			JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Hello " } }),
+			(text) => answers.push(text),
+			() => {},
+		);
+		processSubagentLine(
+			JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "world" } }),
+			(text) => answers.push(text),
+			() => {},
+		);
+		processSubagentLine(
+			JSON.stringify({
+				type: "message_end",
+				message: { role: "assistant", content: [{ type: "text", text: "Hello world" }] },
+			}),
+			(text) => answers.push(text),
+			() => {},
+		);
+		expect(answers).toEqual(["Hello ", "world", "Hello world"]);
+		expect(new Set(answers).size).toBe(answers.length);
+	});
+
 	it("ignores message_end when content is missing", () => {
 		const answers: string[] = [];
 		processSubagentLine(

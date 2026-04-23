@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { validateGitHubRepo } from "../../src/github.js";
 
-const mockReposGet = vi.fn();
-const mockSearchRepos = vi.fn();
+const mockReposGet = vi.hoisted(() => vi.fn());
+const mockSearchRepos = vi.hoisted(() => vi.fn());
 
 vi.mock("@octokit/rest", () => ({
 	Octokit: vi.fn().mockImplementation(() => ({
