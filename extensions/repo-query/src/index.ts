@@ -481,7 +481,7 @@ export default function (pi: ExtensionAPI) {
 			// Streaming / partial state — repo status + last 5 thought lines
 			// (Header with repos/query is already shown by renderCall above)
 			if (isPartial) {
-				let text = "";
+				const lines: string[] = [];
 
 				for (const r of details.results) {
 					const activity =
@@ -502,26 +502,26 @@ export default function (pi: ExtensionAPI) {
 							: r.status === "not_found" || r.status === "clone_failed" || r.status === "skipped"
 								? theme.fg("error", "✗")
 								: theme.fg("warning", "⏳");
-					text += `\n  ${icon} ${theme.fg("accent", r.identifier)} ${activity}`;
+					lines.push(`  ${icon} ${theme.fg("accent", r.identifier)} ${activity}`);
 					if (r.suggestions && r.suggestions.length > 0) {
-						text += `\n    ${theme.fg("dim", `→ did you mean: ${r.suggestions[0]}?`)}`;
+						lines.push(`    ${theme.fg("dim", `→ did you mean: ${r.suggestions[0]}?`)}`);
 					}
 				}
 
 				// Show last 5 lines of subagent thought
 				const thought = details.thought ?? "";
 				if (thought) {
-					const lines = thought.split("\n").filter((l) => l.trim());
-					const lastLines = lines.slice(-5);
-					if (lines.length > 5) {
-						text += `\n${theme.fg("dim", "...")}`;
+					const thoughtLines = thought.split("\n").filter((l) => l.trim());
+					const lastLines = thoughtLines.slice(-5);
+					if (thoughtLines.length > 5) {
+						lines.push(theme.fg("dim", "..."));
 					}
 					for (const line of lastLines) {
-						text += `\n  ${theme.fg("dim", line.trim())}`;
+						lines.push(`  ${theme.fg("dim", line.trim())}`);
 					}
 				}
 
-				return new Text(text, 0, 0);
+				return new Text(lines.join("\n"), 0, 0);
 			}
 
 			// Expanded view: rich layout with Container + Markdown

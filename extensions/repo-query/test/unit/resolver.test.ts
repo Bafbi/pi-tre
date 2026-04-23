@@ -169,4 +169,57 @@ describe("parseRepoIdentifier", () => {
 		expect(result.branch).toBe("main");
 		expect(result.displayName).toBe("foo/bar");
 	});
+
+	it("parses bare github.com URL as HTTPS", () => {
+		const result = parseRepoIdentifier("github.com/biomejs/biome");
+		expect(result.host).toBe("github");
+		expect(result.cloneUrl).toBe("https://github.com/biomejs/biome.git");
+		expect(result.displayName).toBe("biomejs/biome");
+		expect(result.branch).toBeNull();
+		expect(result.owner).toBe("biomejs");
+		expect(result.repo).toBe("biome");
+		expect(result.dirName).toBe("github_biomejs_biome");
+	});
+
+	it("parses bare github.com URL with colon branch", () => {
+		const result = parseRepoIdentifier("github.com/biomejs/biome:main");
+		expect(result.host).toBe("github");
+		expect(result.cloneUrl).toBe("https://github.com/biomejs/biome.git");
+		expect(result.branch).toBe("main");
+		expect(result.displayName).toBe("biomejs/biome");
+		expect(result.dirName).toBe("github_biomejs_biome-main");
+	});
+
+	it("parses bare github.com URL with at-sign branch", () => {
+		const result = parseRepoIdentifier("github.com/biomejs/biome@main");
+		expect(result.host).toBe("github");
+		expect(result.cloneUrl).toBe("https://github.com/biomejs/biome.git");
+		expect(result.branch).toBe("main");
+		expect(result.displayName).toBe("biomejs/biome");
+	});
+
+	it("parses bare gitlab.com URL as HTTPS", () => {
+		const result = parseRepoIdentifier("gitlab.com/foo/bar");
+		expect(result.host).toBe("gitlab");
+		expect(result.cloneUrl).toBe("https://gitlab.com/foo/bar.git");
+		expect(result.displayName).toBe("foo/bar");
+		expect(result.owner).toBe("foo");
+		expect(result.repo).toBe("bar");
+	});
+
+	it("parses bare github.com URL with .git suffix", () => {
+		const result = parseRepoIdentifier("github.com/biomejs/biome.git");
+		expect(result.host).toBe("github");
+		expect(result.cloneUrl).toBe("https://github.com/biomejs/biome.git");
+		expect(result.displayName).toBe("biomejs/biome");
+		expect(result.repo).toBe("biome");
+	});
+
+	it("parses bare github.com URL with trailing slash", () => {
+		const result = parseRepoIdentifier("github.com/biomejs/biome/");
+		expect(result.host).toBe("github");
+		expect(result.cloneUrl).toBe("https://github.com/biomejs/biome.git");
+		expect(result.displayName).toBe("biomejs/biome");
+		expect(result.repo).toBe("biome");
+	});
 });

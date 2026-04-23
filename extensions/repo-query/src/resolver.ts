@@ -7,6 +7,7 @@ import type { ParsedRepo } from "./types.js";
  *
  * Supports:
  *   - GitHub shorthand: "owner/repo" or "owner/repo:branch" or "owner/repo@branch"
+ *   - Bare hostname shorthand: "github.com/owner/repo" or "host.com/owner/repo:branch"
  *   - Full URLs: "https://host.com/path/to/repo" or "git@host.com:path/to/repo"
  *   - With branch suffix: URL ":branch" or URL "@branch"
  */
@@ -44,6 +45,11 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 
 	if (raw.startsWith("git@")) {
 		return parseSshUrl(raw, input, explicitBranch);
+	}
+
+	// Bare hostname shorthand: "github.com/owner/repo" → HTTPS
+	if (/^[\w.-]+\.[\w.-]+\/[\w.-]+\/[\w.-]+/.test(raw)) {
+		return parseHttpUrl(`https://${raw}`, input, explicitBranch);
 	}
 
 	// GitHub shorthand: "owner/repo"
