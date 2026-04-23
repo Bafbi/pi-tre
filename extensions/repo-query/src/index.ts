@@ -24,10 +24,19 @@ import {
 import { runExplorer } from "./explorer.js";
 import { validateGitHubRepo } from "./github.js";
 import { parseRepoIdentifier } from "./resolver.js";
-import type { RepoQueryDetails, RepoQueryPhase, RepoResult } from "./types.js";
+import type { RepoQueryDetails, RepoQueryPhase, RepoResult, ValidationResult } from "./types.js";
 import { clearWorkspaceCache, getWorkspacePath } from "./workspace.js";
 
 const MAX_REPOS = 5;
+
+function formatRepoDisplayName(raw: string): { display: string; branch: string | null } {
+	try {
+		const parsed = parseRepoIdentifier(raw);
+		return { display: parsed.displayName, branch: parsed.branch };
+	} catch {
+		return { display: raw, branch: null };
+	}
+}
 
 const RepoQueryParams = Type.Object({
 	query: Type.String({
@@ -46,6 +55,7 @@ export default function (pi: ExtensionAPI) {
 	// Track active temp directories for emergency cleanup
 	const activeWorkspaces = new Set<string>();
 	const debug = createDebugState();
+	const validationCache = new Map<string, ValidationResult>();
 
 	pi.on("session_start", async (_event, ctx) => {
 		debug.events.length = 0;
@@ -154,10 +164,7 @@ export default function (pi: ExtensionAPI) {
 			const buildThought = (phase: RepoQueryPhase): string => {
 				const names = params.repos
 					.slice(0, 2)
-					.map((r) => {
-						const m = r.match(/[:@]([^/]+)$/);
-						return m ? r.slice(0, -m[0].length) : r;
-					})
+					.map((r) => formatRepoDisplayName(r).display)
 					.join(", ");
 				const rest = params.repos.length > 2 ? ` and ${params.repos.length - 2} more` : "";
 				switch (phase) {
@@ -218,9 +225,35 @@ export default function (pi: ExtensionAPI) {
 				// GitHub-specific validation
 				if (parsed.host === "github" && parsed.owner && parsed.repo) {
 					emitPhase("validating");
-					try {
-						addDebugEvent(debug, `github validate: ${parsed.owner}/${parsed.repo}`, ctx);
-						const validation = await validateGitHubRepo(parsed.owner, parsed.repo);
+					let validation: ValidationResult | undefined;
+					const cacheKey = `${parsed.owner}/${parsed.repo}`;
+					const cached = validationCache.get(cacheKey);
+					if (cached) {
+						validation = cached;
+						addDebugEvent(debug, `github validate (cached): ${parsed.owner}/${parsed.repo}`, ctx);
+					} else {
+						try {
+							addDebugEvent(debug, `github validate: ${parsed.owner}/${parsed.repo}`, ctx);
+							validation = await validateGitHubRepo(parsed.owner, parsed.repo);
+							validationCache.set(cacheKey, validation);
+						} catch (err) {
+							// GitHub API failure — don't block, proceed with clone attempt
+							addDebugEvent(
+								debug,
+								`github api error: ${parsed.displayName} → ${err instanceof Error ? err.message : String(err)}`,
+								ctx,
+							);
+							results.push({
+								identifier: raw,
+								status: "skipped",
+								cloneUrl: parsed.cloneUrl,
+								warnings: [
+									`GitHub API check failed: ${err instanceof Error ? err.message : String(err)}. Proceeding with clone attempt.`,
+								],
+							});
+						}
+					}
+					if (validation) {
 						if (!validation.valid) {
 							addDebugEvent(
 								debug,
@@ -250,21 +283,6 @@ export default function (pi: ExtensionAPI) {
 							trackRepo(debug, raw, { status: "archived", cloned: false });
 							// Still add to explore list
 						}
-					} catch (err) {
-						// GitHub API failure — don't block, proceed with clone attempt
-						addDebugEvent(
-							debug,
-							`github api error: ${parsed.displayName} → ${err instanceof Error ? err.message : String(err)}`,
-							ctx,
-						);
-						results.push({
-							identifier: raw,
-							status: "skipped",
-							cloneUrl: parsed.cloneUrl,
-							warnings: [
-								`GitHub API check failed: ${err instanceof Error ? err.message : String(err)}. Proceeding with clone attempt.`,
-							],
-						});
 					}
 				}
 
@@ -313,6 +331,10 @@ export default function (pi: ExtensionAPI) {
 					});
 					trackRepo(debug, parsed.raw, { status: "cloned", cloned: true, branch: parsed.branch });
 				} else {
+					if (existing.status !== "archived") {
+						existing.status = "success";
+					}
+					existing.localPath = `${workspace}/${parsed.dirName}`;
 					trackRepo(debug, parsed.raw, { status: existing.status, cloned: true, branch: parsed.branch });
 				}
 				emitPhase("cloning");
@@ -410,25 +432,21 @@ export default function (pi: ExtensionAPI) {
 				maxBytes: DEFAULT_MAX_BYTES,
 			});
 
-			const hasErrors = results.some(
-				(r) => r.status === "not_found" || r.status === "clone_failed" || r.status === "exploration_failed",
-			);
+			const hasSuccessfulAnswer = results.some((r) => (r.status === "success" || r.status === "archived") && r.answer);
 
-			addDebugEvent(debug, `execute complete: ${hasErrors ? "with errors" : "success"}`, ctx);
+			addDebugEvent(debug, `execute complete: ${hasSuccessfulAnswer ? "success" : "with errors"}`, ctx);
 
 			return {
 				content: [{ type: "text", text: truncation.content }],
 				details: makeDetails("complete"),
-				isError: hasErrors && readyRepos.length === 0,
+				isError: !hasSuccessfulAnswer,
 			};
 		},
 
 		renderCall(args, theme, _context) {
 			const repoList = args.repos.slice(0, 3).map((r: string) => {
-				const branchMatch = r.match(/[:@]([^/]+)$/);
-				const base = branchMatch ? r.slice(0, -branchMatch[0].length) : r;
-				const branch = branchMatch ? branchMatch[1] : null;
-				return branch ? `${base}:${theme.fg("dim", branch)}` : base;
+				const { display, branch } = formatRepoDisplayName(r);
+				return branch ? `${display}:${theme.fg("dim", branch)}` : display;
 			});
 			let repoText = repoList.join(", ");
 			if (args.repos.length > 3) {

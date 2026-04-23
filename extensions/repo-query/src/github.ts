@@ -2,16 +2,11 @@ import { Octokit } from "@octokit/rest";
 
 import type { ValidationResult } from "./types.js";
 
-let octokitInstance: Octokit | null = null;
-
 function getOctokit(): Octokit {
-	if (!octokitInstance) {
-		octokitInstance = new Octokit({
-			auth: process.env.GITHUB_TOKEN,
-			request: { fetch },
-		});
-	}
-	return octokitInstance;
+	return new Octokit({
+		auth: process.env.GITHUB_TOKEN,
+		request: { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) },
+	});
 }
 
 /**
@@ -29,12 +24,12 @@ export async function validateGitHubRepo(owner: string, repo: string): Promise<V
 		return { valid: true, archived: data.archived, warning };
 	} catch (err: unknown) {
 		const status = (err as { status?: number }).status;
-		if (status === 404 || status === 403) {
+		if (status === 404) {
 			// Try searching for similar repos
 			const suggestions = await searchGitHubRepos(repo, owner);
 			return { valid: false, suggestions };
 		}
-		// Other error (rate limit, network) — re-throw to let caller handle
+		// 403, rate limit, network, or any other error — re-throw to let caller handle
 		throw err;
 	}
 }

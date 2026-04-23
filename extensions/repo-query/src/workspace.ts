@@ -19,6 +19,11 @@ let cachedWorkspace: string | null = null;
 export async function getWorkspacePath(ctx: ExtensionContext): Promise<string> {
 	// In-memory cache for this extension runtime
 	if (cachedWorkspace) {
+		if (existsSync(cachedWorkspace)) {
+			return cachedWorkspace;
+		}
+		// Directory was cleaned (e.g., /tmp cleared); recreate
+		await mkdir(cachedWorkspace, { recursive: true });
 		return cachedWorkspace;
 	}
 

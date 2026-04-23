@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 
 import type { ParsedRepo } from "./types.js";
 
@@ -27,13 +28,23 @@ function loadConfigFile(path: string): RepoQueryConfig {
 	try {
 		const content = readFileSync(path, "utf-8");
 		const parsed = JSON.parse(content) as unknown;
-		if (typeof parsed === "object" && parsed !== null) {
-			return parsed as RepoQueryConfig;
+		if (typeof parsed !== "object" || parsed === null) {
+			console.error(`[repo-query] Config file at ${path} is not a JSON object.`);
+			return {};
 		}
-	} catch {
-		/* ignore malformed config */
+		if (!Value.Check(RepoQueryConfigSchema, parsed)) {
+			const errors = Array.from(Value.Errors(RepoQueryConfigSchema, parsed));
+			const errorDetails = errors.map((e) => `${e.path}: ${e.message}`).join("; ");
+			console.error(`[repo-query] Config file at ${path} has validation errors: ${errorDetails}`);
+			return {};
+		}
+		return parsed as RepoQueryConfig;
+	} catch (err) {
+		console.error(
+			`[repo-query] Failed to parse config file at ${path}: ${err instanceof Error ? err.message : String(err)}`,
+		);
+		return {};
 	}
-	return {};
 }
 
 /**
@@ -65,7 +76,8 @@ export function loadRepoQueryConfig(cwd: string): RepoQueryConfig {
  * Resolution order:
  * 1. Per-repo config matching the first repo's display name
  * 2. `defaultModel` from config
- * 3. undefined (subagent uses its own default)
+ * 3. `TEST_MODEL` environment variable
+ * 4. undefined (subagent uses its own default)
  *
  * For multi-repo queries, only the first repo is checked for a per-repo
  * override. If you need different models for different repos, make separate
@@ -74,8 +86,11 @@ export function loadRepoQueryConfig(cwd: string): RepoQueryConfig {
 export function resolveModel(config: RepoQueryConfig, repos: ParsedRepo[]): string | undefined {
 	if (repos.length > 0) {
 		const firstRepo = repos[0];
-		if (firstRepo && config.models?.[firstRepo.displayName]) {
-			return config.models[firstRepo.displayName];
+		if (firstRepo && config.models && Object.prototype.hasOwnProperty.call(config.models, firstRepo.displayName)) {
+			const value = config.models[firstRepo.displayName];
+			if (typeof value === "string" && value.length > 0) {
+				return value;
+			}
 		}
 	}
 
