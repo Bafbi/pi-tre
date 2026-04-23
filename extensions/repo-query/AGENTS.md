@@ -16,7 +16,7 @@ Allow Pi agents to query code across external git repositories by cloning them i
 
 The resolver accepts:
 - GitHub shorthand: `owner/repo`, `owner/repo:branch`, `owner/repo@branch`
-- Full URLs: `https://host.com/path`, `https://host.com/path@branch`
+- Full URLs: `https://host.com/path`, `https://host.com/path@branch`, `https://host.com/path:branch`
 - SSH URLs: `git@host.com:path.git`
 
 Branch suffixes (`:` or `@`) are stripped before URL parsing. The colon form takes precedence.
@@ -37,10 +37,47 @@ Branch suffixes (`:` or `@`) are stripped before URL parsing. The colon form tak
 - Output limit: 4000 chars truncated with ellipsis notice
 - Timeout: 5 minutes
 
-## Implementation constraints
+## Testing
 
-- Keep GitHub API calls minimal (validate once per repo per session)
-- Support `GITHUB_TOKEN` env var for higher rate limits
-- Clone with branch fallback: explicit → `main` → `master`
-- Always cleanup temp prompt files even on failure
-- Store workspace path in tool result `details` for session reconstruction
+### Test philosophy
+
+Tests are split by concern and mock external boundaries so the suite runs fast and deterministically. Integration tests use `ExtensionRunner` from `@mariozechner/pi-coding-agent`; unit tests mock at the module boundary.
+
+### Mock registries (globalThis-based)
+
+Because jiti (extension loader) and native ESM (test imports) create separate module instances, in-memory caches (e.g., `cachedWorkspace`) are not shared. Test-only mock registries on `globalThis` bridge this gap:
+
+| Registry | Key | Purpose |
+|----------|-----|---------|
+| `setTestExplorerImpl` | `__repoQueryExplorerMock` | Short-circuit `runExplorer` before spawning a real pi subagent |
+| `setTestCloneImpl` | `__repoQueryCloneMock` | Short-circuit `ensureRepoCloned` before invoking real `git` |
+
+Integration tests that exercise the tool end-to-end set both mocks so no external process or network is hit.
+
+### `TEST_MODEL` environment variable
+
+`resolveModel` falls back to `TEST_MODEL` when no config file specifies a model. This is only relevant for tests that **remove** the explorer mock and spawn a real subagent. No existing tests do this — all tests mock the explorer. If you add a test that spawns a real subagent, gate it with `describe.skipIf(!process.env.TEST_MODEL)` or document the dependency.
+
+### Remote clone integration test
+
+`test/integration/clone-remote.test.ts` is the only test that hits real GitHub servers. It is conditionally skipped:
+
+- `git --version` must succeed
+- `git ls-remote https://github.com/biomejs/biome.git HEAD` must succeed
+
+The test uses `biomejs/biome` as the target repo and asserts:
+- `.git/shallow` exists (confirms shallow clone)
+- `package.json` exists (content sanity)
+- Second call reuses the same workspace path
+
+The test still mocks the explorer (`setTestExplorerImpl`) because subagent spawning requires a real pi process.
+
+### Running tests
+
+```bash
+# All tests (fast + remote clone if network available)
+mise run test
+
+# Fast tests only (skip remote clone)
+pnpm test -- --run --exclude="**/clone-remote.test.ts"
+```

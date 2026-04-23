@@ -20,14 +20,34 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 	const splitIndex = Math.max(lastColon, lastAt);
 
 	if (splitIndex > 0) {
-		// Make sure we're not splitting a protocol (http://, git@)
 		const before = raw.slice(0, splitIndex);
 		const after = raw.slice(splitIndex + 1);
-		// If before contains a protocol or looks like a host, this is likely a branch suffix
-		// Heuristic: if after has no slashes and isn't a URL path segment, treat as branch
-		if (after.length > 0 && !after.includes("/") && !after.includes(":")) {
-			raw = before;
-			explicitBranch = after;
+		const splitChar = raw[splitIndex];
+
+		if (after.length > 0) {
+			let isBranchSuffix = true;
+
+			// Guard against protocol/port/userinfo separators in URLs with ://
+			if (raw.includes("://")) {
+				const protocolEnd = raw.indexOf("://") + 3;
+				const firstSlashAfterProtocol = raw.indexOf("/", protocolEnd);
+				if (firstSlashAfterProtocol === -1 || splitIndex < firstSlashAfterProtocol) {
+					isBranchSuffix = false;
+				}
+			}
+
+			// Guard against SSH host delimiter in scp-like syntax (git@host:path)
+			if (isBranchSuffix && splitChar === ":" && raw.startsWith("git@")) {
+				const firstColonAfterPrefix = raw.indexOf(":", 4);
+				if (splitIndex === firstColonAfterPrefix) {
+					isBranchSuffix = false;
+				}
+			}
+
+			if (isBranchSuffix) {
+				raw = before;
+				explicitBranch = after;
+			}
 		}
 	}
 
@@ -86,6 +106,8 @@ function parseHttpUrl(raw: string, original: string, branch: string | null): Par
 		branch,
 		displayName: pathParts.join("/"),
 		dirName: sanitizeDirName(`${name}${branch ? `-${branch}` : ""}`),
+		owner: pathParts[0],
+		repo: name,
 	};
 }
 
@@ -109,6 +131,8 @@ function parseSshUrl(raw: string, original: string, branch: string | null): Pars
 		branch,
 		displayName: path,
 		dirName: sanitizeDirName(`${name}${branch ? `-${branch}` : ""}`),
+		owner: pathParts[0],
+		repo: name,
 	};
 }
 

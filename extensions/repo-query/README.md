@@ -15,7 +15,7 @@ Pi extension for querying code across one or more git repositories.
 
 ## Usage
 
-```
+```text
 Use repo_query to investigate how React and Vue handle component lifecycle
 ```
 
@@ -124,27 +124,6 @@ From repo root:
 ```bash
 mise run check
 mise run test
-```
-
-## Structure
-
-```
-extensions/repo-query/
-├── src/
-│   ├── index.ts       # Extension entry: tool registration + orchestration
-│   ├── resolver.ts    # Repo identifier parsing
-│   ├── github.ts      # GitHub API validation + search
-│   ├── workspace.ts   # Session-persistent workspace management
-│   ├── clone.ts       # Shallow clone logic
-│   ├── explorer.ts    # Subagent spawning
-│   ├── config.ts      # Config loading + model resolution
-│   └── types.ts       # Shared types
-├── scripts/
-│   └── generate-schema.ts  # Schema generator from TypeBox
-├── repo-query.schema.json  # Generated JSON Schema
-└── test/
-    ├── unit/          # Unit tests (github, config, clone)
-    └── integration/   # Integration tests via ExtensionRunner
 ```
 
 ## Testing

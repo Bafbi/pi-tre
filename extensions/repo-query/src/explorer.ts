@@ -29,6 +29,13 @@ interface ExplorationResult {
 	error?: string;
 }
 
+class TimeoutError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "TimeoutError";
+	}
+}
+
 const TEST_REGISTRY_KEY = "__repoQueryExplorerMock";
 
 function getMockExplorer(): ((options: SubagentOptions) => Promise<ExplorationResult>) | undefined {
@@ -38,7 +45,9 @@ function getMockExplorer(): ((options: SubagentOptions) => Promise<ExplorationRe
 }
 
 /** Test-only: inject a mock implementation for runExplorer. */
-export function setTestExplorerImpl(impl: typeof getMockExplorer): void {
+export function setTestExplorerImpl(
+	impl: ((options: SubagentOptions) => Promise<ExplorationResult>) | undefined,
+): void {
 	(globalThis as Record<string, unknown>)[TEST_REGISTRY_KEY] = impl;
 }
 
@@ -83,7 +92,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 	let errorMessage = "";
 
 	try {
-		const exitCode = await new Promise<number>((resolve) => {
+		const exitCode = await new Promise<number>((resolve, reject) => {
 			const proc = spawn(invocation.command, [...invocation.args, ...args], {
 				cwd,
 				shell: false,
@@ -119,6 +128,13 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				});
 			};
 
+			const timeoutId = setTimeout(() => {
+				proc.kill("SIGTERM");
+				reject(new TimeoutError(`Subagent timed out after ${SUBAGENT_TIMEOUT_MS} ms`));
+			}, SUBAGENT_TIMEOUT_MS);
+
+			const clearTimer = () => clearTimeout(timeoutId);
+
 			proc.stdout.on("data", (data: Buffer) => {
 				buffer += data.toString();
 				const lines = buffer.split("\n");
@@ -143,6 +159,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 			});
 
 			proc.on("close", (code) => {
+				clearTimer();
 				if (buffer.trim()) {
 					processSubagentLine(
 						buffer,
@@ -157,11 +174,15 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				resolve(code ?? 0);
 			});
 
-			proc.on("error", () => resolve(1));
+			proc.on("error", () => {
+				clearTimer();
+				resolve(1);
+			});
 
 			if (signal) {
 				const killProc = () => {
 					wasAborted = true;
+					clearTimer();
 					proc.kill("SIGTERM");
 					setTimeout(() => {
 						if (!proc.killed) proc.kill("SIGKILL");
@@ -186,6 +207,17 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				: answerText;
 
 		return { answer };
+	} catch (err) {
+		if (err instanceof TimeoutError) {
+			return {
+				answer: answerText,
+				error: err.message,
+			};
+		}
+		return {
+			answer: answerText,
+			error: `Exploration failed: ${err instanceof Error ? err.message : String(err)}`,
+		};
 	} finally {
 		// Cleanup temp prompt file
 		try {
@@ -197,7 +229,8 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 	}
 }
 
-function processSubagentLine(
+/** @internal exported for unit testing */
+export function processSubagentLine(
 	line: string,
 	onAnswer: (text: string) => void,
 	onThinking: (thinking: string) => void,
@@ -225,9 +258,9 @@ function processSubagentLine(
 	// Final message — capture complete text
 	if (event.type === "message_end" && event.message) {
 		const msg = event.message as Message;
-		if (msg.role === "assistant") {
+		if (msg.role === "assistant" && Array.isArray(msg.content)) {
 			for (const part of msg.content) {
-				if (part.type === "text") {
+				if (part.type === "text" && typeof part.text === "string") {
 					onAnswer(part.text);
 				}
 			}
