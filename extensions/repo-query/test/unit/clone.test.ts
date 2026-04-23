@@ -1,11 +1,20 @@
-import { existsSync, mkdirSync } from "node:fs";
-import { mkdtempSync, rmdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ensureRepoCloned } from "../../src/clone.js";
 import type { ParsedRepo } from "../../src/types.js";
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+	for (const dir of tempDirs.splice(0)) {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
 
 function mockPi(
 	execImpl: (
@@ -21,6 +30,7 @@ function mockPi(
 describe("ensureRepoCloned", () => {
 	it("returns existing when .git is present", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
 		const repoDir = join(workspace, "repo");
 		mkdirSync(repoDir, { recursive: true });
 		mkdirSync(join(repoDir, ".git"), { recursive: true });
@@ -37,23 +47,21 @@ describe("ensureRepoCloned", () => {
 
 	it("returns cloned when git clone succeeds", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
 
 		const result = await ensureRepoCloned(
 			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
 			workspace,
 			undefined,
-			mockPi(async () => {
-				// Simulate successful clone by creating .git
-				mkdirSync(join(workspace, "repo", ".git"), { recursive: true });
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			}),
+			mockPi(async () => ({ stdout: "", stderr: "", code: 0, killed: false })),
 		);
 
 		expect(result.status).toBe("cloned");
 	});
 
-	it("returns failed when git clone fails for all branches", async () => {
+	it("returns failed when default branch clone fails", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
 
 		const result = await ensureRepoCloned(
 			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
@@ -68,6 +76,7 @@ describe("ensureRepoCloned", () => {
 
 	it("tries only the explicit branch (no fallback)", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
 		const branchesTried: string[] = [];
 
 		const result = await ensureRepoCloned(
@@ -95,6 +104,7 @@ describe("ensureRepoCloned", () => {
 
 	it("omits --branch when no explicit branch is given", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
 		let hadBranchFlag = false;
 
 		await ensureRepoCloned(
@@ -103,8 +113,6 @@ describe("ensureRepoCloned", () => {
 			undefined,
 			mockPi(async (_cmd, args) => {
 				hadBranchFlag = args.includes("--branch");
-				// Simulate success by creating .git so next call returns existing
-				mkdirSync(join(workspace, "repo", ".git"), { recursive: true });
 				return { stdout: "", stderr: "", code: 0, killed: false };
 			}),
 		);
@@ -114,6 +122,7 @@ describe("ensureRepoCloned", () => {
 
 	it("expands leading tilde in local cloneUrl before passing to git", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
 		let receivedSource = "";
 
 		await ensureRepoCloned(
@@ -122,8 +131,6 @@ describe("ensureRepoCloned", () => {
 			undefined,
 			mockPi(async (_cmd, args) => {
 				receivedSource = args[args.length - 2] ?? "";
-				// Simulate success by creating .git so next call returns existing
-				mkdirSync(join(workspace, "repo", ".git"), { recursive: true });
 				return { stdout: "", stderr: "", code: 0, killed: false };
 			}),
 		);
@@ -134,6 +141,7 @@ describe("ensureRepoCloned", () => {
 
 	it("cleans up with fs.rm instead of pi.exec rm on failure", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
 		const execCalls: Array<{ cmd: string; args: string[] }> = [];
 
 		const result = await ensureRepoCloned(
