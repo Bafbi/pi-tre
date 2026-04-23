@@ -60,6 +60,12 @@ describe("validateGitHubRepo", () => {
 		expect(result.suggestions).toEqual([]);
 	});
 
+	it("re-throws on 403", async () => {
+		mockReposGet.mockRejectedValue({ status: 403 });
+
+		await expect(validateGitHubRepo("owner", "repo")).rejects.toMatchObject({ status: 403 });
+	});
+
 	it("re-throws non-404 errors", async () => {
 		mockReposGet.mockRejectedValue(new Error("network error"));
 

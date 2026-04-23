@@ -2,12 +2,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { loadRepoQueryConfig, resolveModel } from "../../src/config.js";
 import type { ParsedRepo } from "../../src/types.js";
 
 const tempDirs: string[] = [];
+let originalAgentDir: string | undefined;
 
 function makeTempDir(): string {
 	const dir = mkdtempSync(join(tmpdir(), "repo-query-config-test-"));
@@ -15,20 +16,36 @@ function makeTempDir(): string {
 	return dir;
 }
 
+beforeEach(() => {
+	originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+});
+
 afterEach(async () => {
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
+	}
+	if (originalAgentDir === undefined) {
+		// biome-ignore lint/performance/noDelete: process.env values are always strings; delete is required to truly remove a key
+		delete process.env.PI_CODING_AGENT_DIR;
+	} else {
+		process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 	}
 });
 
 describe("loadRepoQueryConfig", () => {
 	it("returns empty config when no files exist", () => {
+		const agentDir = makeTempDir();
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+
 		const cwd = makeTempDir();
 		const config = loadRepoQueryConfig(cwd);
 		expect(config).toEqual({ models: {} });
 	});
 
 	it("loads project-local config", () => {
+		const agentDir = makeTempDir();
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+
 		const cwd = makeTempDir();
 		mkdirSync(join(cwd, ".pi", "extensions"), { recursive: true });
 		writeFileSync(
@@ -42,13 +59,28 @@ describe("loadRepoQueryConfig", () => {
 	});
 
 	it("merges global and project config with project taking precedence", () => {
+		const agentDir = makeTempDir();
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+
+		// Global config
+		mkdirSync(join(agentDir, "extensions"), { recursive: true });
+		writeFileSync(
+			join(agentDir, "extensions", "repo-query.json"),
+			JSON.stringify({
+				defaultModel: "global-model",
+				models: { "owner/a": "global-a", "owner/c": "global-c" },
+			}),
+			"utf8",
+		);
+
+		// Project config
 		const cwd = makeTempDir();
 		mkdirSync(join(cwd, ".pi", "extensions"), { recursive: true });
 		writeFileSync(
 			join(cwd, ".pi", "extensions", "repo-query.json"),
 			JSON.stringify({
 				defaultModel: "project-model",
-				models: { "owner/a": "model-a", "owner/b": "model-b" },
+				models: { "owner/a": "project-a", "owner/b": "project-b" },
 			}),
 			"utf8",
 		);
@@ -56,8 +88,9 @@ describe("loadRepoQueryConfig", () => {
 		const config = loadRepoQueryConfig(cwd);
 		expect(config.defaultModel).toBe("project-model");
 		expect(config.models).toEqual({
-			"owner/a": "model-a",
-			"owner/b": "model-b",
+			"owner/a": "project-a",
+			"owner/b": "project-b",
+			"owner/c": "global-c",
 		});
 	});
 });

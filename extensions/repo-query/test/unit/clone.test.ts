@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { mkdtempSync, rmdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ensureRepoCloned } from "../../src/clone.js";
 import type { ParsedRepo } from "../../src/types.js";
@@ -90,5 +90,45 @@ describe("ensureRepoCloned", () => {
 
 		expect(result.status).toBe("failed");
 		expect(branchesTried).toEqual(["develop", "main", "master"]);
+	});
+
+	it("expands leading tilde in local cloneUrl before passing to git", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		let receivedSource = "";
+
+		await ensureRepoCloned(
+			{ raw: "~/my-repo", cloneUrl: "~/my-repo", dirName: "repo" } as ParsedRepo,
+			workspace,
+			undefined,
+			mockPi(async (_cmd, args) => {
+				receivedSource = args[args.length - 2] ?? "";
+				// Simulate success by creating .git so next call returns existing
+				mkdirSync(join(workspace, "repo", ".git"), { recursive: true });
+				return { stdout: "", stderr: "", code: 0, killed: false };
+			}),
+		);
+
+		expect(receivedSource.startsWith("~")).toBe(false);
+		expect(receivedSource).toBe(join(homedir(), "my-repo"));
+	});
+
+	it("cleans up with fs.rm instead of pi.exec rm on failure", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		const execCalls: Array<{ cmd: string; args: string[] }> = [];
+
+		const result = await ensureRepoCloned(
+			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
+			workspace,
+			undefined,
+			mockPi(async (cmd, args) => {
+				execCalls.push({ cmd, args });
+				return { stdout: "", stderr: "fatal: not found", code: 128, killed: false };
+			}),
+		);
+
+		expect(result.status).toBe("failed");
+		// Ensure pi.exec was never called with "rm" command
+		const rmCalls = execCalls.filter((c) => c.cmd === "rm");
+		expect(rmCalls).toHaveLength(0);
 	});
 });
