@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { validateGitHubRepo } from "../../src/github.js";
 
@@ -11,6 +11,11 @@ vi.mock("@octokit/rest", () => ({
 		search: { repos: mockSearchRepos },
 	})),
 }));
+
+beforeEach(() => {
+	mockReposGet.mockReset();
+	mockSearchRepos.mockReset();
+});
 
 describe("validateGitHubRepo", () => {
 	it("returns valid for an existing repo", async () => {
