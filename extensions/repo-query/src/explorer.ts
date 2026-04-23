@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, rmdir, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { type AgentToolResult, withFileMutationQueue } from "@mariozechner/pi-coding-agent";
 
@@ -115,6 +116,9 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 						answerText = text;
 						return;
 					}
+					// Provider may have rewritten the final message; replace rather than append
+					answerText = text;
+					return;
 				}
 				answerText += text;
 			};
@@ -126,6 +130,9 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 						thinkingText = text;
 						return;
 					}
+					// Provider may have rewritten the final message; replace rather than append
+					thinkingText = text;
+					return;
 				}
 				thinkingText += text;
 			};
@@ -302,13 +309,14 @@ function getPiInvocation(): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
 	const isBunVirtual = currentScript?.startsWith("/$bunfs/root/");
 
-	if (currentScript && !isBunVirtual) {
-		try {
-			// Use the same pi binary
-			return { command: process.execPath, args: [currentScript] };
-		} catch {
-			/* fall through */
-		}
+	if (currentScript && !isBunVirtual && existsSync(currentScript)) {
+		return { command: process.execPath, args: [currentScript] };
+	}
+
+	const execName = basename(process.execPath).toLowerCase();
+	const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
+	if (!isGenericRuntime) {
+		return { command: process.execPath, args: [] };
 	}
 
 	return { command: "pi", args: [] };

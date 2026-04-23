@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	addDebugEvent,
@@ -92,7 +92,7 @@ describe("setDebugEnabled", () => {
 
 	it("clears UI widgets when disabled", () => {
 		const state = createDebugState();
-		const { ctx, statusCalls, widgetCalls } = makeUiCtx();
+		const { ctx, widgetCalls } = makeUiCtx();
 
 		setDebugEnabled(state, true, ctx);
 		expect(widgetCalls.some((c) => c.lines !== undefined)).toBe(true);
