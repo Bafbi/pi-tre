@@ -11,44 +11,22 @@ import type { ParsedRepo } from "./types.js";
  *   - With branch suffix: URL ":branch" or URL "@branch"
  */
 export function parseRepoIdentifier(input: string): ParsedRepo {
-	let raw = input.trim();
-	let explicitBranch: string | null = null;
+	const extracted = extractBranch(input.trim());
+	const raw = extracted.rest;
+	const explicitBranch = extracted.branch;
 
-	// Extract branch suffix (take the last occurrence of : or @ that isn't part of URL)
-	const lastColon = raw.lastIndexOf(":");
-	const lastAt = raw.lastIndexOf("@");
-	const splitIndex = Math.max(lastColon, lastAt);
-
-	if (splitIndex > 0) {
-		const before = raw.slice(0, splitIndex);
-		const after = raw.slice(splitIndex + 1);
-		const splitChar = raw[splitIndex];
-
-		if (after.length > 0) {
-			let isBranchSuffix = true;
-
-			// Guard against protocol/port/userinfo separators in URLs with ://
-			if (raw.includes("://")) {
-				const protocolEnd = raw.indexOf("://") + 3;
-				const firstSlashAfterProtocol = raw.indexOf("/", protocolEnd);
-				if (firstSlashAfterProtocol === -1 || splitIndex < firstSlashAfterProtocol) {
-					isBranchSuffix = false;
-				}
-			}
-
-			// Guard against SSH host delimiter in scp-like syntax (git@host:path)
-			if (isBranchSuffix && splitChar === ":" && raw.startsWith("git@")) {
-				const firstColonAfterPrefix = raw.indexOf(":", 4);
-				if (splitIndex === firstColonAfterPrefix) {
-					isBranchSuffix = false;
-				}
-			}
-
-			if (isBranchSuffix) {
-				raw = before;
-				explicitBranch = after;
-			}
-		}
+	// Local paths
+	if (raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("~/")) {
+		return {
+			raw: input,
+			host: "generic",
+			cloneUrl: raw,
+			branch: explicitBranch,
+			displayName: raw.split("/").pop() || raw,
+			dirName: sanitizeDirName(
+				raw.replace(/^\//, "").replace(/\//g, "_") + (explicitBranch ? `-${explicitBranch}` : ""),
+			),
+		};
 	}
 
 	// Local paths
@@ -81,7 +59,7 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 			cloneUrl: `https://github.com/${raw}.git`,
 			branch: explicitBranch,
 			displayName: raw,
-			dirName: sanitizeDirName(`${repo}${explicitBranch ? `-${explicitBranch}` : ""}`),
+			dirName: sanitizeDirName(`github_${owner}_${repo}${explicitBranch ? `-${explicitBranch}` : ""}`),
 			owner: raw.split("/")[0],
 			repo: raw.split("/")[1],
 		};
@@ -105,7 +83,7 @@ function parseHttpUrl(raw: string, original: string, branch: string | null): Par
 		cloneUrl: raw.endsWith(".git") ? raw : `${raw}.git`,
 		branch,
 		displayName: pathParts.join("/"),
-		dirName: sanitizeDirName(`${name}${branch ? `-${branch}` : ""}`),
+		dirName: sanitizeDirName(`${host}_${pathParts.join("_")}${branch ? `-${branch}` : ""}`),
 		owner: pathParts[0],
 		repo: name,
 	};
@@ -130,10 +108,60 @@ function parseSshUrl(raw: string, original: string, branch: string | null): Pars
 		cloneUrl: raw,
 		branch,
 		displayName: path,
-		dirName: sanitizeDirName(`${name}${branch ? `-${branch}` : ""}`),
+		dirName: sanitizeDirName(`${host}_${pathParts.join("_")}${branch ? `-${branch}` : ""}`),
 		owner: pathParts[0],
 		repo: name,
 	};
+}
+
+function extractBranch(raw: string): { rest: string; branch: string | null } {
+	const lastColon = raw.lastIndexOf(":");
+	const lastAt = raw.lastIndexOf("@");
+
+	// Colon form takes precedence — test it first
+	if (lastColon > 0 && isBranchDelimiter(raw, lastColon)) {
+		return { rest: raw.slice(0, lastColon), branch: raw.slice(lastColon + 1) };
+	}
+
+	// Fall back to at-sign
+	if (lastAt > 0 && isBranchDelimiter(raw, lastAt)) {
+		return { rest: raw.slice(0, lastAt), branch: raw.slice(lastAt + 1) };
+	}
+
+	return { rest: raw, branch: null };
+}
+
+function isBranchDelimiter(raw: string, index: number): boolean {
+	const char = raw[index];
+	const after = raw.slice(index + 1);
+	if (after.length === 0) return false;
+
+	// Guard against protocol/port/userinfo separators in URLs with ://
+	if (raw.includes("://")) {
+		const protocolEnd = raw.indexOf("://") + 3;
+		const firstSlashAfterProtocol = raw.indexOf("/", protocolEnd);
+		if (firstSlashAfterProtocol === -1 || index < firstSlashAfterProtocol) {
+			return false;
+		}
+	}
+
+	// Guard against SSH host delimiter in scp-like syntax (git@host:path)
+	if (char === ":" && raw.startsWith("git@")) {
+		const firstColonAfterPrefix = raw.indexOf(":", 4);
+		if (index === firstColonAfterPrefix) {
+			return false;
+		}
+	}
+
+	// Guard against the @ in git@ prefix
+	if (char === "@" && raw.startsWith("git@")) {
+		const firstAt = raw.indexOf("@");
+		if (index === firstAt) {
+			return false;
+		}
+	}
+
+	return true;
 }
 
 function classifyHost(hostname: string): ParsedRepo["host"] {

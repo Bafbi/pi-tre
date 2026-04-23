@@ -9,6 +9,7 @@ describe("parseRepoIdentifier", () => {
 		expect(result.displayName).toBe("facebook/react");
 		expect(result.branch).toBeNull();
 		expect(result.cloneUrl).toBe("https://github.com/facebook/react.git");
+		expect(result.dirName).toBe("github_facebook_react");
 	});
 
 	it("parses GitHub shorthand with colon branch", () => {
@@ -16,6 +17,7 @@ describe("parseRepoIdentifier", () => {
 		expect(result.host).toBe("github");
 		expect(result.displayName).toBe("vuejs/vue");
 		expect(result.branch).toBe("main");
+		expect(result.dirName).toBe("github_vuejs_vue-main");
 	});
 
 	it("parses GitHub shorthand with at-sign branch", () => {
@@ -23,6 +25,7 @@ describe("parseRepoIdentifier", () => {
 		expect(result.host).toBe("github");
 		expect(result.displayName).toBe("vuejs/vue");
 		expect(result.branch).toBe("main");
+		expect(result.dirName).toBe("github_vuejs_vue-main");
 	});
 
 	it("parses GitHub shorthand with slash-containing branch", () => {
@@ -126,6 +129,14 @@ describe("parseRepoIdentifier", () => {
 		expect(result.repo).toBe("repo");
 	});
 
+	it("gives colon precedence over at-sign for branch delimiter", () => {
+		const result = parseRepoIdentifier("owner/repo:feature@foo");
+		expect(result.host).toBe("github");
+		expect(result.displayName).toBe("owner/repo");
+		expect(result.branch).toBe("feature@foo");
+		expect(result.dirName).toBe("github_owner_repo-feature_foo");
+	});
+
 	it("parses local path without branch", () => {
 		const result = parseRepoIdentifier("/tmp/my-repo");
 		expect(result.host).toBe("generic");
@@ -133,6 +144,7 @@ describe("parseRepoIdentifier", () => {
 		expect(result.branch).toBeNull();
 		expect(result.owner).toBeUndefined();
 		expect(result.repo).toBeUndefined();
+		expect(result.dirName).toBe("tmp_my-repo");
 	});
 
 	it("parses local path with colon branch suffix", () => {
@@ -140,5 +152,6 @@ describe("parseRepoIdentifier", () => {
 		expect(result.host).toBe("generic");
 		expect(result.cloneUrl).toBe("/tmp/my-repo");
 		expect(result.branch).toBe("feature/test");
+		expect(result.dirName).toBe("tmp_my-repo-feature_test");
 	});
 });
