@@ -1,9 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, rmdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { clearWorkspaceCache, getWorkspacePath } from "../../src/workspace.js";
+
+let sessionCounter = 0;
+function makeSessionFile(): string {
+	return join(tmpdir(), `test-session-${Date.now()}-${sessionCounter++}.json`);
+}
 
 function makeCtx(opts: { sessionFile?: string | null; branch?: unknown[]; entries?: unknown[] } = {}) {
 	return {
@@ -34,11 +39,11 @@ describe("getWorkspacePath", () => {
 		expect(existsSync(path)).toBe(true);
 
 		// cleanup
-		rmdirSync(path);
+		rmSync(path, { recursive: true, force: true });
 	});
 
 	it("returns the same path on repeated calls (in-memory cache)", async () => {
-		const ctx = makeCtx({ sessionFile: "/tmp/test-session.json" });
+		const ctx = makeCtx({ sessionFile: makeSessionFile() });
 		const path1 = await getWorkspacePath(ctx);
 		const path2 = await getWorkspacePath(ctx);
 
@@ -46,16 +51,16 @@ describe("getWorkspacePath", () => {
 		expect(existsSync(path1)).toBe(true);
 
 		// cleanup
-		rmdirSync(path1);
+		rmSync(path1, { recursive: true, force: true });
 	});
 
 	it("recreates the workspace directory if it was deleted externally", async () => {
-		const ctx = makeCtx({ sessionFile: "/tmp/test-session.json" });
+		const ctx = makeCtx({ sessionFile: makeSessionFile() });
 		const path = await getWorkspacePath(ctx);
 		expect(existsSync(path)).toBe(true);
 
 		// Simulate external cleanup (e.g. /tmp cleared)
-		rmdirSync(path);
+		rmSync(path, { recursive: true, force: true });
 		expect(existsSync(path)).toBe(false);
 
 		const path2 = await getWorkspacePath(ctx);
@@ -63,7 +68,7 @@ describe("getWorkspacePath", () => {
 		expect(existsSync(path2)).toBe(true);
 
 		// cleanup
-		rmdirSync(path2);
+		rmSync(path2, { recursive: true, force: true });
 	});
 
 	it("reuses workspace from previous tool result in session branch", async () => {
@@ -87,7 +92,7 @@ describe("getWorkspacePath", () => {
 		expect(path).toBe(existingWs);
 
 		// cleanup
-		rmdirSync(existingWs);
+		rmSync(existingWs, { recursive: true, force: true });
 	});
 
 	it("ignores non-repo_query tool results when scanning session branch", async () => {
@@ -113,8 +118,8 @@ describe("getWorkspacePath", () => {
 		expect(path.startsWith(join(tmpdir(), "pi-rq-"))).toBe(true);
 
 		// cleanup
-		rmdirSync(existingWs);
-		rmdirSync(path);
+		rmSync(existingWs, { recursive: true, force: true });
+		rmSync(path, { recursive: true, force: true });
 	});
 
 	it("ignores session entries that are not messages", async () => {
@@ -123,18 +128,18 @@ describe("getWorkspacePath", () => {
 		const path = await getWorkspacePath(ctx);
 
 		expect(path.startsWith(join(tmpdir(), "pi-rq-"))).toBe(true);
-		rmdirSync(path);
+		rmSync(path, { recursive: true, force: true });
 	});
 });
 
 describe("clearWorkspaceCache", () => {
 	it("resets the in-memory cache so the next call recreates the workspace", async () => {
-		const ctx = makeCtx({ sessionFile: "/tmp/test-session.json" });
+		const ctx = makeCtx({ sessionFile: makeSessionFile() });
 		const path1 = await getWorkspacePath(ctx);
 		expect(existsSync(path1)).toBe(true);
 
 		// Delete directory and clear cache
-		rmdirSync(path1);
+		rmSync(path1, { recursive: true, force: true });
 		clearWorkspaceCache();
 
 		// Without cache, getWorkspacePath recomputes from session file
@@ -143,6 +148,6 @@ describe("clearWorkspaceCache", () => {
 		expect(existsSync(path2)).toBe(true);
 
 		// cleanup
-		rmdirSync(path2);
+		rmSync(path2, { recursive: true, force: true });
 	});
 });

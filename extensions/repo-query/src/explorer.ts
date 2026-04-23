@@ -10,6 +10,10 @@ import type { ParsedRepo } from "./types.js";
 const SUBAGENT_TIMEOUT_MS = 300_000;
 const MAX_OUTPUT_CHARS = 4000;
 
+function truncateSubagentOutput(text: string): string {
+	return text.length > MAX_OUTPUT_CHARS ? `${text.slice(0, MAX_OUTPUT_CHARS)}...\n[Answer truncated]` : text;
+}
+
 interface Message {
 	role: string;
 	content: Array<{ type: string; text: string }>;
@@ -103,21 +107,25 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 			// Append text without duplicating when the same full text arrives
 			// from both text_delta (incremental or full) and message_end (full).
-			const safeAppendText = (text: string) => {
+			const safeAppendText = (text: string, eventKind?: string) => {
 				if (!text) return;
-				if (answerText === text || answerText.endsWith(text)) return;
-				if (text.startsWith(answerText) && text.length > answerText.length) {
-					answerText = text;
-					return;
+				if (eventKind === "full") {
+					if (answerText === text) return;
+					if (text.startsWith(answerText) && text.length > answerText.length) {
+						answerText = text;
+						return;
+					}
 				}
 				answerText += text;
 			};
-			const safeAppendThinking = (text: string) => {
+			const safeAppendThinking = (text: string, eventKind?: string) => {
 				if (!text) return;
-				if (thinkingText === text || thinkingText.endsWith(text)) return;
-				if (text.startsWith(thinkingText) && text.length > thinkingText.length) {
-					thinkingText = text;
-					return;
+				if (eventKind === "full") {
+					if (thinkingText === text) return;
+					if (text.startsWith(thinkingText) && text.length > thinkingText.length) {
+						thinkingText = text;
+						return;
+					}
 				}
 				thinkingText += text;
 			};
@@ -128,12 +136,21 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				});
 			};
 
-			const timeoutId = setTimeout(() => {
-				proc.kill("SIGTERM");
-				reject(new TimeoutError(`Subagent timed out after ${SUBAGENT_TIMEOUT_MS} ms`));
-			}, SUBAGENT_TIMEOUT_MS);
+			let timeoutFired = false;
+			let graceTimer: ReturnType<typeof setTimeout> | undefined;
 
-			const clearTimer = () => clearTimeout(timeoutId);
+			const clearTimers = () => {
+				clearTimeout(timeoutId);
+				if (graceTimer) clearTimeout(graceTimer);
+			};
+
+			const timeoutId = setTimeout(() => {
+				timeoutFired = true;
+				proc.kill("SIGTERM");
+				graceTimer = setTimeout(() => {
+					if (!proc.killed) proc.kill("SIGKILL");
+				}, 5000);
+			}, SUBAGENT_TIMEOUT_MS);
 
 			proc.stdout.on("data", (data: Buffer) => {
 				buffer += data.toString();
@@ -142,12 +159,12 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				for (const line of lines) {
 					processSubagentLine(
 						line,
-						(text) => {
-							safeAppendText(text);
+						(text, kind) => {
+							safeAppendText(text, kind);
 							emitUpdate();
 						},
-						(text) => {
-							safeAppendThinking(text);
+						(text, kind) => {
+							safeAppendThinking(text, kind);
 							emitUpdate();
 						},
 					);
@@ -159,32 +176,36 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 			});
 
 			proc.on("close", (code) => {
-				clearTimer();
+				clearTimers();
 				if (buffer.trim()) {
 					processSubagentLine(
 						buffer,
-						(text) => {
-							safeAppendText(text);
+						(text, kind) => {
+							safeAppendText(text, kind);
 						},
-						(text) => {
-							safeAppendThinking(text);
+						(text, kind) => {
+							safeAppendThinking(text, kind);
 						},
 					);
 				}
-				resolve(code ?? 0);
+				if (timeoutFired) {
+					reject(new TimeoutError(`Subagent timed out after ${SUBAGENT_TIMEOUT_MS} ms`));
+				} else {
+					resolve(code ?? 0);
+				}
 			});
 
 			proc.on("error", () => {
-				clearTimer();
+				clearTimers();
 				resolve(1);
 			});
 
 			if (signal) {
 				const killProc = () => {
 					_wasAborted = true;
-					clearTimer();
+					clearTimers();
 					proc.kill("SIGTERM");
-					setTimeout(() => {
+					graceTimer = setTimeout(() => {
 						if (!proc.killed) proc.kill("SIGKILL");
 					}, 5000);
 				};
@@ -200,22 +221,16 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 			};
 		}
 
-		// Truncate if needed
-		const answer =
-			answerText.length > MAX_OUTPUT_CHARS
-				? `${answerText.slice(0, MAX_OUTPUT_CHARS)}...\n[Answer truncated]`
-				: answerText;
-
-		return { answer };
+		return { answer: truncateSubagentOutput(answerText) };
 	} catch (err) {
 		if (err instanceof TimeoutError) {
 			return {
-				answer: answerText,
+				answer: truncateSubagentOutput(answerText),
 				error: err.message,
 			};
 		}
 		return {
-			answer: answerText,
+			answer: truncateSubagentOutput(answerText),
 			error: `Exploration failed: ${err instanceof Error ? err.message : String(err)}`,
 		};
 	} finally {
@@ -232,8 +247,8 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 /** @internal exported for unit testing */
 export function processSubagentLine(
 	line: string,
-	onAnswer: (text: string) => void,
-	onThinking: (thinking: string) => void,
+	onAnswer: (text: string, kind?: string) => void,
+	onThinking: (thinking: string, kind?: string) => void,
 ): void {
 	if (!line.trim()) return;
 	let event: unknown;
@@ -259,9 +274,10 @@ export function processSubagentLine(
 	if (event.type === "message_end" && event.message) {
 		const msg = event.message as Message;
 		if (msg.role === "assistant" && Array.isArray(msg.content)) {
-			for (const part of msg.content) {
-				if (part.type === "text" && typeof part.text === "string") {
-					onAnswer(part.text);
+			for (const rawPart of msg.content) {
+				const part = rawPart as unknown;
+				if (isObject(part) && typeof part.type === "string" && part.type === "text" && typeof part.text === "string") {
+					onAnswer(part.text, "full");
 				}
 			}
 		}

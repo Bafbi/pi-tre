@@ -91,22 +91,20 @@ describe.skipIf(skipRemote)("repo_query remote clone", () => {
 			runner.createContext(),
 		);
 
-		expect(result.isError).toBe(false);
-
 		const details = result.details as {
 			results: Array<{ status: string; localPath?: string }>;
 			workspacePath: string;
 		};
+		const workspacePath = details.workspacePath;
+		workspacesToClean.push(workspacePath);
+
+		expect(result.isError).toBe(false);
 
 		expect(details.results[0]?.status).toBe("success");
 		expect(details.results[0]?.localPath).toBeDefined();
 
 		const localPath = details.results[0]?.localPath;
 		expect(localPath).toBeDefined();
-		const workspacePath = details.workspacePath;
-
-		// Track workspace for cleanup
-		workspacesToClean.push(workspacePath);
 
 		// localPath must be inside workspace
 		expect(localPath?.startsWith(workspacePath)).toBe(true);
@@ -142,14 +140,14 @@ describe.skipIf(skipRemote)("repo_query remote clone", () => {
 			runner.createContext(),
 		);
 
-		expect(result1.isError).toBe(false);
-
 		const details1 = result1.details as {
 			results: Array<{ status: string; localPath?: string }>;
 			workspacePath: string;
 		};
 		const workspace1 = details1.workspacePath;
 		workspacesToClean.push(workspace1);
+
+		expect(result1.isError).toBe(false);
 
 		// Second call in same process — should reuse via in-memory cache
 		const result2 = await repoQueryTool.definition.execute(

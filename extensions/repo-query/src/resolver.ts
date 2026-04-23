@@ -16,7 +16,15 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 	const explicitBranch = extracted.branch;
 
 	// Local paths
-	if (raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("~/")) {
+	const isLocalPath =
+		raw.startsWith("/") ||
+		raw.startsWith("./") ||
+		raw.startsWith("~/") ||
+		raw.startsWith("../") ||
+		/^[A-Za-z]:[\\/]/.test(raw) ||
+		raw.startsWith("\\\\");
+
+	if (isLocalPath) {
 		return {
 			raw: input,
 			host: "generic",

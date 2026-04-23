@@ -61,11 +61,13 @@ export default function (pi: ExtensionAPI) {
 		debug.events.length = 0;
 		debug.trackedRepos.clear();
 		debug.workspacePath = null;
+		validationCache.clear();
 		addDebugEvent(debug, "session_start: state reset", ctx);
 	});
 
 	pi.on("session_shutdown", async () => {
 		clearWorkspaceCache();
+		validationCache.clear();
 		for (const ws of activeWorkspaces) {
 			try {
 				await rm(ws, { recursive: true, force: true });
