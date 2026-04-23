@@ -1,9 +1,8 @@
-import { mkdirSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { ensureRepoCloned } from "../../src/clone.js";
 import type { ParsedRepo } from "../../src/types.js";
@@ -139,24 +138,19 @@ describe("ensureRepoCloned", () => {
 		expect(receivedSource).toBe(join(homedir(), "my-repo"));
 	});
 
-	it("cleans up with fs.rm instead of pi.exec rm on failure", async () => {
+	it("removes partial repo directory on clone failure", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
 		tempDirs.push(workspace);
-		const execCalls: Array<{ cmd: string; args: string[] }> = [];
+		const repoDir = join(workspace, "repo");
 
 		const result = await ensureRepoCloned(
 			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
 			workspace,
 			undefined,
-			mockPi(async (cmd, args) => {
-				execCalls.push({ cmd, args });
-				return { stdout: "", stderr: "fatal: not found", code: 128, killed: false };
-			}),
+			mockPi(async () => ({ stdout: "", stderr: "fatal: not found", code: 128, killed: false })),
 		);
 
 		expect(result.status).toBe("failed");
-		// Ensure pi.exec was never called with "rm" command
-		const rmCalls = execCalls.filter((c) => c.cmd === "rm");
-		expect(rmCalls).toHaveLength(0);
+		expect(existsSync(repoDir)).toBe(false);
 	});
 });

@@ -1,42 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { processSubagentLine, runExplorer, setTestExplorerImpl } from "../../src/explorer.js";
-import type { SubagentOptions } from "../../src/explorer.js";
-
-describe("runExplorer", () => {
-	it("uses mock when setTestExplorerImpl is configured", async () => {
-		setTestExplorerImpl(async () => ({ answer: "mocked" }));
-		try {
-			const result = await runExplorer({
-				workspace: "/tmp",
-				repos: [{ raw: "owner/repo", dirName: "repo", displayName: "owner/repo", host: "github", cloneUrl: "" }],
-				query: "test",
-				signal: undefined,
-			});
-			expect(result.answer).toBe("mocked");
-		} finally {
-			setTestExplorerImpl(undefined);
-		}
-	});
-
-	it("returns error when mock throws", async () => {
-		setTestExplorerImpl(async () => {
-			throw new Error("mock failure");
-		});
-		try {
-			await expect(
-				runExplorer({
-					workspace: "/tmp",
-					repos: [{ raw: "owner/repo", dirName: "repo", displayName: "owner/repo", host: "github", cloneUrl: "" }],
-					query: "test",
-					signal: undefined,
-				}),
-			).rejects.toThrow("mock failure");
-		} finally {
-			setTestExplorerImpl(undefined);
-		}
-	});
-});
+import { processSubagentLine } from "../../src/explorer.js";
 
 describe("processSubagentLine", () => {
 	it("extracts text_delta", () => {

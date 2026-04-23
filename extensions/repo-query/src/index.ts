@@ -29,7 +29,7 @@ import { clearWorkspaceCache, getWorkspacePath } from "./workspace.js";
 
 const MAX_REPOS = 5;
 
-function formatRepoDisplayName(raw: string): { display: string; branch: string | null } {
+export function formatRepoDisplayName(raw: string): { display: string; branch: string | null } {
 	try {
 		const parsed = parseRepoIdentifier(raw);
 		return { display: parsed.displayName, branch: parsed.branch };
@@ -619,7 +619,7 @@ export default function (pi: ExtensionAPI) {
 	});
 }
 
-function formatOutput(results: RepoResult[], query: string): string {
+export function formatOutput(results: RepoResult[], query: string): string {
 	const lines: string[] = [];
 
 	const successes = results.filter((r) => r.status === "success" || r.status === "archived");
