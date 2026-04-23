@@ -8,7 +8,6 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { ParsedRepo } from "./types.js";
 
 const CLONE_TIMEOUT_MS = 120_000;
-const DEFAULT_BRANCHES = ["main", "master"];
 
 const CLONE_MOCK_REGISTRY_KEY = "__repoQueryCloneMock";
 
@@ -28,6 +27,10 @@ export function setTestCloneImpl(impl: typeof ensureRepoCloned | undefined): voi
  *   - "existing" if already cloned
  *   - "cloned" on success
  *   - "failed" with error message on failure
+ *
+ * Branch behavior:
+ *   - Explicit branch: only that branch is attempted (no fallback).
+ *   - No branch: clones the remote default branch without --branch.
  */
 export async function ensureRepoCloned(
 	repo: ParsedRepo,
@@ -48,35 +51,53 @@ export async function ensureRepoCloned(
 
 	await mkdir(repoDir, { recursive: true });
 
-	const branchesToTry = repo.branch ? [repo.branch, ...DEFAULT_BRANCHES] : DEFAULT_BRANCHES;
-	const uniqueBranches = [...new Set(branchesToTry)];
-
 	const cloneSource = expandHome(repo.cloneUrl);
 
-	for (const branch of uniqueBranches) {
+	if (repo.branch) {
 		try {
-			const args = ["clone", "--depth", "1", "--single-branch", "--branch", branch, cloneSource, repoDir];
+			const args = ["clone", "--depth", "1", "--single-branch", "--branch", repo.branch, cloneSource, repoDir];
 			const result = await pi.exec("git", args, { signal, timeout: CLONE_TIMEOUT_MS });
 
 			if (result.code === 0) {
 				return { status: "cloned" };
 			}
 		} catch {
-			// Try next branch
+			/* requested branch failed */
 		}
+
+		try {
+			await rm(repoDir, { recursive: true, force: true });
+		} catch {
+			/* ignore cleanup errors */
+		}
+
+		return {
+			status: "failed",
+			error: `Failed to clone ${repo.raw} (branch '${repo.branch}').`,
+		};
 	}
 
-	// All branches failed — clean up partial directory
+	// No explicit branch: clone the remote default
+	try {
+		const args = ["clone", "--depth", "1", "--single-branch", cloneSource, repoDir];
+		const result = await pi.exec("git", args, { signal, timeout: CLONE_TIMEOUT_MS });
+
+		if (result.code === 0) {
+			return { status: "cloned" };
+		}
+	} catch {
+		/* default branch failed */
+	}
+
 	try {
 		await rm(repoDir, { recursive: true, force: true });
 	} catch {
 		/* ignore cleanup errors */
 	}
 
-	const branchInfo = repo.branch ? `branch '${repo.branch}'` : "default branch";
 	return {
 		status: "failed",
-		error: `Failed to clone ${repo.raw} (${branchInfo}). Tried: ${uniqueBranches.join(", ")}`,
+		error: `Failed to clone ${repo.raw} (default branch).`,
 	};
 }
 

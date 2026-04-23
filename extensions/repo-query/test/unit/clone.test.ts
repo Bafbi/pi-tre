@@ -66,7 +66,7 @@ describe("ensureRepoCloned", () => {
 		expect(result.error).toContain("Failed to clone");
 	});
 
-	it("tries explicit branch then falls back to defaults", async () => {
+	it("tries only the explicit branch (no fallback)", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
 		const branchesTried: string[] = [];
 
@@ -89,7 +89,27 @@ describe("ensureRepoCloned", () => {
 		);
 
 		expect(result.status).toBe("failed");
-		expect(branchesTried).toEqual(["develop", "main", "master"]);
+		expect(branchesTried).toEqual(["develop"]);
+		expect(result.error).toContain("branch 'develop'");
+	});
+
+	it("omits --branch when no explicit branch is given", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		let hadBranchFlag = false;
+
+		await ensureRepoCloned(
+			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
+			workspace,
+			undefined,
+			mockPi(async (_cmd, args) => {
+				hadBranchFlag = args.includes("--branch");
+				// Simulate success by creating .git so next call returns existing
+				mkdirSync(join(workspace, "repo", ".git"), { recursive: true });
+				return { stdout: "", stderr: "", code: 0, killed: false };
+			}),
+		);
+
+		expect(hadBranchFlag).toBe(false);
 	});
 
 	it("expands leading tilde in local cloneUrl before passing to git", async () => {

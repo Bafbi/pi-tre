@@ -138,4 +138,3 @@ Unit tests mock external boundaries (GitHub API via Octokit, `pi.exec` for git o
 - **failed** — all branches failed, returns error with attempted branch list
 
 Unit tests in `test/unit/clone.test.ts` cover all three paths plus branch fallback order. Integration tests in `test/integration/extension-runner.test.ts` verify real `git clone` from a local source repo into the session workspace.
-```
