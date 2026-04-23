@@ -29,18 +29,6 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 		};
 	}
 
-	// Local paths
-	if (raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("~/")) {
-		return {
-			raw: input,
-			host: "generic",
-			cloneUrl: raw,
-			branch: explicitBranch,
-			displayName: raw.split("/").pop() || raw,
-			dirName: sanitizeDirName(raw.split("/").pop() || "repo"),
-		};
-	}
-
 	// Parse host and clone URL
 	if (raw.startsWith("http://") || raw.startsWith("https://")) {
 		return parseHttpUrl(raw, input, explicitBranch);
@@ -73,14 +61,18 @@ function parseHttpUrl(raw: string, original: string, branch: string | null): Par
 	const host = classifyHost(url.hostname);
 	const pathParts = url.pathname
 		.replace(/^\//, "")
+		.replace(/\/+$/, "")
 		.replace(/\.git$/, "")
 		.split("/");
 	const name = pathParts[pathParts.length - 1] || "repo";
 
+	const trimmedRaw = raw.replace(/\/+$/, "");
+	const cloneUrl = trimmedRaw.endsWith(".git") ? trimmedRaw : `${trimmedRaw}.git`;
+
 	return {
 		raw: original,
 		host,
-		cloneUrl: raw.endsWith(".git") ? raw : `${raw}.git`,
+		cloneUrl,
 		branch,
 		displayName: pathParts.join("/"),
 		dirName: sanitizeDirName(`${host}_${pathParts.join("_")}${branch ? `-${branch}` : ""}`),

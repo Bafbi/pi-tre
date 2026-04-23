@@ -154,4 +154,19 @@ describe("parseRepoIdentifier", () => {
 		expect(result.branch).toBe("feature/test");
 		expect(result.dirName).toBe("tmp_my-repo-feature_test");
 	});
+
+	it("trims trailing slash in HTTPS URL", () => {
+		const result = parseRepoIdentifier("https://gitlab.com/foo/bar/");
+		expect(result.cloneUrl).toBe("https://gitlab.com/foo/bar.git");
+		expect(result.displayName).toBe("foo/bar");
+		expect(result.repo).toBe("bar");
+		expect(result.dirName).toBe("gitlab_foo_bar");
+	});
+
+	it("handles HTTPS URL with trailing slash and branch suffix", () => {
+		const result = parseRepoIdentifier("https://gitlab.com/foo/bar/:main");
+		expect(result.cloneUrl).toBe("https://gitlab.com/foo/bar.git");
+		expect(result.branch).toBe("main");
+		expect(result.displayName).toBe("foo/bar");
+	});
 });
