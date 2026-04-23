@@ -17,7 +17,7 @@
 ## Repo workflow
 1. `mise run install`
 2. `mise run check`
-3. `mise run dev` (or `mise run dev_stale_write_guard`)
+3. `mise run dev`
 
 ## Commit conventions
 - Follow **Conventional Commits**:
