@@ -24,6 +24,15 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@22.19.15)(yaml@2.8.3)
 
+  extensions/leaf-copy:
+    dependencies:
+      '@mariozechner/pi-ai':
+        specifier: '*'
+        version: 0.68.1(ws@8.20.0)(zod@4.3.6)
+      '@mariozechner/pi-coding-agent':
+        specifier: '*'
+        version: 0.68.1(ws@8.20.0)(zod@4.3.6)
+
   extensions/stale-write-guard:
     dependencies:
       '@mariozechner/pi-coding-agent':
