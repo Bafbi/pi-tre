@@ -194,7 +194,7 @@ describe("syncDebugUi", () => {
 
 		const lastWidget = widgetCalls[widgetCalls.length - 1];
 		expect(lastWidget.lines).toBeDefined();
-		expect(lastWidget.lines!.some((l) => l.includes("foo/bar"))).toBe(true);
-		expect(lastWidget.lines!.some((l) => l.includes("something happened"))).toBe(true);
+		expect(lastWidget.lines?.some((l) => l.includes("foo/bar"))).toBe(true);
+		expect(lastWidget.lines?.some((l) => l.includes("something happened"))).toBe(true);
 	});
 });
