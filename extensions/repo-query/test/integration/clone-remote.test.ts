@@ -30,7 +30,7 @@ async function checkGitAvailable(): Promise<boolean> {
 async function checkGitHubReachable(): Promise<boolean> {
 	try {
 		await execAsync("git ls-remote --exit-code https://github.com/biomejs/biome.git HEAD", {
-			timeout: 15000,
+			timeout: 2000,
 		});
 		return true;
 	} catch {

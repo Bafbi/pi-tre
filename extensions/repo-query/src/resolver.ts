@@ -62,8 +62,8 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 			branch: explicitBranch,
 			displayName: raw,
 			dirName: sanitizeDirName(`github_${owner}_${repo}${explicitBranch ? `-${explicitBranch}` : ""}`),
-			owner: raw.split("/")[0],
-			repo: raw.split("/")[1],
+			owner,
+			repo,
 		};
 	}
 

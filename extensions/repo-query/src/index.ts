@@ -18,7 +18,6 @@ import {
 	createDebugState,
 	setDebugEnabled,
 	setWorkspacePath,
-	syncDebugUi,
 	trackRepo,
 } from "./debug.js";
 import { runExplorer } from "./explorer.js";
@@ -345,7 +344,7 @@ export default function (pi: ExtensionAPI) {
 			// ── Phase 3: Explore ────────────────────────────────────────
 			const readyRepos = reposToExplore.filter(({ parsed }) => {
 				const result = results.find((r) => r.identifier === parsed.raw);
-				return result && (result.status === "success" || result.status === "archived" || result.status === "skipped");
+				return result && (result.status === "success" || result.status === "archived");
 			});
 
 			addDebugEvent(debug, `phase: explore (${readyRepos.length} ready repos)`, ctx);
@@ -396,13 +395,16 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 					// Stream actual subagent thinking if available
-					const subagentThought =
-						partial.details && typeof partial.details === "object" && "thought" in partial.details
-							? String((partial.details as Record<string, unknown>).thought)
-							: "";
+					let subagentThought: string | undefined;
+					if (partial.details && typeof partial.details === "object" && "thought" in partial.details) {
+						const raw = (partial.details as Record<string, unknown>).thought;
+						if (typeof raw === "string" && raw.trim().length > 0) {
+							subagentThought = raw;
+						}
+					}
 					onUpdate?.({
 						content: partial.content,
-						details: makeDetails("exploring", subagentThought || undefined),
+						details: makeDetails("exploring", subagentThought),
 					});
 				},
 			});

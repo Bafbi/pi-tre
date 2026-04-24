@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rmdir, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -95,6 +95,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 	let answerText = "";
 	let thinkingText = "";
 	let errorMessage = "";
+	let wasAborted = false;
 
 	try {
 		const exitCode = await new Promise<number>((resolve, reject) => {
@@ -103,8 +104,6 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
 			});
-
-			let _wasAborted = false;
 
 			// Append text without duplicating when the same full text arrives
 			// from both text_delta (incremental or full) and message_end (full).
@@ -209,7 +208,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 			if (signal) {
 				const killProc = () => {
-					_wasAborted = true;
+					wasAborted = true;
 					clearTimers();
 					proc.kill("SIGTERM");
 					graceTimer = setTimeout(() => {
@@ -220,6 +219,13 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				else signal.addEventListener("abort", killProc, { once: true });
 			}
 		});
+
+		if (wasAborted && !answerText) {
+			return {
+				answer: "",
+				error: `Exploration aborted. ${errorMessage || ""}`.trim(),
+			};
+		}
 
 		if (exitCode !== 0 && !answerText) {
 			return {
@@ -243,8 +249,7 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 	} finally {
 		// Cleanup temp prompt file
 		try {
-			await unlink(promptFile);
-			await rmdir(tmpDir);
+			await rm(tmpDir, { recursive: true, force: true });
 		} catch {
 			/* ignore cleanup errors */
 		}
