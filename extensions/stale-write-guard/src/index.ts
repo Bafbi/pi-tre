@@ -54,10 +54,7 @@ function truncateForDebug(text: string, maxLength = 180): string {
 	return `${text.slice(0, maxLength)}...`;
 }
 
-function summarizeToolError(event: {
-	content: Array<{ type: string; text?: string }>;
-	details: unknown;
-}): string {
+function summarizeToolError(event: { content: Array<{ type: string; text?: string }>; details: unknown }): string {
 	const textParts = event.content
 		.filter((item) => item.type === "text" && typeof item.text === "string")
 		.map((item) => item.text?.trim())

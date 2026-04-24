@@ -13,6 +13,10 @@ FORCE_COLOR = "1"
 [deps.pnpm]
 auto = true
 
+[tasks.install]
+description = "Install workspace dependencies"
+run = "pnpm install"
+
 [tasks.lint]
 description = "Run Biome lint checks"
 run = "pnpm lint"
@@ -40,3 +44,15 @@ depends = ["lint", "typecheck", "test"]
 [tasks.dev]
 description = "Start pi in this repo (project-local .pi/extensions auto-discovered)"
 run = "pi"
+
+[tasks.dev_stale_write_guard]
+description = "Start pi with the stale-write-guard extension explicitly"
+run = "pi -e .pi/extensions/stale-write-guard.ts"
+
+[tasks.dev_webfetch_tool]
+description = "Start pi with the webfetch-tool extension explicitly"
+run = "pi -e .pi/extensions/webfetch-tool.ts"
+
+[tasks.btca_resources]
+description = "List configured btca resources"
+run = "btca resources"

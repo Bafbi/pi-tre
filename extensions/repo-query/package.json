@@ -1,5 +1,5 @@
 {
-	"name": "@pi-tre/stale-write-guard",
+	"name": "@pi-tre/repo-query",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -10,10 +10,15 @@
 		]
 	},
 	"scripts": {
-		"typecheck": "tsc -p tsconfig.json --noEmit"
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"generate-schema": "bun run scripts/generate-schema.ts"
 	},
 	"peerDependencies": {
 		"@mariozechner/pi-coding-agent": "*",
+		"@mariozechner/pi-tui": "*",
 		"@sinclair/typebox": "*"
+	},
+	"dependencies": {
+		"@octokit/rest": "^21.0.0"
 	}
 }
