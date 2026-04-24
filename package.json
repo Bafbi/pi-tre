@@ -23,5 +23,8 @@
 		"@types/node": "^25",
 		"typescript": "^6",
 		"vitest": "^3.2.4"
+	},
+	"dependencies": {
+		"@octokit/rest": "^22.0.0"
 	}
 }
