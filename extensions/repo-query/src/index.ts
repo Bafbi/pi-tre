@@ -159,6 +159,7 @@ export default function (pi: ExtensionAPI) {
 			setWorkspacePath(debug, workspace);
 			addDebugEvent(debug, `workspace: ${workspace}`, ctx);
 
+			let resolvedModel: string | undefined;
 			const results: RepoResult[] = [];
 			const reposToExplore: Array<{ parsed: ReturnType<typeof parseRepoIdentifier>; dirName: string }> = [];
 
@@ -188,6 +189,7 @@ export default function (pi: ExtensionAPI) {
 				results: [...results],
 				phase,
 				thought: thoughtOverride || buildThought(phase),
+				model: resolvedModel,
 			});
 
 			const emitPhase = (phase: RepoQueryPhase) => {
@@ -366,7 +368,7 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			const resolvedModel = resolveModel(
+			resolvedModel = resolveModel(
 				config,
 				readyRepos.map((r) => r.parsed),
 			);
@@ -428,7 +430,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// ── Phase 4: Synthesize output ──────────────────────────────
-			const outputText = formatOutput(results, params.query);
+			const outputText = formatOutput(results, params.query, resolvedModel);
 
 			// Truncate if needed
 			const truncation = truncateHead(outputText, {
@@ -547,6 +549,13 @@ export default function (pi: ExtensionAPI) {
 				container.addChild(new Text(theme.fg("dim", details.query), 0, 0));
 				container.addChild(new Spacer(1));
 
+				// Model
+				if (details.model) {
+					container.addChild(new Text(theme.fg("muted", "Model:"), 0, 0));
+					container.addChild(new Text(theme.fg("dim", details.model), 0, 0));
+					container.addChild(new Spacer(1));
+				}
+
 				// Workspace
 				if (details.workspacePath) {
 					container.addChild(new Text(theme.fg("muted", "Workspace:"), 0, 0));
@@ -623,7 +632,7 @@ export default function (pi: ExtensionAPI) {
 	});
 }
 
-export function formatOutput(results: RepoResult[], query: string): string {
+export function formatOutput(results: RepoResult[], query: string, model?: string): string {
 	const lines: string[] = [];
 
 	const successes = results.filter((r) => r.status === "success" || r.status === "archived");
@@ -637,6 +646,10 @@ export function formatOutput(results: RepoResult[], query: string): string {
 
 	if (successes.length > 0 && successes[0]?.answer) {
 		lines.push(`# Answer: ${query}`);
+		if (model) {
+			lines.push("");
+			lines.push(`**Model:** ${model}`);
+		}
 		lines.push("");
 		lines.push(successes[0].answer);
 	}

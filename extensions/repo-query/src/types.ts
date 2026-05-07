@@ -34,6 +34,7 @@ export interface RepoQueryDetails {
 	results: RepoResult[];
 	phase: RepoQueryPhase;
 	thought?: string;
+	model?: string;
 }
 
 export interface ValidationResult {
