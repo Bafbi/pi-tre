@@ -1,0 +1,8 @@
+{
+  "packages": [
+    {
+      "source": "git:github.com/Bafbi/pi-tre",
+      "extensions": []
+    }
+  ]
+}
