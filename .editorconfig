@@ -1,0 +1,29 @@
+# EditorConfig: https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = tab
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Markdown — trailing whitespace can be meaningful (line breaks)
+[*.md]
+trim_trailing_whitespace = false
+
+# YAML — use spaces as commonly expected in the YAML ecosystem
+[*.{yaml,yml}]
+indent_style = space
+indent_size = 2
+
+# dotenv / env files
+[.env*]
+indent_style = space
+indent_size = 2
+
+# Lockfiles / generated — avoid reformatting noise
+[*-lock.*]
+indent_style = unset
+insert_final_newline = unset

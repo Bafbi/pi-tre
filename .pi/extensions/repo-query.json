@@ -1,4 +1,4 @@
 {
-	"$schema": "../../extensions/repo-query/repo-query.schema.json",
-	"defaultModel": "opencode-go/minimax-m2.5"
+    "$schema": "../../extensions/repo-query/repo-query.schema.json",
+    "defaultModel": "opencode-go/minimax-m2.5"
 }
