@@ -9,7 +9,7 @@ import { type AgentToolResult, withFileMutationQueue } from "@mariozechner/pi-co
 import type { ParsedRepo } from "./types.js";
 
 const SUBAGENT_TIMEOUT_MS = 300_000;
-const MAX_OUTPUT_CHARS = 4000;
+const MAX_OUTPUT_CHARS = 8000;
 
 function truncateSubagentOutput(text: string): string {
 	return text.length > MAX_OUTPUT_CHARS ? `${text.slice(0, MAX_OUTPUT_CHARS)}...\n[Answer truncated]` : text;
