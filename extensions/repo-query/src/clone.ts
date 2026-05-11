@@ -73,7 +73,7 @@ export async function ensureRepoCloned(
 
 		return {
 			status: "failed",
-			error: `Failed to clone ${repo.raw} (branch '${repo.branch}').`,
+			error: `Failed to clone ${repo.raw} (ref '${repo.branch}').`,
 		};
 	}
 

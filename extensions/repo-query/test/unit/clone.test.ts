@@ -98,7 +98,7 @@ describe("ensureRepoCloned", () => {
 
 		expect(result.status).toBe("failed");
 		expect(branchesTried).toEqual(["develop"]);
-		expect(result.error).toContain("branch 'develop'");
+		expect(result.error).toContain("ref 'develop'");
 	});
 
 	it("omits --branch when no explicit branch is given", async () => {
