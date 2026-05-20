@@ -137,4 +137,86 @@ describe("formatOutput", () => {
 		expect(out).toContain("bad-id");
 		expect(out).toContain("skipped");
 	});
+
+	describe("Recommendation section", () => {
+		it("adds Recommendation with retry hint when success + not_found with suggestions", () => {
+			const results: RepoResult[] = [
+				{
+					identifier: "owner/good",
+					status: "success",
+					warnings: [],
+					answer: "Found it.",
+				},
+				{
+					identifier: "owner/missing",
+					status: "not_found",
+					warnings: [],
+					suggestions: ["owner/real"],
+					error: "Repository not found.",
+				},
+			];
+			const out = formatOutput(results, "query");
+			expect(out).toContain("## Recommendation");
+			expect(out).toContain("1 of 2 repos could not be found");
+			expect(out).toContain("Consider retrying with the suggested names alongside the 1 successful repo(s)");
+			expect(out).toContain("Use \`owner/real\` instead of \`owner/missing\`");
+		});
+
+		it("adds Recommendation when all repos are not_found with suggestions", () => {
+			const results: RepoResult[] = [
+				{
+					identifier: "owner/a",
+					status: "not_found",
+					warnings: [],
+					suggestions: ["owner/real-a"],
+					error: "Not found.",
+				},
+				{
+					identifier: "owner/b",
+					status: "not_found",
+					warnings: [],
+					suggestions: ["owner/real-b"],
+					error: "Not found.",
+				},
+			];
+			const out = formatOutput(results, "query");
+			expect(out).toContain("## Recommendation");
+			expect(out).toContain("2 repo(s) could not be found");
+			expect(out).toContain("Consider retrying with the suggested names below");
+			expect(out).toContain("Use \`owner/real-a\` instead of \`owner/a\`");
+			expect(out).toContain("Use \`owner/real-b\` instead of \`owner/b\`");
+		});
+
+		it("omits Recommendation when failures have no suggestions", () => {
+			const results: RepoResult[] = [
+				{
+					identifier: "owner/good",
+					status: "success",
+					warnings: [],
+					answer: "Found it.",
+				},
+				{
+					identifier: "owner/bad",
+					status: "clone_failed",
+					warnings: [],
+					error: "Network error.",
+				},
+			];
+			const out = formatOutput(results, "query");
+			expect(out).not.toContain("## Recommendation");
+		});
+
+		it("omits Recommendation when there are no failures", () => {
+			const results: RepoResult[] = [
+				{
+					identifier: "owner/repo",
+					status: "success",
+					warnings: [],
+					answer: "All good.",
+				},
+			];
+			const out = formatOutput(results, "query");
+			expect(out).not.toContain("## Recommendation");
+		});
+	});
 });

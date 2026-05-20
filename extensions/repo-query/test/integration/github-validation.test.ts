@@ -191,6 +191,56 @@ describe("repo_query GitHub validation", () => {
 		}
 	});
 
+	it("returns isError true when some repos succeed and others have suggestions", async () => {
+		const cwd = makeRunnerCwd();
+		const gh = mockGitHubApi({
+			responses: new Map([
+				[
+					"https://api.github.com/repos/owner/good",
+					{ archived: false, pushed_at: "2024-01-01T00:00:00Z" },
+				],
+				[
+					"https://api.github.com/search/repositories?q=missing%20user%3Aowner&sort=stars&order=desc&per_page=5",
+					{ items: [{ full_name: "owner/real-repo" }] },
+				],
+			]),
+		});
+
+		setTestExplorerImpl(async () => ({ answer: "Mixed result answer" }));
+		setTestCloneImpl(async () => ({ status: "cloned" }));
+
+		const runner = await createRunner(cwd);
+		const tools = runner.getAllRegisteredTools();
+		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		expect(repoQueryTool).toBeDefined();
+		if (!repoQueryTool) throw new Error("repo_query tool not found");
+
+		try {
+			const result = await repoQueryTool.definition.execute(
+				"test-call-mixed",
+				{ query: "How does this work?", repos: ["owner/good", "owner/missing"] },
+				undefined,
+				undefined,
+				runner.createContext(),
+			);
+
+			// isError should be true because the missing repo has suggestions (retryable failure)
+			expect(result.isError).toBe(true);
+
+			const text = result.content[0]?.text ?? "";
+			// Should still contain the answer from the successful repo
+			expect(text).toContain("Mixed result answer");
+			// Should contain the suggestion for the missing repo
+			expect(text).toContain("owner/missing");
+			expect(text).toContain("owner/real-repo");
+			// Should contain the Recommendation section
+			expect(text).toContain("## Recommendation");
+			expect(text).toContain("Use \`owner/real-repo\` instead of \`owner/missing\`");
+		} finally {
+			gh.restore();
+		}
+	});
+
 	it("proceeds with clone when GitHub API fails unexpectedly", async () => {
 		const cwd = makeRunnerCwd();
 		const gh = mockGitHubApi({

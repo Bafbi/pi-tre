@@ -353,13 +353,33 @@ export default function (pi: ExtensionAPI) {
 
 			if (readyRepos.length === 0) {
 				addDebugEvent(debug, "explore: no ready repos, returning error", ctx);
-				const errorParts = results.filter((r) => r.error).map((r) => `- ${r.identifier}: ${r.error}`);
+
+				const errorParts = results
+					.filter((r) => r.error)
+					.map((r) => `- ${r.identifier}: ${r.error}`);
 
 				const suggestionParts = results
 					.filter((r) => r.suggestions && r.suggestions.length > 0)
 					.map((r) => `- ${r.identifier}: did you mean ${r.suggestions?.join(", ")}?`);
 
-				const text = ["No repositories could be explored.", ...errorParts, ...suggestionParts].join("\n");
+				const notFoundWithSuggestions = results.filter(
+					(r) => r.suggestions && r.suggestions.length > 0,
+				);
+
+				const parts: string[] = ["No repositories could be explored.", ...errorParts, ...suggestionParts];
+
+				if (notFoundWithSuggestions.length > 0) {
+					parts.push("");
+					parts.push("Some repositories were not found. Consider retrying with the suggested names:");
+					for (const nf of notFoundWithSuggestions) {
+						const primary = nf.suggestions![0];
+						if (primary) {
+							parts.push(`- Use \`${primary}\` instead of \`${nf.identifier}\``);
+						}
+					}
+				}
+
+				const text = parts.join("\n");
 
 				return {
 					content: [{ type: "text", text }],
@@ -439,13 +459,18 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			const hasSuccessfulAnswer = results.some((r) => (r.status === "success" || r.status === "archived") && r.answer);
+			const hasRetryableFailures = results.some((r) => r.suggestions && r.suggestions.length > 0);
 
-			addDebugEvent(debug, `execute complete: ${hasSuccessfulAnswer ? "success" : "with errors"}`, ctx);
+			addDebugEvent(
+				debug,
+				`execute complete: success=${hasSuccessfulAnswer} retryable=${hasRetryableFailures}`,
+				ctx,
+			);
 
 			return {
 				content: [{ type: "text", text: truncation.content }],
 				details: makeDetails("complete"),
-				isError: !hasSuccessfulAnswer,
+				isError: !hasSuccessfulAnswer || hasRetryableFailures,
 			};
 		},
 
@@ -643,6 +668,7 @@ export function formatOutput(results: RepoResult[], query: string, model?: strin
 			r.status === "exploration_failed" ||
 			r.status === "skipped",
 	);
+	const notFoundWithSuggestions = failures.filter((r) => r.suggestions && r.suggestions.length > 0);
 
 	if (successes.length > 0 && successes[0]?.answer) {
 		lines.push(`# Answer: ${query}`);
@@ -662,6 +688,30 @@ export function formatOutput(results: RepoResult[], query: string, model?: strin
 			if (f.error) lines.push(`  - ${f.error}`);
 			if (f.suggestions && f.suggestions.length > 0) {
 				lines.push(`  - Did you mean: ${f.suggestions.join(", ")}?`);
+			}
+		}
+	}
+
+	// Add retry recommendation when some repos have suggestions
+	if (notFoundWithSuggestions.length > 0) {
+		const succeededCount = successes.length;
+		lines.push("");
+		lines.push("## Recommendation");
+		if (succeededCount > 0) {
+			lines.push(
+				`${results.length - succeededCount} of ${results.length} repos could not be found. ` +
+					`Consider retrying with the suggested names alongside the ${succeededCount} successful repo(s):`,
+			);
+		} else {
+			lines.push(
+				`${results.length} repo(s) could not be found. ` +
+					`Consider retrying with the suggested names below:`,
+			);
+		}
+		for (const nf of notFoundWithSuggestions) {
+			const primary = nf.suggestions![0];
+			if (primary) {
+				lines.push(`- Use \`${primary}\` instead of \`${nf.identifier}\``);
 			}
 		}
 	}
