@@ -19,6 +19,7 @@
 		"@sinclair/typebox": "*"
 	},
 	"dependencies": {
-		"@octokit/rest": "^21.0.0"
+		"@octokit/rest": "^21.0.0",
+		"fuse.js": "^7.3.0"
 	}
 }

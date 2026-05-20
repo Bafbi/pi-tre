@@ -6,10 +6,10 @@ import type { ParsedRepo } from "./types.js";
  * Parse a repo identifier string into structured form.
  *
  * Supports:
- *   - GitHub shorthand: "owner/repo" or "owner/repo:branch" or "owner/repo@branch"
+ *   - GitHub shorthand: "owner/repo" or "owner/repo:branch"
  *   - Bare hostname shorthand: "github.com/owner/repo" or "host.com/owner/repo:branch"
  *   - Full URLs: "https://host.com/path/to/repo" or "git@host.com:path/to/repo"
- *   - With branch suffix: URL ":branch" or URL "@branch"
+ *   - With branch suffix: URL ":branch"
  */
 export function parseRepoIdentifier(input: string): ParsedRepo {
 	const extracted = extractBranch(input.trim());
@@ -122,16 +122,9 @@ function parseSshUrl(raw: string, original: string, branch: string | null): Pars
 
 function extractBranch(raw: string): { rest: string; branch: string | null } {
 	const lastColon = raw.lastIndexOf(":");
-	const lastAt = raw.lastIndexOf("@");
 
-	// Colon form takes precedence — test it first
 	if (lastColon > 0 && isBranchDelimiter(raw, lastColon)) {
 		return { rest: raw.slice(0, lastColon), branch: raw.slice(lastColon + 1) };
-	}
-
-	// Fall back to at-sign
-	if (lastAt > 0 && isBranchDelimiter(raw, lastAt)) {
-		return { rest: raw.slice(0, lastAt), branch: raw.slice(lastAt + 1) };
 	}
 
 	return { rest: raw, branch: null };
@@ -155,14 +148,6 @@ function isBranchDelimiter(raw: string, index: number): boolean {
 	if (char === ":" && raw.startsWith("git@")) {
 		const firstColonAfterPrefix = raw.indexOf(":", 4);
 		if (index === firstColonAfterPrefix) {
-			return false;
-		}
-	}
-
-	// Guard against the @ in git@ prefix
-	if (char === "@" && raw.startsWith("git@")) {
-		const firstAt = raw.indexOf("@");
-		if (index === firstAt) {
 			return false;
 		}
 	}

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import Fuse from "fuse.js";
 
 import type { ParsedRepo } from "./types.js";
 
@@ -21,6 +22,32 @@ export function setTestCloneImpl(impl: typeof ensureRepoCloned | undefined): voi
 }
 
 /**
+ * Parse `git ls-remote --heads` output and return up to `maxResults` branch names
+ * that are fuzzy-close to the requested branch, using Fuse.js Bitap search.
+ */
+function getBranchSuggestions(
+	requestedBranch: string,
+	lsRemoteStdout: string,
+	maxResults: number,
+): string[] {
+	const branches: string[] = [];
+	for (const line of lsRemoteStdout.split("\n")) {
+		const match = line.match(/^[a-f0-9]+\s+refs\/heads\/(.+)$/);
+		if (match) {
+			branches.push(match[1]);
+		}
+	}
+	if (branches.length === 0) return [];
+
+	const fuse = new Fuse(branches, {
+		threshold: 0.5,
+		ignoreLocation: true,
+	});
+
+	return fuse.search(requestedBranch).slice(0, maxResults).map((r) => r.item);
+}
+
+/**
  * Ensure a repo is cloned into the workspace. Uses shallow clone.
  *
  * Returns:
@@ -30,6 +57,7 @@ export function setTestCloneImpl(impl: typeof ensureRepoCloned | undefined): voi
  *
  * Branch behavior:
  *   - Explicit branch: only that branch is attempted (no fallback).
+ *     On failure, `git ls-remote --heads` is used to suggest similar branches.
  *   - No branch: clones the remote default branch without --branch.
  */
 export async function ensureRepoCloned(
@@ -71,9 +99,26 @@ export async function ensureRepoCloned(
 			/* ignore cleanup errors */
 		}
 
+		// Try to find similar branch names via fuzzy matching
+		let errorMsg = `Failed to clone ${repo.raw} (ref '${repo.branch}').`;
+		try {
+			const lsResult = await pi.exec("git", ["ls-remote", "--heads", cloneSource], {
+				signal,
+				timeout: 30_000,
+			});
+			if (lsResult.code === 0 && lsResult.stdout) {
+				const suggestions = getBranchSuggestions(repo.branch, lsResult.stdout, 5);
+				if (suggestions.length > 0) {
+					errorMsg += ` Did you mean one of these branches: ${suggestions.join(", ")}?`;
+				}
+			}
+		} catch {
+			/* ls-remote failed — no suggestions available */
+		}
+
 		return {
 			status: "failed",
-			error: `Failed to clone ${repo.raw} (ref '${repo.branch}').`,
+			error: errorMsg,
 		};
 	}
 

@@ -9,7 +9,7 @@ Pi extension for querying code across one or more git repositories.
 - **Session caching**: repositories are cloned once and reused across queries
 - **GitHub validation**: validates GitHub repos via API; suggests alternatives on 404
 - **Archive warnings**: flags archived/deprecated repositories
-- **Branch support**: specify branches via `:branch` or `@branch` suffixes
+- **Branch support**: specify branches via `:branch` suffix
 - **Shallow clones**: `--depth 1 --single-branch` for fast, disk-efficient cloning
 - **Per-repo model config**: choose which LLM model explores each repository
 
@@ -34,9 +34,8 @@ The agent will call the tool with:
 |--------|---------|-------|
 | GitHub shorthand | `facebook/react` | Default branch |
 | With branch | `vuejs/vue:main` | Explicit branch via `:` |
-| With branch | `vuejs/vue@main` | Explicit branch via `@` |
 | Full URL | `https://github.com/org/repo` | Any host |
-| Full URL + branch | `https://gitlab.com/org/repo@dev` | Branch suffix on URL |
+| Full URL + branch | `https://gitlab.com/org/repo:dev` | Branch suffix on URL |
 | SSH URL | `git@gitlab.com:org/repo.git` | Generic git host |
 
 ### GitHub-specific behavior
@@ -49,6 +48,19 @@ The agent will call the tool with:
 
 - No API validation (no search suggestions on failure)
 - Clone failure → returns error with branch info
+
+### Branch failure suggestions
+
+When cloning an explicit branch fails, the extension runs `git ls-remote --heads` to fetch the remote's branch list and uses **fuzzy matching** (Levenshtein distance) to suggest up to 5 similar branch names. Examples:
+
+| Requested | Suggested |
+|-----------|-----------|
+| `mian` | `main` |
+| `develp` | `develop` |
+| `Master` | `master` |
+| `featurefoo` | `feature/foo` |
+
+If similar branches are found, the error message includes: `Did you mean one of these branches: main, main-v2?`
 
 ## Model configuration
 
@@ -137,4 +149,6 @@ Unit tests mock external boundaries (GitHub API via Octokit, `pi.exec` for git o
 - **cloned** — shallow clone succeeded
 - **failed** — all branches failed, returns error with attempted branch list
 
-Unit tests in `test/unit/clone.test.ts` cover all three paths plus branch fallback order. Integration tests in `test/integration/extension-runner.test.ts` verify real `git clone` from a local source repo into the session workspace.
+When a branch-specific clone fails, the function runs `git ls-remote --heads` to gather available remote branches, then uses **fuzzy matching** (normalized Levenshtein similarity ≥ 0.4) to suggest up to 5 similar branch names in the error message.
+
+Unit tests in `test/unit/clone.test.ts` cover all three paths plus branch suggestions. Integration tests in `test/integration/extension-runner.test.ts` verify real `git clone` from a local source repo into the session workspace.

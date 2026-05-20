@@ -101,6 +101,106 @@ describe("ensureRepoCloned", () => {
 		expect(result.error).toContain("ref 'develop'");
 	});
 
+	it("suggests similar branches when explicit branch clone fails", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
+
+		const lsRemoteOutput = [
+			"abc12345deadbeef\trefs/heads/main",
+			"def67890cafebabe\trefs/heads/develop",
+			"1111222233334444\trefs/heads/feature/foo",
+			"5555666677778888\trefs/heads/release/v2",
+			"99990000aaaabbbb\trefs/heads/experiment",
+		].join("\n");
+
+		// First exec call = git clone (fails), second = git ls-remote (succeeds with branches)
+		let callCount = 0;
+		const result = await ensureRepoCloned(
+			{
+				raw: "owner/repo:mian",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+				branch: "mian",
+			} as ParsedRepo,
+			workspace,
+			undefined,
+			mockPi(async (_cmd, args) => {
+				callCount++;
+				if (callCount === 1) {
+					// git clone fails
+					return { stdout: "", stderr: "fatal: not found", code: 128, killed: false };
+				}
+				// git ls-remote succeeds
+				return { stdout: lsRemoteOutput, stderr: "", code: 0, killed: false };
+			}),
+		);
+
+		expect(result.status).toBe("failed");
+		expect(result.error).toContain("ref 'mian'");
+		expect(result.error).toContain("main");
+		expect(result.error).not.toContain("develop");
+	});
+
+	it("does not include suggestions when ls-remote fails", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
+
+		let callCount = 0;
+		const result = await ensureRepoCloned(
+			{
+				raw: "owner/repo:mian",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+				branch: "mian",
+			} as ParsedRepo,
+			workspace,
+			undefined,
+			mockPi(async () => {
+				callCount++;
+				// Both calls fail
+				return { stdout: "", stderr: "fatal: not found", code: 128, killed: false };
+			}),
+		);
+
+		expect(result.status).toBe("failed");
+		expect(result.error).toContain("ref 'mian'");
+		expect(result.error).not.toContain("Did you mean");
+	});
+
+	it("excludes branches that are not fuzzy-close", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
+
+		const lsRemoteOutput = [
+			"abc12345deadbeef\trefs/heads/main",
+			"def67890cafebabe\trefs/heads/develop",
+		].join("\n");
+
+		let callCount = 0;
+		const result = await ensureRepoCloned(
+			{
+				raw: "owner/repo:production",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+				branch: "production",
+			} as ParsedRepo,
+			workspace,
+			undefined,
+			mockPi(async (_cmd, args) => {
+				callCount++;
+				if (callCount === 1) {
+					return { stdout: "", stderr: "fatal: not found", code: 128, killed: false };
+				}
+				return { stdout: lsRemoteOutput, stderr: "", code: 0, killed: false };
+			}),
+		);
+
+		expect(result.status).toBe("failed");
+		expect(result.error).toContain("ref 'production'");
+		// "production" is too dissimilar from "main" and "develop" → no suggestion appended
+		expect(result.error).not.toContain("Did you mean");
+	});
+
 	it("omits --branch when no explicit branch is given", async () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
 		tempDirs.push(workspace);

@@ -15,11 +15,11 @@ Allow Pi agents to query code across external git repositories by cloning them i
 ## Repository identifier formats
 
 The resolver accepts:
-- GitHub shorthand: `owner/repo`, `owner/repo:branch`, `owner/repo@branch`
-- Full URLs: `https://host.com/path`, `https://host.com/path@branch`, `https://host.com/path:branch`
+- GitHub shorthand: `owner/repo`, `owner/repo:branch`
+- Full URLs: `https://host.com/path`, `https://host.com/path:branch`
 - SSH URLs: `git@host.com:path.git`
 
-Branch suffixes (`:` or `@`) are stripped before URL parsing. The colon form takes precedence.
+Branch suffix (`:`) is stripped before URL parsing.
 
 ## Workspace lifecycle
 

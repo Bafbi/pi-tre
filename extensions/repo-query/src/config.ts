@@ -9,6 +9,8 @@ import type { ParsedRepo } from "./types.js";
 
 export const RepoQueryConfigSchema = Type.Object(
 	{
+		/** JSON Schema reference for IDE intellisense (ignored at runtime). */
+		$schema: Type.Optional(Type.String()),
 		/** Default model for all repo queries. */
 		defaultModel: Type.Optional(Type.String()),
 		/** Per-repo model overrides. Keys are repo display names like `owner/repo`. */

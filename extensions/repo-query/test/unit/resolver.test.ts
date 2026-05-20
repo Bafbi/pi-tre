@@ -20,13 +20,7 @@ describe("parseRepoIdentifier", () => {
 		expect(result.dirName).toBe("github_vuejs_vue-main");
 	});
 
-	it("parses GitHub shorthand with at-sign branch", () => {
-		const result = parseRepoIdentifier("vuejs/vue@main");
-		expect(result.host).toBe("github");
-		expect(result.displayName).toBe("vuejs/vue");
-		expect(result.branch).toBe("main");
-		expect(result.dirName).toBe("github_vuejs_vue-main");
-	});
+
 
 	it("parses GitHub shorthand with slash-containing branch", () => {
 		const result = parseRepoIdentifier("owner/repo:feature/foo");
@@ -35,12 +29,7 @@ describe("parseRepoIdentifier", () => {
 		expect(result.branch).toBe("feature/foo");
 	});
 
-	it("parses GitHub shorthand with at-sign slash-containing branch", () => {
-		const result = parseRepoIdentifier("owner/repo@feature/foo");
-		expect(result.host).toBe("github");
-		expect(result.displayName).toBe("owner/repo");
-		expect(result.branch).toBe("feature/foo");
-	});
+
 
 	it("does not treat scheme colon in HTTPS URL as branch", () => {
 		const result = parseRepoIdentifier("https://gitlab.com/foo/bar");
@@ -60,14 +49,7 @@ describe("parseRepoIdentifier", () => {
 		expect(result.repo).toBe("bar");
 	});
 
-	it("parses HTTPS URL with at-sign branch suffix", () => {
-		const result = parseRepoIdentifier("https://gitlab.com/foo/bar@main");
-		expect(result.host).toBe("gitlab");
-		expect(result.cloneUrl).toBe("https://gitlab.com/foo/bar.git");
-		expect(result.branch).toBe("main");
-		expect(result.owner).toBe("foo");
-		expect(result.repo).toBe("bar");
-	});
+
 
 	it("does not treat HTTP port colon as branch", () => {
 		const result = parseRepoIdentifier("http://host:8080/path/to/repo");
@@ -121,13 +103,7 @@ describe("parseRepoIdentifier", () => {
 		expect(result.branch).toBeNull();
 	});
 
-	it("parses HTTP URL with userinfo and at-sign branch suffix", () => {
-		const result = parseRepoIdentifier("http://user@host/path/to/repo@main");
-		expect(result.cloneUrl).toBe("http://user@host/path/to/repo.git");
-		expect(result.branch).toBe("main");
-		expect(result.owner).toBe("path");
-		expect(result.repo).toBe("repo");
-	});
+
 
 	it("gives colon precedence over at-sign for branch delimiter", () => {
 		const result = parseRepoIdentifier("owner/repo:feature@foo");
@@ -190,13 +166,7 @@ describe("parseRepoIdentifier", () => {
 		expect(result.dirName).toBe("github_biomejs_biome-main");
 	});
 
-	it("parses bare github.com URL with at-sign branch", () => {
-		const result = parseRepoIdentifier("github.com/biomejs/biome@main");
-		expect(result.host).toBe("github");
-		expect(result.cloneUrl).toBe("https://github.com/biomejs/biome.git");
-		expect(result.branch).toBe("main");
-		expect(result.displayName).toBe("biomejs/biome");
-	});
+
 
 	it("parses bare gitlab.com URL as HTTPS", () => {
 		const result = parseRepoIdentifier("gitlab.com/foo/bar");

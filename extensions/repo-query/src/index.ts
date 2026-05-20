@@ -44,7 +44,7 @@ const RepoQueryParams = Type.Object({
 	repos: Type.Array(
 		Type.String({
 			description:
-				"Repository identifiers. Examples: 'owner/repo', 'owner/repo:branch', 'https://github.com/org/repo@branch', 'git@gitlab.com:org/repo.git'",
+				"Repository identifiers. Examples: 'owner/repo', 'owner/repo:branch', 'https://github.com/org/repo', 'git@gitlab.com:org/repo.git'",
 		}),
 		{ minItems: 1, maxItems: MAX_REPOS },
 	),
@@ -133,15 +133,15 @@ export default function (pi: ExtensionAPI) {
 		description: [
 			"Explore one or more git repositories to answer a query.",
 			"Clones repositories via shallow clone and delegates exploration to a subagent.",
-			"Supports GitHub shorthand ('owner/repo'), full URLs, and branch suffixes (:branch or @branch).",
+			"Supports GitHub shorthand ('owner/repo'), full URLs, and branch suffix (:branch).",
 			"GitHub repos are validated via API; non-existent repos return search suggestions.",
 			"Repositories are cached per session and reused across multiple queries.",
 		].join(" "),
 		promptSnippet: "Query git repositories by cloning them and exploring with a subagent",
 		promptGuidelines: [
-			"Use repo_query when you need to investigate code in external repositories.",
-			"Provide specific queries; the subagent will search and read relevant files.",
-			"Multiple repositories enable cross-repo comparison and reference finding.",
+			"Use repo_query when you need to investigate code in external repositories — don't try to read remote code manually.",
+			"Provide specific, targeted queries to repo_query; the subagent searches using grep/find/read and fares best with concrete questions about architecture, patterns, or file locations.",
+			"repo_query caches cloned repos per session — re-querying the same repo is fast and uses the local copy.",
 		],
 		parameters: RepoQueryParams,
 
