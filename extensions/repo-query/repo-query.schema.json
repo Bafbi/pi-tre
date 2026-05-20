@@ -3,6 +3,9 @@
 	"additionalProperties": false,
 	"type": "object",
 	"properties": {
+		"$schema": {
+			"type": "string"
+		},
 		"defaultModel": {
 			"type": "string"
 		},

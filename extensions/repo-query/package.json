@@ -11,7 +11,7 @@
 	},
 	"scripts": {
 		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"generate-schema": "bun run scripts/generate-schema.ts"
+		"generate-schema": "npx tsx scripts/generate-schema.ts"
 	},
 	"peerDependencies": {
 		"@mariozechner/pi-coding-agent": "*",
