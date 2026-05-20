@@ -11,6 +11,9 @@ importers:
       '@octokit/rest':
         specifier: ^22.0.0
         version: 22.0.1
+      fuse.js:
+        specifier: ^7.3.0
+        version: 7.3.0
     devDependencies:
       '@mariozechner/pi-coding-agent':
         specifier: ^0.68
