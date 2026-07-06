@@ -41,3 +41,17 @@
 - When merging PRs, prefer a merge commit subject that references the PR number, e.g.:
   - `feat: add stale write guard (#12)`
   - `fix: handle missing read state (#34)`
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked as local markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical triage roles using default label strings. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context monorepo — `CONTEXT-MAP.md` at root maps to per-extension `CONTEXT.md` files under `extensions/<name>/`. See `docs/agents/domain.md`.
