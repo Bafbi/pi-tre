@@ -3,8 +3,10 @@ import { rm } from "node:fs/promises";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
+	type AgentToolResult,
 	type ExtensionAPI,
 	getMarkdownTheme,
+	type Theme,
 	truncateHead,
 } from "@mariozechner/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
@@ -34,6 +36,201 @@ export function formatRepoDisplayName(raw: string): { display: string; branch: s
 		return { display: parsed.displayName, branch: parsed.branch };
 	} catch {
 		return { display: raw, branch: null };
+	}
+}
+
+/**
+ * Container subclass for repo_query result rendering with internal render-cache state.
+ */
+class RepoQueryResultComponent extends Container {
+	state: {
+		cachedWidth?: number;
+		cachedLines?: string[];
+	} = {};
+}
+
+/**
+ * Clear and repopulate a RepoQueryResultComponent based on the current result state.
+ * Handles all three render paths: partial (streaming), expanded (rich layout), collapsed (summary).
+ */
+function rebuildRepoQueryResultComponent(
+	component: RepoQueryResultComponent,
+	result: AgentToolResult<RepoQueryDetails>,
+	options: { expanded: boolean; isPartial: boolean },
+	theme: Theme,
+): void {
+	component.clear();
+
+	const details = result.details as RepoQueryDetails | undefined;
+	if (!details || details.results.length === 0) {
+		const text = result.content[0];
+		component.addChild(
+			new Text(text?.type === "text" ? text.text : "(no output)", 0, 0),
+		);
+		return;
+	}
+
+	const mdTheme = getMarkdownTheme();
+	const hasAnswer = details.results.some((r) => r.answer);
+	const allFailed = details.results.every(
+		(r) =>
+			r.status === "not_found" ||
+			r.status === "clone_failed" ||
+			r.status === "exploration_failed" ||
+			r.status === "skipped",
+	);
+
+	// Streaming / partial state — repo status + last 5 thought lines
+	if (options.isPartial) {
+		const lines: string[] = [];
+
+		for (const r of details.results) {
+			const activity =
+				r.status === "success"
+					? theme.fg("dim", "ready")
+					: r.status === "archived"
+						? theme.fg("warning", "archived")
+						: r.status === "not_found"
+							? theme.fg("error", "not found")
+							: r.status === "clone_failed"
+								? theme.fg("error", "clone failed")
+								: r.status === "skipped"
+									? theme.fg("error", "skipped")
+									: theme.fg("dim", "pending");
+			const icon =
+				r.status === "success" || r.status === "archived"
+					? theme.fg("success", "✓")
+					: r.status === "not_found" || r.status === "clone_failed" || r.status === "skipped"
+						? theme.fg("error", "✗")
+						: theme.fg("warning", "⏳");
+			lines.push(`  ${icon} ${theme.fg("accent", r.identifier)} ${activity}`);
+			if (r.suggestions && r.suggestions.length > 0) {
+				lines.push(`    ${theme.fg("dim", `→ did you mean: ${r.suggestions[0]}?`)}`);
+			}
+		}
+
+		// Show last 5 lines of subagent thought
+		const thought = details.thought ?? "";
+		if (thought) {
+			const thoughtLines = thought.split("\n").filter((l) => l.trim());
+			const lastLines = thoughtLines.slice(-5);
+			if (thoughtLines.length > 5) {
+				lines.push(theme.fg("dim", "..."));
+			}
+			for (const line of lastLines) {
+				lines.push(`  ${theme.fg("dim", line.trim())}`);
+			}
+		}
+
+		for (const line of lines) {
+			component.addChild(new Text(line, 0, 0));
+		}
+		return;
+	}
+
+	// Expanded view: rich layout with Container + Markdown
+	if (options.expanded && hasAnswer) {
+		// Header
+		const successCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
+		const icon = allFailed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+		component.addChild(
+			new Text(
+				`${icon} ${theme.fg("toolTitle", theme.bold("repo_query"))} ${theme.fg("accent", `${successCount}/${details.results.length}`)}`,
+				0,
+				0,
+			),
+		);
+		component.addChild(new Spacer(1));
+
+		// Query
+		component.addChild(new Text(theme.fg("muted", "Query:"), 0, 0));
+		component.addChild(new Text(theme.fg("dim", details.query), 0, 0));
+		component.addChild(new Spacer(1));
+
+		// Model
+		if (details.model) {
+			component.addChild(new Text(theme.fg("muted", "Model:"), 0, 0));
+			component.addChild(new Text(theme.fg("dim", details.model), 0, 0));
+			component.addChild(new Spacer(1));
+		}
+
+		// Workspace
+		if (details.workspacePath) {
+			component.addChild(new Text(theme.fg("muted", "Workspace:"), 0, 0));
+			component.addChild(new Text(theme.fg("dim", details.workspacePath), 0, 0));
+			component.addChild(new Spacer(1));
+		}
+
+		// Repositories
+		component.addChild(new Text(theme.fg("muted", "Repositories:"), 0, 0));
+		for (const r of details.results) {
+			const rIcon =
+				r.status === "success"
+					? theme.fg("success", "✓")
+					: r.status === "archived"
+						? theme.fg("warning", "⚠")
+						: theme.fg("error", "✗");
+			let line = `  ${rIcon} ${theme.fg("accent", r.identifier)}`;
+			if (r.localPath) line += theme.fg("dim", ` → ${r.localPath}`);
+			component.addChild(new Text(line, 0, 0));
+			if (r.warnings.length > 0) {
+				component.addChild(new Text(`    ${theme.fg("warning", r.warnings[0])}`, 0, 0));
+			}
+			if (r.error) {
+				component.addChild(new Text(`    ${theme.fg("error", r.error)}`, 0, 0));
+			}
+			if (r.suggestions && r.suggestions.length > 0) {
+				component.addChild(
+					new Text(`    ${theme.fg("dim", `Did you mean: ${r.suggestions.join(", ")}?`)}`, 0, 0),
+				);
+			}
+		}
+		component.addChild(new Spacer(1));
+
+		// Answer as Markdown
+		const answer = details.results.find((r) => r.answer)?.answer;
+		if (answer) {
+			component.addChild(new Text(theme.fg("muted", "Answer:"), 0, 0));
+			component.addChild(new Markdown(answer.trim(), 0, 0, mdTheme));
+		}
+		return;
+	}
+
+	// Collapsed view
+	const successCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
+	const icon = allFailed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+	component.addChild(
+		new Text(
+			`${icon} ${theme.fg("toolTitle", theme.bold("repo_query"))} ${theme.fg("accent", `${successCount}/${details.results.length}`)}`,
+			0,
+			0,
+		),
+	);
+
+	for (const r of details.results.slice(0, 3)) {
+		const rIcon =
+			r.status === "success"
+				? theme.fg("success", "✓")
+				: r.status === "archived"
+					? theme.fg("warning", "⚠")
+					: theme.fg("error", "✗");
+		let line = `${rIcon} ${theme.fg("accent", r.identifier)}`;
+		if (r.warnings.length > 0) {
+			line += ` ${theme.fg("warning", r.warnings[0].substring(0, 40))}`;
+			if (r.warnings[0].length > 40) line += theme.fg("dim", "...");
+		}
+		component.addChild(new Text(line, 0, 0));
+		if (r.error) {
+			component.addChild(new Text(`  ${theme.fg("error", r.error.substring(0, 60))}`, 0, 0));
+			if (r.error.length > 60) component.addChild(new Text(theme.fg("dim", "..."), 0, 0));
+		}
+	}
+	if (details.results.length > 3) {
+		component.addChild(new Text(theme.fg("muted", `... +${details.results.length - 3} more`), 0, 0));
+	}
+
+	if (hasAnswer) {
+		component.addChild(new Text(theme.fg("dim", "(Ctrl+O to expand)"), 0, 0));
 	}
 }
 
@@ -474,7 +671,12 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme, _context) {
+		renderCall(args, theme, context) {
+			const text =
+				context?.lastComponent instanceof Text
+					? context.lastComponent
+					: new Text("", 0, 0);
+
 			const repoList = args.repos.slice(0, 3).map((r: string) => {
 				const { display, branch } = formatRepoDisplayName(r);
 				return branch ? `${display}:${theme.fg("dim", branch)}` : display;
@@ -484,175 +686,22 @@ export default function (pi: ExtensionAPI) {
 				repoText += theme.fg("muted", ` +${args.repos.length - 3}`);
 			}
 
-			let text = theme.fg("toolTitle", theme.bold("repo_query "));
-			text += theme.fg("dim", repoText);
-			text += `\n  ${theme.fg("muted", `"${args.query}"`)}`;
-			return new Text(text, 0, 0);
+			let textContent = theme.fg("toolTitle", theme.bold("repo_query "));
+			textContent += theme.fg("dim", repoText);
+			textContent += `\n  ${theme.fg("muted", `"${args.query}"`)}`;
+			text.setText(textContent);
+			return text;
 		},
 
-		renderResult(result, { expanded, isPartial }, theme, _context) {
-			const details = result.details as RepoQueryDetails | undefined;
-			if (!details || details.results.length === 0) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
-			}
+		renderResult(result, { expanded, isPartial }, theme, context) {
+			const component =
+				context?.lastComponent instanceof RepoQueryResultComponent
+					? context.lastComponent
+					: new RepoQueryResultComponent();
 
-			const mdTheme = getMarkdownTheme();
-			const hasAnswer = details.results.some((r) => r.answer);
-			const allFailed = details.results.every(
-				(r) =>
-					r.status === "not_found" ||
-					r.status === "clone_failed" ||
-					r.status === "exploration_failed" ||
-					r.status === "skipped",
-			);
-
-			// Streaming / partial state — repo status + last 5 thought lines
-			// (Header with repos/query is already shown by renderCall above)
-			if (isPartial) {
-				const lines: string[] = [];
-
-				for (const r of details.results) {
-					const activity =
-						r.status === "success"
-							? theme.fg("dim", "ready")
-							: r.status === "archived"
-								? theme.fg("warning", "archived")
-								: r.status === "not_found"
-									? theme.fg("error", "not found")
-									: r.status === "clone_failed"
-										? theme.fg("error", "clone failed")
-										: r.status === "skipped"
-											? theme.fg("error", "skipped")
-											: theme.fg("dim", "pending");
-					const icon =
-						r.status === "success" || r.status === "archived"
-							? theme.fg("success", "✓")
-							: r.status === "not_found" || r.status === "clone_failed" || r.status === "skipped"
-								? theme.fg("error", "✗")
-								: theme.fg("warning", "⏳");
-					lines.push(`  ${icon} ${theme.fg("accent", r.identifier)} ${activity}`);
-					if (r.suggestions && r.suggestions.length > 0) {
-						lines.push(`    ${theme.fg("dim", `→ did you mean: ${r.suggestions[0]}?`)}`);
-					}
-				}
-
-				// Show last 5 lines of subagent thought
-				const thought = details.thought ?? "";
-				if (thought) {
-					const thoughtLines = thought.split("\n").filter((l) => l.trim());
-					const lastLines = thoughtLines.slice(-5);
-					if (thoughtLines.length > 5) {
-						lines.push(theme.fg("dim", "..."));
-					}
-					for (const line of lastLines) {
-						lines.push(`  ${theme.fg("dim", line.trim())}`);
-					}
-				}
-
-				return new Text(lines.join("\n"), 0, 0);
-			}
-
-			// Expanded view: rich layout with Container + Markdown
-			if (expanded && hasAnswer) {
-				const container = new Container();
-
-				// Header
-				const successCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
-				const icon = allFailed ? theme.fg("error", "✗") : theme.fg("success", "✓");
-				container.addChild(
-					new Text(
-						`${icon} ${theme.fg("toolTitle", theme.bold("repo_query"))} ${theme.fg("accent", `${successCount}/${details.results.length}`)}`,
-						0,
-						0,
-					),
-				);
-				container.addChild(new Spacer(1));
-
-				// Query
-				container.addChild(new Text(theme.fg("muted", "Query:"), 0, 0));
-				container.addChild(new Text(theme.fg("dim", details.query), 0, 0));
-				container.addChild(new Spacer(1));
-
-				// Model
-				if (details.model) {
-					container.addChild(new Text(theme.fg("muted", "Model:"), 0, 0));
-					container.addChild(new Text(theme.fg("dim", details.model), 0, 0));
-					container.addChild(new Spacer(1));
-				}
-
-				// Workspace
-				if (details.workspacePath) {
-					container.addChild(new Text(theme.fg("muted", "Workspace:"), 0, 0));
-					container.addChild(new Text(theme.fg("dim", details.workspacePath), 0, 0));
-					container.addChild(new Spacer(1));
-				}
-
-				// Repositories
-				container.addChild(new Text(theme.fg("muted", "Repositories:"), 0, 0));
-				for (const r of details.results) {
-					const rIcon =
-						r.status === "success"
-							? theme.fg("success", "✓")
-							: r.status === "archived"
-								? theme.fg("warning", "⚠")
-								: theme.fg("error", "✗");
-					let line = `  ${rIcon} ${theme.fg("accent", r.identifier)}`;
-					if (r.localPath) line += theme.fg("dim", ` → ${r.localPath}`);
-					container.addChild(new Text(line, 0, 0));
-					if (r.warnings.length > 0) {
-						container.addChild(new Text(`    ${theme.fg("warning", r.warnings[0])}`, 0, 0));
-					}
-					if (r.error) {
-						container.addChild(new Text(`    ${theme.fg("error", r.error)}`, 0, 0));
-					}
-					if (r.suggestions && r.suggestions.length > 0) {
-						container.addChild(new Text(`    ${theme.fg("dim", `Did you mean: ${r.suggestions.join(", ")}?`)}`, 0, 0));
-					}
-				}
-				container.addChild(new Spacer(1));
-
-				// Answer as Markdown
-				const answer = details.results.find((r) => r.answer)?.answer;
-				if (answer) {
-					container.addChild(new Text(theme.fg("muted", "Answer:"), 0, 0));
-					container.addChild(new Markdown(answer.trim(), 0, 0, mdTheme));
-				}
-
-				return container;
-			}
-
-			// Collapsed view
-			const successCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
-			const icon = allFailed ? theme.fg("error", "✗") : theme.fg("success", "✓");
-			let text = `${icon} ${theme.fg("toolTitle", theme.bold("repo_query"))} ${theme.fg("accent", `${successCount}/${details.results.length}`)}`;
-
-			for (const r of details.results.slice(0, 3)) {
-				const rIcon =
-					r.status === "success"
-						? theme.fg("success", "✓")
-						: r.status === "archived"
-							? theme.fg("warning", "⚠")
-							: theme.fg("error", "✗");
-				text += `\n${rIcon} ${theme.fg("accent", r.identifier)}`;
-				if (r.warnings.length > 0) {
-					text += ` ${theme.fg("warning", r.warnings[0].substring(0, 40))}`;
-					if (r.warnings[0].length > 40) text += theme.fg("dim", "...");
-				}
-				if (r.error) {
-					text += `\n  ${theme.fg("error", r.error.substring(0, 60))}`;
-					if (r.error.length > 60) text += theme.fg("dim", "...");
-				}
-			}
-			if (details.results.length > 3) {
-				text += `\n${theme.fg("muted", `... +${details.results.length - 3} more`)}`;
-			}
-
-			if (hasAnswer) {
-				text += `\n${theme.fg("dim", "(Ctrl+O to expand)")}`;
-			}
-
-			return new Text(text, 0, 0);
+			rebuildRepoQueryResultComponent(component, result as AgentToolResult<RepoQueryDetails>, { expanded, isPartial }, theme);
+			component.invalidate();
+			return component;
 		},
 	});
 }

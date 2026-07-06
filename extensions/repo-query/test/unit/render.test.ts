@@ -8,7 +8,9 @@ import {
 	ExtensionRunner,
 	ModelRegistry,
 	SessionManager,
+	type ToolRenderContext,
 } from "@mariozechner/pi-coding-agent";
+import type { Component } from "@mariozechner/pi-tui";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { clearWorkspaceCache } from "../../src/workspace.js";
@@ -41,6 +43,25 @@ function mockTheme() {
 	} as unknown as import("@mariozechner/pi-tui").Theme;
 }
 
+/** Build a minimal ToolRenderContext for testing. */
+function mockRenderContext(overrides?: Partial<ToolRenderContext>): ToolRenderContext {
+	return {
+		args: { query: "", repos: [] },
+		toolCallId: "test",
+		invalidate: () => {},
+		lastComponent: undefined,
+		state: {},
+		cwd: "/tmp",
+		executionStarted: true,
+		argsComplete: true,
+		isPartial: false,
+		expanded: false,
+		showImages: false,
+		isError: false,
+		...overrides,
+	};
+}
+
 describe("repo_query rendering", () => {
 	it("renderCall produces expected header text", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "repo-query-render-test-"));
@@ -53,15 +74,19 @@ describe("repo_query rendering", () => {
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
 		const theme = mockTheme();
+		const ctx = mockRenderContext({
+			args: { query: "test query", repos: ["owner/repo", "other/repo"] },
+		});
 		const widget = repoQueryTool.definition.renderCall(
 			{ query: "test query", repos: ["owner/repo", "other/repo"] },
 			theme,
-			undefined,
+			ctx,
 		);
 
-		expect(widget.text).toContain("repo_query");
-		expect(widget.text).toContain("owner/repo");
-		expect(widget.text).toContain('"test query"');
+		const text = widget.render(100).join("\n");
+		expect(text).toContain("repo_query");
+		expect(text).toContain("owner/repo");
+		expect(text).toContain('"test query"');
 	});
 
 	it("renderResult partial view does NOT start with a newline", async () => {
@@ -75,6 +100,9 @@ describe("repo_query rendering", () => {
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
 		const theme = mockTheme();
+		const ctx = mockRenderContext({
+			args: { query: "test query", repos: ["owner/repo", "other/repo"] },
+		});
 		const result = {
 			content: [{ type: "text" as const, text: "" }],
 			details: {
@@ -93,11 +121,10 @@ describe("repo_query rendering", () => {
 			result,
 			{ expanded: false, isPartial: true },
 			theme,
-			undefined,
+			ctx,
 		);
 
-		expect(widget.text).toBeDefined();
-		const text = (widget as unknown as { text: string }).text;
+		const text = widget.render(100).join("\n");
 
 		// The regression: partial view used to prepend \n to every line,
 		// creating a leading blank line that visually separated the static
@@ -121,6 +148,9 @@ describe("repo_query rendering", () => {
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
 		const theme = mockTheme();
+		const ctx = mockRenderContext({
+			args: { query: "test query", repos: ["owner/repo"] },
+		});
 		const result = {
 			content: [{ type: "text" as const, text: "" }],
 			details: {
@@ -136,10 +166,10 @@ describe("repo_query rendering", () => {
 			result,
 			{ expanded: false, isPartial: true },
 			theme,
-			undefined,
+			ctx,
 		);
 
-		const text = (widget as unknown as { text: string }).text;
+		const text = widget.render(100).join("\n");
 		expect(text.startsWith("\n")).toBe(false);
 		expect(text).toContain("owner/repo");
 		expect(text).toContain("clone failed");
@@ -156,6 +186,9 @@ describe("repo_query rendering", () => {
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
 		const theme = mockTheme();
+		const ctx = mockRenderContext({
+			args: { query: "test query", repos: ["owner/repo"] },
+		});
 		const result = {
 			content: [{ type: "text" as const, text: "answer text" }],
 			details: {
@@ -170,12 +203,57 @@ describe("repo_query rendering", () => {
 			result,
 			{ expanded: false, isPartial: false },
 			theme,
-			undefined,
+			ctx,
 		);
 
-		const text = (widget as unknown as { text: string }).text;
+		const text = widget.render(100).join("\n");
 		expect(text.startsWith("\n")).toBe(false);
 		expect(text).toContain("repo_query");
 		expect(text).toContain("owner/repo");
+	});
+
+	it("renderResult returns same component instance on successive calls", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "repo-query-render-test-"));
+		tempDirs.push(cwd);
+
+		const runner = await createRunner(cwd);
+		const tools = runner.getAllRegisteredTools();
+		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		expect(repoQueryTool).toBeDefined();
+		if (!repoQueryTool) throw new Error("repo_query tool not found");
+
+		const theme = mockTheme();
+		const ctx = mockRenderContext({
+			args: { query: "test query", repos: ["owner/repo"] },
+		});
+
+		const result = {
+			content: [{ type: "text" as const, text: "answer text" }],
+			details: {
+				query: "test query",
+				workspacePath: "/tmp/ws",
+				results: [{ identifier: "owner/repo", status: "success", warnings: [], answer: "The answer." }],
+				phase: "complete" as const,
+			},
+		};
+
+		const first = repoQueryTool.definition.renderResult(
+			result,
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+
+		// Simulate framework storing the returned component in lastComponent
+		(ctx as { lastComponent: Component | undefined }).lastComponent = first;
+
+		const second = repoQueryTool.definition.renderResult(
+			result,
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+
+		expect(second).toBe(first);
 	});
 });
