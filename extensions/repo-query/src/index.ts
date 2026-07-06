@@ -50,6 +50,23 @@ class RepoQueryResultComponent extends Container {
 }
 
 /**
+ * Append a duration line to the component if timing information is available.
+ * Shows "Elapsed: X.Xs" during partial execution, "Took: X.Xs" when complete.
+ */
+function appendDurationLine(
+	component: RepoQueryResultComponent,
+	theme: Theme,
+	startedAt?: number,
+	endedAt?: number,
+): void {
+	if (startedAt === undefined) return;
+	const now = endedAt ?? Date.now();
+	const elapsed = ((now - startedAt) / 1000).toFixed(1);
+	const label = endedAt !== undefined ? "Took" : "Elapsed";
+	component.addChild(new Text(theme.fg("dim", `${label}: ${elapsed}s`), 0, 0));
+}
+
+/**
  * Clear and repopulate a RepoQueryResultComponent based on the current result state.
  * Handles all three render paths: partial (streaming), expanded (rich layout), collapsed (summary).
  */
@@ -58,6 +75,8 @@ function rebuildRepoQueryResultComponent(
 	result: AgentToolResult<RepoQueryDetails>,
 	options: { expanded: boolean; isPartial: boolean },
 	theme: Theme,
+	startedAt?: number,
+	endedAt?: number,
 ): void {
 	component.clear();
 
@@ -67,6 +86,7 @@ function rebuildRepoQueryResultComponent(
 		component.addChild(
 			new Text(text?.type === "text" ? text.text : "(no output)", 0, 0),
 		);
+		appendDurationLine(component, theme, startedAt, endedAt);
 		return;
 	}
 
@@ -125,6 +145,7 @@ function rebuildRepoQueryResultComponent(
 		for (const line of lines) {
 			component.addChild(new Text(line, 0, 0));
 		}
+		appendDurationLine(component, theme, startedAt, endedAt);
 		return;
 	}
 
@@ -193,6 +214,7 @@ function rebuildRepoQueryResultComponent(
 			component.addChild(new Text(theme.fg("muted", "Answer:"), 0, 0));
 			component.addChild(new Markdown(answer.trim(), 0, 0, mdTheme));
 		}
+		appendDurationLine(component, theme, startedAt, endedAt);
 		return;
 	}
 
@@ -232,6 +254,8 @@ function rebuildRepoQueryResultComponent(
 	if (hasAnswer) {
 		component.addChild(new Text(theme.fg("dim", "(Ctrl+O to expand)"), 0, 0));
 	}
+
+	appendDurationLine(component, theme, startedAt, endedAt);
 }
 
 const RepoQueryParams = Type.Object({
@@ -672,6 +696,12 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme, context) {
+			const state = context?.state;
+			if (context?.executionStarted && state?.startedAt === undefined) {
+				state!.startedAt = Date.now();
+				state!.endedAt = undefined;
+			}
+
 			const text =
 				context?.lastComponent instanceof Text
 					? context.lastComponent
@@ -694,12 +724,41 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderResult(result, { expanded, isPartial }, theme, context) {
+			const state = context?.state;
+
+			// Set startedAt if execution has started and we haven't tracked it yet
+			if (state && context?.executionStarted && state.startedAt === undefined) {
+				state.startedAt = Date.now();
+				state.endedAt = undefined;
+			}
+
+			// Live elapsed-time counter: start interval during partial exploration
+			if (state && state.startedAt !== undefined && isPartial && state.interval === undefined) {
+				state.interval = setInterval(() => context?.invalidate(), 1000);
+			}
+
+			// Stop timer when result is complete or errored
+			if (state && (!isPartial || context?.isError)) {
+				state.endedAt ??= Date.now();
+				if (state.interval !== undefined) {
+					clearInterval(state.interval);
+					state.interval = undefined;
+				}
+			}
+
 			const component =
 				context?.lastComponent instanceof RepoQueryResultComponent
 					? context.lastComponent
 					: new RepoQueryResultComponent();
 
-			rebuildRepoQueryResultComponent(component, result as AgentToolResult<RepoQueryDetails>, { expanded, isPartial }, theme);
+			rebuildRepoQueryResultComponent(
+				component,
+				result as AgentToolResult<RepoQueryDetails>,
+				{ expanded, isPartial },
+				theme,
+				state?.startedAt,
+				state?.endedAt,
+			);
 			component.invalidate();
 			return component;
 		},

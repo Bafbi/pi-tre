@@ -41,13 +41,13 @@ interval?: number        — setInterval handle for live timer
 
 ## Acceptance criteria
 
-- [ ] `context.state.startedAt` is set when `executionStarted` is true
-- [ ] `context.state.endedAt` is set when result is no longer partial
-- [ ] 1-second `setInterval` drives `context.invalidate()` during partial exploration
-- [ ] Interval is cleared when result completes or errors
-- [ ] Partial render output includes `"Elapsed: X.Xs"` line
-- [ ] Final render output includes `"Took: X.Xs"` line
-- [ ] All tests pass
+- [x] `context.state.startedAt` is set when `executionStarted` is true
+- [x] `context.state.endedAt` is set when result is no longer partial
+- [x] 1-second `setInterval` drives `context.invalidate()` during partial exploration
+- [x] Interval is cleared when result completes or errors
+- [x] Partial render output includes `"Elapsed: X.Xs"` line
+- [x] Final render output includes `"Took: X.Xs"` line
+- [x] All tests pass
 
 ## Blocked by
 

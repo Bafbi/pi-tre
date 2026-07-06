@@ -62,6 +62,8 @@ function mockRenderContext(overrides?: Partial<ToolRenderContext>): ToolRenderCo
 	};
 }
 
+
+
 describe("repo_query rendering", () => {
 	it("renderCall produces expected header text", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "repo-query-render-test-"));
@@ -255,5 +257,168 @@ describe("repo_query rendering", () => {
 		);
 
 		expect(second).toBe(first);
+	});
+
+	it("renderResult sets startedAt when executionStarted is true", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "repo-query-render-test-"));
+		tempDirs.push(cwd);
+
+		const runner = await createRunner(cwd);
+		const tools = runner.getAllRegisteredTools();
+		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		expect(repoQueryTool).toBeDefined();
+		if (!repoQueryTool) throw new Error("repo_query tool not found");
+
+		const theme = mockTheme();
+		const ctx = mockRenderContext({
+			args: { query: "test query", repos: ["owner/repo"] },
+			executionStarted: true,
+			state: {},
+		});
+
+		const result = {
+			content: [{ type: "text" as const, text: "answer text" }],
+			details: {
+				query: "test query",
+				workspacePath: "/tmp/ws",
+				results: [
+					{ identifier: "owner/repo", status: "success", warnings: [], answer: "The answer." },
+				],
+				phase: "complete" as const,
+			},
+		};
+
+		repoQueryTool.definition.renderResult(
+			result,
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+
+		expect(typeof (ctx.state as { startedAt?: number }).startedAt).toBe("number");
+	});
+
+	it("renderResult sets endedAt when isPartial is false", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "repo-query-render-test-"));
+		tempDirs.push(cwd);
+
+		const runner = await createRunner(cwd);
+		const tools = runner.getAllRegisteredTools();
+		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		expect(repoQueryTool).toBeDefined();
+		if (!repoQueryTool) throw new Error("repo_query tool not found");
+
+		const theme = mockTheme();
+		const ctx = mockRenderContext({
+			args: { query: "test query", repos: ["owner/repo"] },
+			executionStarted: true,
+			state: { startedAt: Date.now() - 3000 },
+		});
+
+		const result = {
+			content: [{ type: "text" as const, text: "answer text" }],
+			details: {
+				query: "test query",
+				workspacePath: "/tmp/ws",
+				results: [
+					{ identifier: "owner/repo", status: "success", warnings: [], answer: "The answer." },
+				],
+				phase: "complete" as const,
+			},
+		};
+
+		repoQueryTool.definition.renderResult(
+			result,
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+
+		expect(typeof (ctx.state as { endedAt?: number }).endedAt).toBe("number");
+	});
+
+	it("renderResult partial view includes elapsed time", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "repo-query-render-test-"));
+		tempDirs.push(cwd);
+
+		const runner = await createRunner(cwd);
+		const tools = runner.getAllRegisteredTools();
+		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		expect(repoQueryTool).toBeDefined();
+		if (!repoQueryTool) throw new Error("repo_query tool not found");
+
+		const theme = mockTheme();
+		const ctx = mockRenderContext({
+			args: { query: "test query", repos: ["owner/repo", "other/repo"] },
+			state: { startedAt: Date.now() - 5000 },
+		});
+
+		const result = {
+			content: [{ type: "text" as const, text: "" }],
+			details: {
+				query: "test query",
+				workspacePath: "/tmp/ws",
+				results: [
+					{ identifier: "owner/repo", status: "success", warnings: [] },
+					{ identifier: "other/repo", status: "success", warnings: [] },
+				],
+				phase: "exploring" as const,
+				thought: "Thinking...",
+			},
+		};
+
+		const widget = repoQueryTool.definition.renderResult(
+			result,
+			{ expanded: false, isPartial: true },
+			theme,
+			ctx,
+		);
+
+		const text = widget.render(100).join("\n");
+		expect(text).toContain("Elapsed");
+
+		// Clean up the interval that was started by the partial render
+		if ((ctx.state as { interval?: ReturnType<typeof setInterval> }).interval) {
+			clearInterval((ctx.state as { interval?: ReturnType<typeof setInterval> }).interval);
+		}
+	});
+
+	it("renderResult final view includes took time", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "repo-query-render-test-"));
+		tempDirs.push(cwd);
+
+		const runner = await createRunner(cwd);
+		const tools = runner.getAllRegisteredTools();
+		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		expect(repoQueryTool).toBeDefined();
+		if (!repoQueryTool) throw new Error("repo_query tool not found");
+
+		const theme = mockTheme();
+		const ctx = mockRenderContext({
+			args: { query: "test query", repos: ["owner/repo"] },
+			state: { startedAt: Date.now() - 5000, endedAt: Date.now() },
+		});
+
+		const result = {
+			content: [{ type: "text" as const, text: "answer text" }],
+			details: {
+				query: "test query",
+				workspacePath: "/tmp/ws",
+				results: [
+					{ identifier: "owner/repo", status: "success", warnings: [], answer: "The answer." },
+				],
+				phase: "complete" as const,
+			},
+		};
+
+		const widget = repoQueryTool.definition.renderResult(
+			result,
+			{ expanded: false, isPartial: false },
+			theme,
+			ctx,
+		);
+
+		const text = widget.render(100).join("\n");
+		expect(text).toContain("Took");
 	});
 });
