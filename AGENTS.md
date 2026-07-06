@@ -27,7 +27,9 @@
   - `refactor: ...`
   - `chore: ...`
   - `test: ...`
+- Only one line commit.
 - Keep commits scoped and atomic.
+- Never commit without expressing demand from the user.
 
 ## DevX expectations
 - Document intent in code and docs, not just implementation details.
