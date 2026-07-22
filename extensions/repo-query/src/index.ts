@@ -1,9 +1,9 @@
 import { rm } from "node:fs/promises";
 
 import {
+	type AgentToolResult,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
-	type AgentToolResult,
 	type ExtensionAPI,
 	getMarkdownTheme,
 	type Theme,
@@ -737,7 +737,7 @@ export default function (pi: ExtensionAPI) {
 						"Some repositories were not found. Consider retrying with the suggested names:",
 					);
 					for (const nf of notFoundWithSuggestions) {
-						const primary = nf.suggestions![0];
+						const primary = nf.suggestions?.[0];
 						if (primary) {
 							parts.push(
 								`- Use \`${primary}\` instead of \`${nf.identifier}\``,
@@ -876,9 +876,13 @@ export default function (pi: ExtensionAPI) {
 
 		renderCall(args, theme, context) {
 			const state = context?.state;
-			if (context?.executionStarted && state?.startedAt === undefined) {
-				state!.startedAt = Date.now();
-				state!.endedAt = undefined;
+			if (
+				context?.executionStarted &&
+				state &&
+				state.startedAt === undefined
+			) {
+				state.startedAt = Date.now();
+				state.endedAt = undefined;
 			}
 
 			const text =
@@ -1015,7 +1019,7 @@ export function formatOutput(
 			);
 		}
 		for (const nf of notFoundWithSuggestions) {
-			const primary = nf.suggestions![0];
+			const primary = nf.suggestions?.[0];
 			if (primary) {
 				lines.push(
 					`- Use \`${primary}\` instead of \`${nf.identifier}\``,

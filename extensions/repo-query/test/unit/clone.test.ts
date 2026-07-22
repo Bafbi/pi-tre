@@ -156,7 +156,7 @@ describe("ensureRepoCloned", () => {
 			} as ParsedRepo,
 			workspace,
 			undefined,
-			mockPi(async (_cmd, args) => {
+			mockPi(async (_cmd, _args) => {
 				callCount++;
 				if (callCount === 1) {
 					// git clone fails
@@ -187,7 +187,7 @@ describe("ensureRepoCloned", () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
 		tempDirs.push(workspace);
 
-		let callCount = 0;
+		let _callCount = 0;
 		const result = await ensureRepoCloned(
 			{
 				raw: "owner/repo:mian",
@@ -198,7 +198,7 @@ describe("ensureRepoCloned", () => {
 			workspace,
 			undefined,
 			mockPi(async () => {
-				callCount++;
+				_callCount++;
 				// Both calls fail
 				return {
 					stdout: "",
@@ -233,7 +233,7 @@ describe("ensureRepoCloned", () => {
 			} as ParsedRepo,
 			workspace,
 			undefined,
-			mockPi(async (_cmd, args) => {
+			mockPi(async (_cmd, _args) => {
 				callCount++;
 				if (callCount === 1) {
 					return {

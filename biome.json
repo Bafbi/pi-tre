@@ -15,6 +15,18 @@
 	"linter": {
 		"enabled": true
 	},
+	"overrides": [
+		{
+			"includes": ["**/test/**"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noExplicitAny": "off"
+					}
+				}
+			}
+		}
+	],
 	"assist": {
 		"enabled": true,
 		"actions": { "source": { "organizeImports": "on" } }

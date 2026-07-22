@@ -162,7 +162,7 @@ describe("formatOutput", () => {
 				"Consider retrying with the suggested names alongside the 1 successful repo(s)",
 			);
 			expect(out).toContain(
-				"Use \`owner/real\` instead of \`owner/missing\`",
+				"Use `owner/real` instead of `owner/missing`",
 			);
 		});
 
@@ -189,12 +189,8 @@ describe("formatOutput", () => {
 			expect(out).toContain(
 				"Consider retrying with the suggested names below",
 			);
-			expect(out).toContain(
-				"Use \`owner/real-a\` instead of \`owner/a\`",
-			);
-			expect(out).toContain(
-				"Use \`owner/real-b\` instead of \`owner/b\`",
-			);
+			expect(out).toContain("Use `owner/real-a` instead of `owner/a`");
+			expect(out).toContain("Use `owner/real-b` instead of `owner/b`");
 		});
 
 		it("omits Recommendation when failures have no suggestions", () => {

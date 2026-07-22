@@ -8,6 +8,9 @@ NODE_ENV = "development"
 [deps.pnpm]
 auto = true
 
+[shell_alias]
+"biome" = "pnpm exec biome"
+
 [tasks.install]
 description = "Install workspace dependencies"
 run = "pnpm run install"

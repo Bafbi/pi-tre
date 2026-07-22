@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
-	AuthStorage,
 	discoverAndLoadExtensions,
 	ExtensionRunner,
 	ModelRegistry,
+	ModelRuntime,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
@@ -59,9 +59,11 @@ async function createRunner(cwd: string): Promise<ExtensionRunner> {
 	expect(loaded.extensions).toHaveLength(1);
 
 	const sessionManager = SessionManager.inMemory();
-	const modelRegistry = ModelRegistry.create(
-		AuthStorage.create(join(cwd, "auth.json")),
-	);
+	const modelRuntime = await ModelRuntime.create({
+		authPath: join(cwd, "auth.json"),
+		allowModelNetwork: false,
+	});
+	const modelRegistry = new ModelRegistry(modelRuntime);
 	return new ExtensionRunner(
 		loaded.extensions,
 		loaded.runtime,

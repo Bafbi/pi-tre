@@ -3,10 +3,10 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-	AuthStorage,
 	discoverAndLoadExtensions,
 	ExtensionRunner,
 	ModelRegistry,
+	ModelRuntime,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,9 +33,11 @@ async function createRunner(cwd: string): Promise<ExtensionRunner> {
 	expect(loaded.extensions).toHaveLength(1);
 
 	const sessionManager = SessionManager.inMemory();
-	const modelRegistry = ModelRegistry.create(
-		AuthStorage.create(join(cwd, "auth.json")),
-	);
+	const modelRuntime = await ModelRuntime.create({
+		authPath: join(cwd, "auth.json"),
+		allowModelNetwork: false,
+	});
+	const modelRegistry = new ModelRegistry(modelRuntime);
 	return new ExtensionRunner(
 		loaded.extensions,
 		loaded.runtime,
@@ -294,7 +296,7 @@ describe("repo_query GitHub validation", () => {
 			// Should contain the Recommendation section
 			expect(text).toContain("## Recommendation");
 			expect(text).toContain(
-				"Use \`owner/real-repo\` instead of \`owner/missing\`",
+				"Use `owner/real-repo` instead of `owner/missing`",
 			);
 		} finally {
 			gh.restore();
