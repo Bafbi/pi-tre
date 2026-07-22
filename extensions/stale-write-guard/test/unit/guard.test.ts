@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_MTIME_TOLERANCE_MS, requiresReadBeforeMutation } from "../../src/guard";
+import {
+	DEFAULT_MTIME_TOLERANCE_MS,
+	requiresReadBeforeMutation,
+} from "../../src/guard";
 
 describe("requiresReadBeforeMutation", () => {
 	it("returns true when no read record exists", () => {

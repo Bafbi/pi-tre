@@ -7,10 +7,19 @@ import { clearWorkspaceCache, getWorkspacePath } from "../../src/workspace.js";
 
 let sessionCounter = 0;
 function makeSessionFile(): string {
-	return join(tmpdir(), `test-session-${Date.now()}-${sessionCounter++}.json`);
+	return join(
+		tmpdir(),
+		`test-session-${Date.now()}-${sessionCounter++}.json`,
+	);
 }
 
-function makeCtx(opts: { sessionFile?: string | null; branch?: unknown[]; entries?: unknown[] } = {}) {
+function makeCtx(
+	opts: {
+		sessionFile?: string | null;
+		branch?: unknown[];
+		entries?: unknown[];
+	} = {},
+) {
 	return {
 		cwd: "/tmp",
 		sessionManager: {
@@ -19,7 +28,7 @@ function makeCtx(opts: { sessionFile?: string | null; branch?: unknown[]; entrie
 			getBranch: () => opts.branch ?? [],
 			getEntries: () => opts.entries ?? [],
 		},
-	} as unknown as import("@mariozechner/pi-coding-agent").ExtensionContext;
+	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
 }
 
 beforeEach(() => {
@@ -123,7 +132,9 @@ describe("getWorkspacePath", () => {
 	});
 
 	it("ignores session entries that are not messages", async () => {
-		const branch = [{ type: "thinking_level_change", thinkingLevel: "high" }];
+		const branch = [
+			{ type: "thinking_level_change", thinkingLevel: "high" },
+		];
 		const ctx = makeCtx({ branch });
 		const path = await getWorkspacePath(ctx);
 

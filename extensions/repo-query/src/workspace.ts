@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { RepoQueryDetails } from "./types.js";
 
@@ -51,7 +51,8 @@ function findWorkspaceInSession(ctx: ExtensionContext): string | null {
 		const entry = branch[i];
 		if (entry.type !== "message") continue;
 		const msg = entry.message;
-		if (msg.role !== "toolResult" || msg.toolName !== "repo_query") continue;
+		if (msg.role !== "toolResult" || msg.toolName !== "repo_query")
+			continue;
 
 		const details = msg.details as RepoQueryDetails | undefined;
 		if (details?.workspacePath && existsSync(details.workspacePath)) {

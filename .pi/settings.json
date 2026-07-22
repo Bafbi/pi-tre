@@ -1,8 +1,8 @@
 {
-  "packages": [
-    {
-      "source": "git:github.com/Bafbi/pi-tre",
-      "extensions": []
-    }
-  ]
+	"packages": [
+		{
+			"source": "git:github.com/Bafbi/pi-tre",
+			"extensions": []
+		}
+	]
 }

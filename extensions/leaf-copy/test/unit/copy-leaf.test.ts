@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@mariozechner/pi-coding-agent", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@mariozechner/pi-coding-agent")>();
+vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
 	return {
 		...actual,
 		copyToClipboard: vi.fn(),
 	};
 });
 
-import { copyToClipboard } from "@mariozechner/pi-coding-agent";
+import { copyToClipboard } from "@earendil-works/pi-coding-agent";
 import { handleCopyLeaf } from "../../src/copy-leaf.js";
 
 function createMockContext(
@@ -86,29 +87,58 @@ describe("handleCopyLeaf", () => {
 		const ctx = createMockContext({ editorText: "  draft code  " });
 		await handleCopyLeaf(ctx as any);
 
-		expect(copyToClipboard).toHaveBeenCalledExactlyOnceWith("  draft code  ");
-		expect(ctx.ui.notify).toHaveBeenCalledWith("Copied editor text to clipboard", "info");
+		expect(copyToClipboard).toHaveBeenCalledExactlyOnceWith(
+			"  draft code  ",
+		);
+		expect(ctx.ui.notify).toHaveBeenCalledWith(
+			"Copied editor text to clipboard",
+			"info",
+		);
 	});
 
 	it("walks back to last user message with text", async () => {
 		const ctx = createMockContext({
 			branch: [
-				{ type: "message", message: { role: "user", content: "first" } },
-				{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "reply" }] } },
+				{
+					type: "message",
+					message: { role: "user", content: "first" },
+				},
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "reply" }],
+					},
+				},
 			],
 		});
 		await handleCopyLeaf(ctx as any);
 
 		expect(copyToClipboard).toHaveBeenCalledExactlyOnceWith("reply");
-		expect(ctx.ui.notify).toHaveBeenCalledWith("Copied leaf text to clipboard", "info");
+		expect(ctx.ui.notify).toHaveBeenCalledWith(
+			"Copied leaf text to clipboard",
+			"info",
+		);
 	});
 
 	it("skips tool results and walks back further", async () => {
 		const ctx = createMockContext({
 			branch: [
 				{ type: "message", message: { role: "user", content: "q" } },
-				{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "a" }] } },
-				{ type: "message", message: { role: "toolResult", content: [{ type: "text", text: "tool" }] } },
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "a" }],
+					},
+				},
+				{
+					type: "message",
+					message: {
+						role: "toolResult",
+						content: [{ type: "text", text: "tool" }],
+					},
+				},
 			],
 		});
 		await handleCopyLeaf(ctx as any);
@@ -120,7 +150,14 @@ describe("handleCopyLeaf", () => {
 		const ctx = createMockContext({
 			branch: [
 				{ type: "message", message: { role: "user", content: "cmd" } },
-				{ type: "bashExecution", message: { role: "bashExecution", command: "ls", output: "file" } },
+				{
+					type: "bashExecution",
+					message: {
+						role: "bashExecution",
+						command: "ls",
+						output: "file",
+					},
+				},
 			],
 		});
 		await handleCopyLeaf(ctx as any);
@@ -133,7 +170,10 @@ describe("handleCopyLeaf", () => {
 		await handleCopyLeaf(ctx as any);
 
 		expect(copyToClipboard).not.toHaveBeenCalled();
-		expect(ctx.ui.notify).toHaveBeenCalledWith("Nothing to copy", "warning");
+		expect(ctx.ui.notify).toHaveBeenCalledWith(
+			"Nothing to copy",
+			"warning",
+		);
 	});
 
 	it("warns when branch has only non-text entries", async () => {
@@ -151,11 +191,16 @@ describe("handleCopyLeaf", () => {
 		await handleCopyLeaf(ctx as any);
 
 		expect(copyToClipboard).not.toHaveBeenCalled();
-		expect(ctx.ui.notify).toHaveBeenCalledWith("Nothing to copy", "warning");
+		expect(ctx.ui.notify).toHaveBeenCalledWith(
+			"Nothing to copy",
+			"warning",
+		);
 	});
 
 	it("silently fails in non-interactive mode on error", async () => {
-		vi.mocked(copyToClipboard).mockRejectedValueOnce(new Error("clipboard broken"));
+		vi.mocked(copyToClipboard).mockRejectedValueOnce(
+			new Error("clipboard broken"),
+		);
 		const ctx = createMockContext({
 			editorText: "text",
 			hasUI: false,
@@ -166,10 +211,15 @@ describe("handleCopyLeaf", () => {
 	});
 
 	it("notifies error in interactive mode when copy fails", async () => {
-		vi.mocked(copyToClipboard).mockRejectedValueOnce(new Error("clipboard broken"));
+		vi.mocked(copyToClipboard).mockRejectedValueOnce(
+			new Error("clipboard broken"),
+		);
 		const ctx = createMockContext({ editorText: "text" });
 		await handleCopyLeaf(ctx as any);
 
-		expect(ctx.ui.notify).toHaveBeenCalledWith("Copy failed: clipboard broken", "error");
+		expect(ctx.ui.notify).toHaveBeenCalledWith(
+			"Copy failed: clipboard broken",
+			"error",
+		);
 	});
 });

@@ -4,7 +4,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-import { type AgentToolResult, withFileMutationQueue } from "@mariozechner/pi-coding-agent";
+import {
+	type AgentToolResult,
+	withFileMutationQueue,
+} from "@earendil-works/pi-coding-agent";
 
 import type { ParsedRepo } from "./types.js";
 
@@ -12,7 +15,9 @@ const SUBAGENT_TIMEOUT_MS = 300_000;
 const MAX_OUTPUT_CHARS = 8000;
 
 function truncateSubagentOutput(text: string): string {
-	return text.length > MAX_OUTPUT_CHARS ? `${text.slice(0, MAX_OUTPUT_CHARS)}...\n[Answer truncated]` : text;
+	return text.length > MAX_OUTPUT_CHARS
+		? `${text.slice(0, MAX_OUTPUT_CHARS)}...\n[Answer truncated]`
+		: text;
 }
 
 interface Message {
@@ -26,7 +31,9 @@ interface SubagentOptions {
 	query: string;
 	model?: string;
 	signal: AbortSignal | undefined;
-	onUpdate?: (partial: AgentToolResult<{ answer: string; thought?: string }>) => void;
+	onUpdate?: (
+		partial: AgentToolResult<{ answer: string; thought?: string }>,
+	) => void;
 }
 
 interface ExplorationResult {
@@ -43,7 +50,9 @@ class TimeoutError extends Error {
 
 const TEST_REGISTRY_KEY = "__repoQueryExplorerMock";
 
-function getMockExplorer(): ((options: SubagentOptions) => Promise<ExplorationResult>) | undefined {
+function getMockExplorer():
+	| ((options: SubagentOptions) => Promise<ExplorationResult>)
+	| undefined {
 	return (globalThis as Record<string, unknown>)[TEST_REGISTRY_KEY] as
 		| ((options: SubagentOptions) => Promise<ExplorationResult>)
 		| undefined;
@@ -51,7 +60,9 @@ function getMockExplorer(): ((options: SubagentOptions) => Promise<ExplorationRe
 
 /** Test-only: inject a mock implementation for runExplorer. */
 export function setTestExplorerImpl(
-	impl: ((options: SubagentOptions) => Promise<ExplorationResult>) | undefined,
+	impl:
+		| ((options: SubagentOptions) => Promise<ExplorationResult>)
+		| undefined,
 ): void {
 	(globalThis as Record<string, unknown>)[TEST_REGISTRY_KEY] = impl;
 }
@@ -62,7 +73,9 @@ export function setTestExplorerImpl(
  * For a single repo, the subagent's cwd is the repo directory.
  * For multiple repos, the subagent's cwd is the workspace parent.
  */
-export async function runExplorer(options: SubagentOptions): Promise<ExplorationResult> {
+export async function runExplorer(
+	options: SubagentOptions,
+): Promise<ExplorationResult> {
 	const mock = getMockExplorer();
 	if (mock) {
 		return mock(options);
@@ -74,7 +87,14 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 	const systemPrompt = buildSystemPrompt(repos, query, isSingle);
 
-	const args = ["--mode", "json", "-p", "--no-session", "--tools", "read,grep,find,ls,bash"];
+	const args = [
+		"--mode",
+		"json",
+		"-p",
+		"--no-session",
+		"--tools",
+		"read,grep,find,ls,bash",
+	];
 
 	if (model) {
 		args.push("--model", model);
@@ -99,11 +119,15 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 
 	try {
 		const exitCode = await new Promise<number>((resolve, reject) => {
-			const proc = spawn(invocation.command, [...invocation.args, ...args], {
-				cwd,
-				shell: false,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
+			const proc = spawn(
+				invocation.command,
+				[...invocation.args, ...args],
+				{
+					cwd,
+					shell: false,
+					stdio: ["ignore", "pipe", "pipe"],
+				},
+			);
 
 			// Append text without duplicating when the same full text arrives
 			// from both text_delta (incremental or full) and message_end (full).
@@ -111,7 +135,10 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				if (!text) return;
 				if (eventKind === "full") {
 					if (answerText === text) return;
-					if (text.startsWith(answerText) && text.length > answerText.length) {
+					if (
+						text.startsWith(answerText) &&
+						text.length > answerText.length
+					) {
 						answerText = text;
 						return;
 					}
@@ -125,7 +152,10 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 				if (!text) return;
 				if (eventKind === "full") {
 					if (thinkingText === text) return;
-					if (text.startsWith(thinkingText) && text.length > thinkingText.length) {
+					if (
+						text.startsWith(thinkingText) &&
+						text.length > thinkingText.length
+					) {
 						thinkingText = text;
 						return;
 					}
@@ -137,7 +167,9 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 			};
 			const emitUpdate = () => {
 				onUpdate?.({
-					content: [{ type: "text", text: answerText || "(exploring...)" }],
+					content: [
+						{ type: "text", text: answerText || "(exploring...)" },
+					],
 					details: { answer: answerText, thought: thinkingText },
 				});
 			};
@@ -195,7 +227,11 @@ export async function runExplorer(options: SubagentOptions): Promise<Exploration
 					);
 				}
 				if (timeoutFired) {
-					reject(new TimeoutError(`Subagent timed out after ${SUBAGENT_TIMEOUT_MS} ms`));
+					reject(
+						new TimeoutError(
+							`Subagent timed out after ${SUBAGENT_TIMEOUT_MS} ms`,
+						),
+					);
 				} else {
 					resolve(code ?? 0);
 				}
@@ -277,7 +313,10 @@ export function processSubagentLine(
 		const ame = event.assistantMessageEvent as AssistantMessageEvent;
 		if (ame.type === "text_delta" && typeof ame.delta === "string") {
 			onAnswer(ame.delta);
-		} else if (ame.type === "thinking_delta" && typeof ame.delta === "string") {
+		} else if (
+			ame.type === "thinking_delta" &&
+			typeof ame.delta === "string"
+		) {
 			onThinking(ame.delta);
 		}
 	}
@@ -288,7 +327,12 @@ export function processSubagentLine(
 		if (msg.role === "assistant" && Array.isArray(msg.content)) {
 			for (const rawPart of msg.content) {
 				const part = rawPart as unknown;
-				if (isObject(part) && typeof part.type === "string" && part.type === "text" && typeof part.text === "string") {
+				if (
+					isObject(part) &&
+					typeof part.type === "string" &&
+					part.type === "text" &&
+					typeof part.text === "string"
+				) {
 					onAnswer(part.text, "full");
 				}
 			}
@@ -306,7 +350,8 @@ function hasAssistantMessageEvent(event: Record<string, unknown>): boolean {
 	return (
 		event.assistantMessageEvent !== undefined &&
 		isObject(event.assistantMessageEvent) &&
-		typeof (event.assistantMessageEvent as Record<string, unknown>).type === "string"
+		typeof (event.assistantMessageEvent as Record<string, unknown>).type ===
+			"string"
 	);
 }
 
@@ -327,7 +372,11 @@ function getPiInvocation(): { command: string; args: string[] } {
 	return { command: "pi", args: [] };
 }
 
-function buildSystemPrompt(repos: ParsedRepo[], query: string, isSingle: boolean): string {
+function buildSystemPrompt(
+	repos: ParsedRepo[],
+	query: string,
+	isSingle: boolean,
+): string {
 	if (isSingle) {
 		const repo = repos[0];
 		return `You are a senior code exploration agent. You are in the root of the "${repo.displayName}" repository.
@@ -349,7 +398,9 @@ Output requirements:
 Query: ${query}`;
 	}
 
-	const repoList = repos.map((r) => `- ${r.displayName} (in ./${r.dirName})`).join("\n");
+	const repoList = repos
+		.map((r) => `- ${r.displayName} (in ./${r.dirName})`)
+		.join("\n");
 	return `You are a senior code exploration agent. You are in a workspace containing multiple repositories:
 
 ${repoList}

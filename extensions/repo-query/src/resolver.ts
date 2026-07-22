@@ -33,7 +33,8 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 			branch: explicitBranch,
 			displayName: raw.split("/").pop() || raw,
 			dirName: sanitizeDirName(
-				raw.replace(/^\//, "").replace(/\//g, "_") + (explicitBranch ? `-${explicitBranch}` : ""),
+				raw.replace(/^\//, "").replace(/\//g, "_") +
+					(explicitBranch ? `-${explicitBranch}` : ""),
 			),
 		};
 	}
@@ -61,7 +62,9 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 			cloneUrl: `https://github.com/${raw}.git`,
 			branch: explicitBranch,
 			displayName: raw,
-			dirName: sanitizeDirName(`github_${owner}_${repo}${explicitBranch ? `-${explicitBranch}` : ""}`),
+			dirName: sanitizeDirName(
+				`github_${owner}_${repo}${explicitBranch ? `-${explicitBranch}` : ""}`,
+			),
 			owner,
 			repo,
 		};
@@ -70,7 +73,11 @@ export function parseRepoIdentifier(input: string): ParsedRepo {
 	throw new Error(`Cannot parse repository identifier: ${input}`);
 }
 
-function parseHttpUrl(raw: string, original: string, branch: string | null): ParsedRepo {
+function parseHttpUrl(
+	raw: string,
+	original: string,
+	branch: string | null,
+): ParsedRepo {
 	const url = new URL(raw);
 	const host = classifyHost(url.hostname);
 	const pathParts = url.pathname
@@ -81,7 +88,9 @@ function parseHttpUrl(raw: string, original: string, branch: string | null): Par
 	const name = pathParts[pathParts.length - 1] || "repo";
 
 	const trimmedRaw = raw.replace(/\/+$/, "");
-	const cloneUrl = trimmedRaw.endsWith(".git") ? trimmedRaw : `${trimmedRaw}.git`;
+	const cloneUrl = trimmedRaw.endsWith(".git")
+		? trimmedRaw
+		: `${trimmedRaw}.git`;
 
 	return {
 		raw: original,
@@ -89,13 +98,19 @@ function parseHttpUrl(raw: string, original: string, branch: string | null): Par
 		cloneUrl,
 		branch,
 		displayName: pathParts.join("/"),
-		dirName: sanitizeDirName(`${host}_${pathParts.join("_")}${branch ? `-${branch}` : ""}`),
+		dirName: sanitizeDirName(
+			`${host}_${pathParts.join("_")}${branch ? `-${branch}` : ""}`,
+		),
 		owner: pathParts[0],
 		repo: name,
 	};
 }
 
-function parseSshUrl(raw: string, original: string, branch: string | null): ParsedRepo {
+function parseSshUrl(
+	raw: string,
+	original: string,
+	branch: string | null,
+): ParsedRepo {
 	// git@host.com:owner/repo.git → https://host.com/owner/repo
 	const match = raw.match(/^git@([^:]+):(.+)$/);
 	if (!match) {
@@ -114,7 +129,9 @@ function parseSshUrl(raw: string, original: string, branch: string | null): Pars
 		cloneUrl: raw,
 		branch,
 		displayName: path,
-		dirName: sanitizeDirName(`${host}_${pathParts.join("_")}${branch ? `-${branch}` : ""}`),
+		dirName: sanitizeDirName(
+			`${host}_${pathParts.join("_")}${branch ? `-${branch}` : ""}`,
+		),
 		owner: pathParts[0],
 		repo: name,
 	};
@@ -124,7 +141,10 @@ function extractBranch(raw: string): { rest: string; branch: string | null } {
 	const lastColon = raw.lastIndexOf(":");
 
 	if (lastColon > 0 && isBranchDelimiter(raw, lastColon)) {
-		return { rest: raw.slice(0, lastColon), branch: raw.slice(lastColon + 1) };
+		return {
+			rest: raw.slice(0, lastColon),
+			branch: raw.slice(lastColon + 1),
+		};
 	}
 
 	return { rest: raw, branch: null };

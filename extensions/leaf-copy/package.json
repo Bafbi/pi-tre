@@ -13,7 +13,7 @@
 		"typecheck": "tsc -p tsconfig.json --noEmit"
 	},
 	"peerDependencies": {
-		"@mariozechner/pi-coding-agent": "*",
-		"@mariozechner/pi-ai": "*"
+		"@earendil-works/pi-coding-agent": "catalog:pi-dev",
+		"@earendil-works/pi-ai": "catalog:pi-dev"
 	}
 }

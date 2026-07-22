@@ -19,13 +19,9 @@
 		]
 	},
 	"devDependencies": {
-		"@mariozechner/pi-coding-agent": "^0.68",
+		"@biomejs/biome": "^2.5.5",
 		"@types/node": "^25",
-		"typescript": "^6",
+		"typescript": "^7.0.2",
 		"vitest": "^3.2.4"
-	},
-	"dependencies": {
-		"@octokit/rest": "^22.0.0",
-		"fuse.js": "^7.3.0"
 	}
 }

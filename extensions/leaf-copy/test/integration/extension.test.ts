@@ -8,10 +8,13 @@ import {
 	ExtensionRunner,
 	ModelRegistry,
 	SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 
-const extensionPath = resolve(process.cwd(), "extensions/leaf-copy/src/index.ts");
+const extensionPath = resolve(
+	process.cwd(),
+	"extensions/leaf-copy/src/index.ts",
+);
 const tempDirs: string[] = [];
 
 function makeRunnerCwd(): string {
@@ -27,8 +30,16 @@ async function createRunner(): Promise<ExtensionRunner> {
 	expect(loaded.extensions).toHaveLength(1);
 
 	const sessionManager = SessionManager.inMemory();
-	const modelRegistry = ModelRegistry.create(AuthStorage.create(join(cwd, "auth.json")));
-	return new ExtensionRunner(loaded.extensions, loaded.runtime, cwd, sessionManager, modelRegistry);
+	const modelRegistry = ModelRegistry.create(
+		AuthStorage.create(join(cwd, "auth.json")),
+	);
+	return new ExtensionRunner(
+		loaded.extensions,
+		loaded.runtime,
+		cwd,
+		sessionManager,
+		modelRegistry,
+	);
 }
 
 afterEach(async () => {

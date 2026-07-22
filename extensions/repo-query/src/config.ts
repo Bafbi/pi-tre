@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getAgentDir } from "@mariozechner/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
@@ -31,13 +31,21 @@ function loadConfigFile(path: string): RepoQueryConfig {
 		const content = readFileSync(path, "utf-8");
 		const parsed = JSON.parse(content) as unknown;
 		if (typeof parsed !== "object" || parsed === null) {
-			console.error(`[repo-query] Config file at ${path} is not a JSON object.`);
+			console.error(
+				`[repo-query] Config file at ${path} is not a JSON object.`,
+			);
 			return {};
 		}
 		if (!Value.Check(RepoQueryConfigSchema, parsed)) {
-			const errors = Array.from(Value.Errors(RepoQueryConfigSchema, parsed));
-			const errorDetails = errors.map((e) => `${e.path}: ${e.message}`).join("; ");
-			console.error(`[repo-query] Config file at ${path} has validation errors: ${errorDetails}`);
+			const errors = Array.from(
+				Value.Errors(RepoQueryConfigSchema, parsed),
+			);
+			const errorDetails = errors
+				.map((e) => `${e.path}: ${e.message}`)
+				.join("; ");
+			console.error(
+				`[repo-query] Config file at ${path} has validation errors: ${errorDetails}`,
+			);
 			return {};
 		}
 		return parsed as RepoQueryConfig;
@@ -85,10 +93,17 @@ export function loadRepoQueryConfig(cwd: string): RepoQueryConfig {
  * override. If you need different models for different repos, make separate
  * tool calls.
  */
-export function resolveModel(config: RepoQueryConfig, repos: ParsedRepo[]): string | undefined {
+export function resolveModel(
+	config: RepoQueryConfig,
+	repos: ParsedRepo[],
+): string | undefined {
 	if (repos.length > 0) {
 		const firstRepo = repos[0];
-		if (firstRepo && config.models && Object.hasOwn(config.models, firstRepo.displayName)) {
+		if (
+			firstRepo &&
+			config.models &&
+			Object.hasOwn(config.models, firstRepo.displayName)
+		) {
 			const value = config.models[firstRepo.displayName];
 			if (typeof value === "string" && value.length > 0) {
 				return value;

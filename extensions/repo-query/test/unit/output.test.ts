@@ -158,8 +158,12 @@ describe("formatOutput", () => {
 			const out = formatOutput(results, "query");
 			expect(out).toContain("## Recommendation");
 			expect(out).toContain("1 of 2 repos could not be found");
-			expect(out).toContain("Consider retrying with the suggested names alongside the 1 successful repo(s)");
-			expect(out).toContain("Use \`owner/real\` instead of \`owner/missing\`");
+			expect(out).toContain(
+				"Consider retrying with the suggested names alongside the 1 successful repo(s)",
+			);
+			expect(out).toContain(
+				"Use \`owner/real\` instead of \`owner/missing\`",
+			);
 		});
 
 		it("adds Recommendation when all repos are not_found with suggestions", () => {
@@ -182,9 +186,15 @@ describe("formatOutput", () => {
 			const out = formatOutput(results, "query");
 			expect(out).toContain("## Recommendation");
 			expect(out).toContain("2 repo(s) could not be found");
-			expect(out).toContain("Consider retrying with the suggested names below");
-			expect(out).toContain("Use \`owner/real-a\` instead of \`owner/a\`");
-			expect(out).toContain("Use \`owner/real-b\` instead of \`owner/b\`");
+			expect(out).toContain(
+				"Consider retrying with the suggested names below",
+			);
+			expect(out).toContain(
+				"Use \`owner/real-a\` instead of \`owner/a\`",
+			);
+			expect(out).toContain(
+				"Use \`owner/real-b\` instead of \`owner/b\`",
+			);
 		});
 
 		it("omits Recommendation when failures have no suggestions", () => {

@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const STATUS_KEY = "repo-query";
 const DEBUG_WIDGET_KEY = "repo-query-debug";
@@ -10,7 +10,10 @@ export interface DebugState {
 	enabled: boolean;
 	events: string[];
 	workspacePath: string | null;
-	trackedRepos: Map<string, { status: string; cloned: boolean; branch?: string | null }>;
+	trackedRepos: Map<
+		string,
+		{ status: string; cloned: boolean; branch?: string | null }
+	>;
 }
 
 export function createDebugState(): DebugState {
@@ -22,7 +25,11 @@ export function createDebugState(): DebugState {
 	};
 }
 
-export function addDebugEvent(state: DebugState, message: string, ctx?: UiCtx): void {
+export function addDebugEvent(
+	state: DebugState,
+	message: string,
+	ctx?: UiCtx,
+): void {
 	const eventLine = `${new Date().toISOString()} ${message}`;
 	state.events.push(eventLine);
 	if (state.events.length > MAX_DEBUG_EVENTS) {
@@ -33,7 +40,11 @@ export function addDebugEvent(state: DebugState, message: string, ctx?: UiCtx): 
 	}
 }
 
-export function setDebugEnabled(state: DebugState, enabled: boolean, ctx?: UiCtx): void {
+export function setDebugEnabled(
+	state: DebugState,
+	enabled: boolean,
+	ctx?: UiCtx,
+): void {
 	state.enabled = enabled;
 	if (ctx) syncDebugUi(state, ctx);
 }
@@ -59,7 +70,10 @@ export function syncDebugUi(state: DebugState, ctx: UiCtx): void {
 	}
 
 	const lines = getDebugLines(state);
-	ctx.ui.setStatus(STATUS_KEY, `repo-query debug ON, repos: ${state.trackedRepos.size}`);
+	ctx.ui.setStatus(
+		STATUS_KEY,
+		`repo-query debug ON, repos: ${state.trackedRepos.size}`,
+	);
 	ctx.ui.setWidget(DEBUG_WIDGET_KEY, lines);
 }
 
@@ -80,10 +94,19 @@ function getDebugLines(state: DebugState): string[] {
 	}
 
 	const eventsHeader = state.events.length > 0 ? ["recent events:"] : [];
-	return [...header, "", ...repoLines, ...eventsHeader, ...state.events.slice(-8)];
+	return [
+		...header,
+		"",
+		...repoLines,
+		...eventsHeader,
+		...state.events.slice(-8),
+	];
 }
 
-export function buildDebugDump(state: DebugState, ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): string {
+export function buildDebugDump(
+	state: DebugState,
+	ctx: Pick<ExtensionContext, "cwd" | "sessionManager">,
+): string {
 	const now = new Date().toISOString();
 	const branch = ctx.sessionManager.getBranch();
 	const entries = ctx.sessionManager.getEntries();
@@ -98,7 +121,9 @@ export function buildDebugDump(state: DebugState, ctx: Pick<ExtensionContext, "c
 	lines.push("");
 	lines.push("## session");
 	lines.push(`- cwd: ${ctx.cwd}`);
-	lines.push(`- sessionFile: ${ctx.sessionManager.getSessionFile() ?? "<in-memory>"}`);
+	lines.push(
+		`- sessionFile: ${ctx.sessionManager.getSessionFile() ?? "<in-memory>"}`,
+	);
 	lines.push(`- leafId: ${ctx.sessionManager.getLeafId() ?? "<none>"}`);
 	lines.push(`- branchEntries: ${branch.length}`);
 	lines.push(`- totalEntries: ${entries.length}`);

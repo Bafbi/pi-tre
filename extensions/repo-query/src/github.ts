@@ -5,7 +5,10 @@ import type { ValidationResult } from "./types.js";
 function getOctokit(): Octokit {
 	return new Octokit({
 		auth: process.env.GITHUB_TOKEN,
-		request: { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) },
+		request: {
+			fetch: (...args: Parameters<typeof fetch>) =>
+				globalThis.fetch(...args),
+		},
 	});
 }
 
@@ -13,7 +16,10 @@ function getOctokit(): Octokit {
  * Validate a GitHub repo exists and check if it's archived.
  * On 404, search for similar repos and return suggestions.
  */
-export async function validateGitHubRepo(owner: string, repo: string): Promise<ValidationResult> {
+export async function validateGitHubRepo(
+	owner: string,
+	repo: string,
+): Promise<ValidationResult> {
 	try {
 		const { data } = await getOctokit().repos.get({ owner, repo });
 
@@ -34,9 +40,14 @@ export async function validateGitHubRepo(owner: string, repo: string): Promise<V
 	}
 }
 
-async function searchGitHubRepos(repoName: string, ownerHint?: string): Promise<string[]> {
+async function searchGitHubRepos(
+	repoName: string,
+	ownerHint?: string,
+): Promise<string[]> {
 	try {
-		const query = ownerHint ? `${repoName} user:${ownerHint}` : `${repoName} in:name`;
+		const query = ownerHint
+			? `${repoName} user:${ownerHint}`
+			: `${repoName} in:name`;
 		const { data } = await getOctokit().search.repos({
 			q: query,
 			sort: "stars",

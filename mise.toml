@@ -1,41 +1,35 @@
 [tools]
 node = "25"
 pnpm = "latest"
-"npm:@biomejs/biome" = "latest"
-"npm:@mariozechner/pi-coding-agent" = "latest"
-bun = "latest"
 
 [env]
 NODE_ENV = "development"
-FORCE_COLOR = "1"
 
 [deps.pnpm]
 auto = true
 
 [tasks.install]
 description = "Install workspace dependencies"
-run = "pnpm install"
+run = "pnpm run install"
 
 [tasks.lint]
 description = "Run Biome lint checks"
-run = "pnpm lint"
+depends = ["format"]
+run = "pnpm run lint"
 
 [tasks.format]
 description = "Format repository with Biome"
-run = "pnpm format"
+run = "pnpm run format"
 
 [tasks.typecheck]
 description = "Type-check all workspace packages"
-run = "pnpm typecheck"
+run = "pnpm run typecheck"
 
 [tasks.test]
 description = "Run test suite"
-run = "pnpm test"
-
-[tasks.test_watch]
-description = "Run tests in watch mode"
-run = "pnpm test:watch"
+depends = ["lint", "typecheck"]
+run = "pnpm run test"
 
 [tasks.check]
 description = "Run lint + typecheck + tests"
-depends = ["lint", "typecheck", "test"]
+run = { tasks = ["lint", "typecheck", "test"] }

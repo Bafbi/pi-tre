@@ -5,7 +5,11 @@ import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { canonicalizePath, resolveCanonicalPath, resolveFromCwd } from "../../src/path";
+import {
+	canonicalizePath,
+	resolveCanonicalPath,
+	resolveFromCwd,
+} from "../../src/path";
 
 const tempDirs: string[] = [];
 

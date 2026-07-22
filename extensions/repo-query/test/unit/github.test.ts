@@ -25,7 +25,11 @@ describe("validateGitHubRepo", () => {
 
 		const result = await validateGitHubRepo("facebook", "react");
 
-		expect(result).toEqual({ valid: true, archived: false, warning: undefined });
+		expect(result).toEqual({
+			valid: true,
+			archived: false,
+			warning: undefined,
+		});
 	});
 
 	it("returns archived warning for archived repos", async () => {
@@ -45,14 +49,20 @@ describe("validateGitHubRepo", () => {
 		mockReposGet.mockRejectedValue({ status: 404 });
 		mockSearchRepos.mockResolvedValue({
 			data: {
-				items: [{ full_name: "facebook/react-native" }, { full_name: "preactjs/preact" }],
+				items: [
+					{ full_name: "facebook/react-native" },
+					{ full_name: "preactjs/preact" },
+				],
 			},
 		});
 
 		const result = await validateGitHubRepo("facebook", "nonexistent");
 
 		expect(result.valid).toBe(false);
-		expect(result.suggestions).toEqual(["facebook/react-native", "preactjs/preact"]);
+		expect(result.suggestions).toEqual([
+			"facebook/react-native",
+			"preactjs/preact",
+		]);
 	});
 
 	it("returns empty suggestions when search fails", async () => {
@@ -68,12 +78,16 @@ describe("validateGitHubRepo", () => {
 	it("re-throws on 403", async () => {
 		mockReposGet.mockRejectedValue({ status: 403 });
 
-		await expect(validateGitHubRepo("owner", "repo")).rejects.toMatchObject({ status: 403 });
+		await expect(validateGitHubRepo("owner", "repo")).rejects.toMatchObject(
+			{ status: 403 },
+		);
 	});
 
 	it("re-throws non-404 errors", async () => {
 		mockReposGet.mockRejectedValue(new Error("network error"));
 
-		await expect(validateGitHubRepo("owner", "repo")).rejects.toThrow("network error");
+		await expect(validateGitHubRepo("owner", "repo")).rejects.toThrow(
+			"network error",
+		);
 	});
 });

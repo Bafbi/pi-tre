@@ -9,8 +9,8 @@ import {
 	ModelRegistry,
 	SessionManager,
 	type ToolRenderContext,
-} from "@mariozechner/pi-coding-agent";
-import type { Component } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { clearWorkspaceCache } from "../../src/workspace.js";
@@ -18,14 +18,25 @@ import { clearWorkspaceCache } from "../../src/workspace.js";
 const tempDirs: string[] = [];
 
 async function createRunner(cwd: string): Promise<ExtensionRunner> {
-	const extensionPath = resolve(process.cwd(), "extensions/repo-query/src/index.ts");
+	const extensionPath = resolve(
+		process.cwd(),
+		"extensions/repo-query/src/index.ts",
+	);
 	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
 	expect(loaded.errors).toHaveLength(0);
 	expect(loaded.extensions).toHaveLength(1);
 
 	const sessionManager = SessionManager.inMemory();
-	const modelRegistry = ModelRegistry.create(AuthStorage.create(join(cwd, "auth.json")));
-	return new ExtensionRunner(loaded.extensions, loaded.runtime, cwd, sessionManager, modelRegistry);
+	const modelRegistry = ModelRegistry.create(
+		AuthStorage.create(join(cwd, "auth.json")),
+	);
+	return new ExtensionRunner(
+		loaded.extensions,
+		loaded.runtime,
+		cwd,
+		sessionManager,
+		modelRegistry,
+	);
 }
 
 afterEach(async () => {
@@ -40,11 +51,13 @@ function mockTheme() {
 	return {
 		fg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
-	} as unknown as import("@mariozechner/pi-tui").Theme;
+	} as unknown as import("@earendil-works/pi-tui").Theme;
 }
 
 /** Build a minimal ToolRenderContext for testing. */
-function mockRenderContext(overrides?: Partial<ToolRenderContext>): ToolRenderContext {
+function mockRenderContext(
+	overrides?: Partial<ToolRenderContext>,
+): ToolRenderContext {
 	return {
 		args: { query: "", repos: [] },
 		toolCallId: "test",
@@ -62,8 +75,6 @@ function mockRenderContext(overrides?: Partial<ToolRenderContext>): ToolRenderCo
 	};
 }
 
-
-
 describe("repo_query rendering", () => {
 	it("renderCall produces expected header text", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "repo-query-render-test-"));
@@ -71,7 +82,9 @@ describe("repo_query rendering", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -97,7 +110,9 @@ describe("repo_query rendering", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -111,8 +126,16 @@ describe("repo_query rendering", () => {
 				query: "test query",
 				workspacePath: "/tmp/ws",
 				results: [
-					{ identifier: "owner/repo", status: "success", warnings: [] },
-					{ identifier: "other/repo", status: "success", warnings: [] },
+					{
+						identifier: "owner/repo",
+						status: "success",
+						warnings: [],
+					},
+					{
+						identifier: "other/repo",
+						status: "success",
+						warnings: [],
+					},
 				],
 				phase: "exploring" as const,
 				thought: "Thinking line 1\nThinking line 2",
@@ -145,7 +168,9 @@ describe("repo_query rendering", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -158,7 +183,14 @@ describe("repo_query rendering", () => {
 			details: {
 				query: "test query",
 				workspacePath: "/tmp/ws",
-				results: [{ identifier: "owner/repo", status: "clone_failed", warnings: [], error: "fail" }],
+				results: [
+					{
+						identifier: "owner/repo",
+						status: "clone_failed",
+						warnings: [],
+						error: "fail",
+					},
+				],
 				phase: "cloning" as const,
 				thought: undefined,
 			},
@@ -183,7 +215,9 @@ describe("repo_query rendering", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -196,7 +230,14 @@ describe("repo_query rendering", () => {
 			details: {
 				query: "test query",
 				workspacePath: "/tmp/ws",
-				results: [{ identifier: "owner/repo", status: "success", warnings: [], answer: "The answer." }],
+				results: [
+					{
+						identifier: "owner/repo",
+						status: "success",
+						warnings: [],
+						answer: "The answer.",
+					},
+				],
 				phase: "complete" as const,
 			},
 		};
@@ -220,7 +261,9 @@ describe("repo_query rendering", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -234,7 +277,14 @@ describe("repo_query rendering", () => {
 			details: {
 				query: "test query",
 				workspacePath: "/tmp/ws",
-				results: [{ identifier: "owner/repo", status: "success", warnings: [], answer: "The answer." }],
+				results: [
+					{
+						identifier: "owner/repo",
+						status: "success",
+						warnings: [],
+						answer: "The answer.",
+					},
+				],
 				phase: "complete" as const,
 			},
 		};
@@ -265,7 +315,9 @@ describe("repo_query rendering", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -282,7 +334,12 @@ describe("repo_query rendering", () => {
 				query: "test query",
 				workspacePath: "/tmp/ws",
 				results: [
-					{ identifier: "owner/repo", status: "success", warnings: [], answer: "The answer." },
+					{
+						identifier: "owner/repo",
+						status: "success",
+						warnings: [],
+						answer: "The answer.",
+					},
 				],
 				phase: "complete" as const,
 			},
@@ -295,7 +352,9 @@ describe("repo_query rendering", () => {
 			ctx,
 		);
 
-		expect(typeof (ctx.state as { startedAt?: number }).startedAt).toBe("number");
+		expect(typeof (ctx.state as { startedAt?: number }).startedAt).toBe(
+			"number",
+		);
 	});
 
 	it("renderResult sets endedAt when isPartial is false", async () => {
@@ -304,7 +363,9 @@ describe("repo_query rendering", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -321,7 +382,12 @@ describe("repo_query rendering", () => {
 				query: "test query",
 				workspacePath: "/tmp/ws",
 				results: [
-					{ identifier: "owner/repo", status: "success", warnings: [], answer: "The answer." },
+					{
+						identifier: "owner/repo",
+						status: "success",
+						warnings: [],
+						answer: "The answer.",
+					},
 				],
 				phase: "complete" as const,
 			},
@@ -334,7 +400,9 @@ describe("repo_query rendering", () => {
 			ctx,
 		);
 
-		expect(typeof (ctx.state as { endedAt?: number }).endedAt).toBe("number");
+		expect(typeof (ctx.state as { endedAt?: number }).endedAt).toBe(
+			"number",
+		);
 	});
 
 	it("renderResult partial view includes elapsed time", async () => {
@@ -343,7 +411,9 @@ describe("repo_query rendering", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -359,8 +429,16 @@ describe("repo_query rendering", () => {
 				query: "test query",
 				workspacePath: "/tmp/ws",
 				results: [
-					{ identifier: "owner/repo", status: "success", warnings: [] },
-					{ identifier: "other/repo", status: "success", warnings: [] },
+					{
+						identifier: "owner/repo",
+						status: "success",
+						warnings: [],
+					},
+					{
+						identifier: "other/repo",
+						status: "success",
+						warnings: [],
+					},
 				],
 				phase: "exploring" as const,
 				thought: "Thinking...",
@@ -378,8 +456,14 @@ describe("repo_query rendering", () => {
 		expect(text).toContain("Elapsed");
 
 		// Clean up the interval that was started by the partial render
-		if ((ctx.state as { interval?: ReturnType<typeof setInterval> }).interval) {
-			clearInterval((ctx.state as { interval?: ReturnType<typeof setInterval> }).interval);
+		if (
+			(ctx.state as { interval?: ReturnType<typeof setInterval> })
+				.interval
+		) {
+			clearInterval(
+				(ctx.state as { interval?: ReturnType<typeof setInterval> })
+					.interval,
+			);
 		}
 	});
 
@@ -389,7 +473,9 @@ describe("repo_query rendering", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -405,7 +491,12 @@ describe("repo_query rendering", () => {
 				query: "test query",
 				workspacePath: "/tmp/ws",
 				results: [
-					{ identifier: "owner/repo", status: "success", warnings: [], answer: "The answer." },
+					{
+						identifier: "owner/repo",
+						status: "success",
+						warnings: [],
+						answer: "The answer.",
+					},
 				],
 				phase: "complete" as const,
 			},

@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import Fuse from "fuse.js";
 
 import type { ParsedRepo } from "./types.js";
@@ -13,11 +13,15 @@ const CLONE_TIMEOUT_MS = 120_000;
 const CLONE_MOCK_REGISTRY_KEY = "__repoQueryCloneMock";
 
 function getMockClone(): typeof ensureRepoCloned | undefined {
-	return (globalThis as Record<string, unknown>)[CLONE_MOCK_REGISTRY_KEY] as typeof ensureRepoCloned | undefined;
+	return (globalThis as Record<string, unknown>)[CLONE_MOCK_REGISTRY_KEY] as
+		| typeof ensureRepoCloned
+		| undefined;
 }
 
 /** Test-only: inject a mock implementation for ensureRepoCloned. */
-export function setTestCloneImpl(impl: typeof ensureRepoCloned | undefined): void {
+export function setTestCloneImpl(
+	impl: typeof ensureRepoCloned | undefined,
+): void {
 	(globalThis as Record<string, unknown>)[CLONE_MOCK_REGISTRY_KEY] = impl;
 }
 
@@ -44,7 +48,10 @@ function getBranchSuggestions(
 		ignoreLocation: true,
 	});
 
-	return fuse.search(requestedBranch).slice(0, maxResults).map((r) => r.item);
+	return fuse
+		.search(requestedBranch)
+		.slice(0, maxResults)
+		.map((r) => r.item);
 }
 
 /**
@@ -83,8 +90,20 @@ export async function ensureRepoCloned(
 
 	if (repo.branch) {
 		try {
-			const args = ["clone", "--depth", "1", "--single-branch", "--branch", repo.branch, cloneSource, repoDir];
-			const result = await pi.exec("git", args, { signal, timeout: CLONE_TIMEOUT_MS });
+			const args = [
+				"clone",
+				"--depth",
+				"1",
+				"--single-branch",
+				"--branch",
+				repo.branch,
+				cloneSource,
+				repoDir,
+			];
+			const result = await pi.exec("git", args, {
+				signal,
+				timeout: CLONE_TIMEOUT_MS,
+			});
 
 			if (result.code === 0) {
 				return { status: "cloned" };
@@ -102,12 +121,20 @@ export async function ensureRepoCloned(
 		// Try to find similar branch names via fuzzy matching
 		let errorMsg = `Failed to clone ${repo.raw} (ref '${repo.branch}').`;
 		try {
-			const lsResult = await pi.exec("git", ["ls-remote", "--heads", cloneSource], {
-				signal,
-				timeout: 30_000,
-			});
+			const lsResult = await pi.exec(
+				"git",
+				["ls-remote", "--heads", cloneSource],
+				{
+					signal,
+					timeout: 30_000,
+				},
+			);
 			if (lsResult.code === 0 && lsResult.stdout) {
-				const suggestions = getBranchSuggestions(repo.branch, lsResult.stdout, 5);
+				const suggestions = getBranchSuggestions(
+					repo.branch,
+					lsResult.stdout,
+					5,
+				);
 				if (suggestions.length > 0) {
 					errorMsg += ` Did you mean one of these branches: ${suggestions.join(", ")}?`;
 				}
@@ -124,8 +151,18 @@ export async function ensureRepoCloned(
 
 	// No explicit branch: clone the remote default
 	try {
-		const args = ["clone", "--depth", "1", "--single-branch", cloneSource, repoDir];
-		const result = await pi.exec("git", args, { signal, timeout: CLONE_TIMEOUT_MS });
+		const args = [
+			"clone",
+			"--depth",
+			"1",
+			"--single-branch",
+			cloneSource,
+			repoDir,
+		];
+		const result = await pi.exec("git", args, {
+			signal,
+			timeout: CLONE_TIMEOUT_MS,
+		});
 
 		if (result.code === 0) {
 			return { status: "cloned" };

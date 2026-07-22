@@ -1,9 +1,14 @@
-import type { SessionEntry } from "@mariozechner/pi-coding-agent";
-import { copyToClipboard, type ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import {
+	copyToClipboard,
+	type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
 import { formatMessage } from "./formatter.js";
 
-function isMessageEntry(entry: SessionEntry): entry is Extract<SessionEntry, { type: "message" }> {
+function isMessageEntry(
+	entry: SessionEntry,
+): entry is Extract<SessionEntry, { type: "message" }> {
 	return entry.type === "message";
 }
 
@@ -12,7 +17,8 @@ export async function handleCopyLeaf(ctx: ExtensionContext): Promise<void> {
 		const editorText = ctx.ui.getEditorText();
 		if (editorText.trim() !== "") {
 			await copyToClipboard(editorText);
-			if (ctx.hasUI) ctx.ui.notify("Copied editor text to clipboard", "info");
+			if (ctx.hasUI)
+				ctx.ui.notify("Copied editor text to clipboard", "info");
 			return;
 		}
 
@@ -27,7 +33,8 @@ export async function handleCopyLeaf(ctx: ExtensionContext): Promise<void> {
 			const text = formatMessage(entry.message);
 			if (text !== null) {
 				await copyToClipboard(text);
-				if (ctx.hasUI) ctx.ui.notify("Copied leaf text to clipboard", "info");
+				if (ctx.hasUI)
+					ctx.ui.notify("Copied leaf text to clipboard", "info");
 				return;
 			}
 		}

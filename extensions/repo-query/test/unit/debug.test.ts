@@ -108,10 +108,18 @@ describe("setDebugEnabled", () => {
 describe("trackRepo", () => {
 	it("records repo status and branch", () => {
 		const state = createDebugState();
-		trackRepo(state, "owner/repo", { status: "cloned", cloned: true, branch: "main" });
+		trackRepo(state, "owner/repo", {
+			status: "cloned",
+			cloned: true,
+			branch: "main",
+		});
 
 		const info = state.trackedRepos.get("owner/repo");
-		expect(info).toEqual({ status: "cloned", cloned: true, branch: "main" });
+		expect(info).toEqual({
+			status: "cloned",
+			cloned: true,
+			branch: "main",
+		});
 	});
 
 	it("overwrites existing entries", () => {
@@ -147,7 +155,7 @@ describe("buildDebugDump", () => {
 				getBranch: () => [{ type: "message" }],
 				getEntries: () => [{ type: "message" }],
 			},
-		} as unknown as import("@mariozechner/pi-coding-agent").ExtensionContext);
+		} as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext);
 
 		expect(dump).toContain("repo-query debug dump");
 		expect(dump).toContain("debugEnabled: true");
@@ -168,7 +176,7 @@ describe("buildDebugDump", () => {
 				getBranch: () => [],
 				getEntries: () => [],
 			},
-		} as unknown as import("@mariozechner/pi-coding-agent").ExtensionContext);
+		} as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext);
 
 		expect(dump).toContain("(no tracked repos yet)");
 	});
@@ -177,7 +185,10 @@ describe("buildDebugDump", () => {
 describe("syncDebugUi", () => {
 	it("does nothing when hasUI is false", () => {
 		const state = createDebugState();
-		const ctx = { hasUI: false, ui: { setStatus: vi.fn(), setWidget: vi.fn() } };
+		const ctx = {
+			hasUI: false,
+			ui: { setStatus: vi.fn(), setWidget: vi.fn() },
+		};
 		syncDebugUi(state, ctx);
 		expect(ctx.ui.setStatus).not.toHaveBeenCalled();
 		expect(ctx.ui.setWidget).not.toHaveBeenCalled();
@@ -195,6 +206,8 @@ describe("syncDebugUi", () => {
 		const lastWidget = widgetCalls[widgetCalls.length - 1];
 		expect(lastWidget.lines).toBeDefined();
 		expect(lastWidget.lines?.some((l) => l.includes("foo/bar"))).toBe(true);
-		expect(lastWidget.lines?.some((l) => l.includes("something happened"))).toBe(true);
+		expect(
+			lastWidget.lines?.some((l) => l.includes("something happened")),
+		).toBe(true);
 	});
 });

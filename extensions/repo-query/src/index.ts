@@ -8,8 +8,8 @@ import {
 	getMarkdownTheme,
 	type Theme,
 	truncateHead,
-} from "@mariozechner/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 import { ensureRepoCloned } from "./clone.js";
@@ -25,12 +25,20 @@ import {
 import { runExplorer } from "./explorer.js";
 import { validateGitHubRepo } from "./github.js";
 import { parseRepoIdentifier } from "./resolver.js";
-import type { RepoQueryDetails, RepoQueryPhase, RepoResult, ValidationResult } from "./types.js";
+import type {
+	RepoQueryDetails,
+	RepoQueryPhase,
+	RepoResult,
+	ValidationResult,
+} from "./types.js";
 import { clearWorkspaceCache, getWorkspacePath } from "./workspace.js";
 
 const MAX_REPOS = 5;
 
-export function formatRepoDisplayName(raw: string): { display: string; branch: string | null } {
+export function formatRepoDisplayName(raw: string): {
+	display: string;
+	branch: string | null;
+} {
 	try {
 		const parsed = parseRepoIdentifier(raw);
 		return { display: parsed.displayName, branch: parsed.branch };
@@ -63,7 +71,9 @@ function appendDurationLine(
 	const now = endedAt ?? Date.now();
 	const elapsed = ((now - startedAt) / 1000).toFixed(1);
 	const label = endedAt !== undefined ? "Took" : "Elapsed";
-	component.addChild(new Text(theme.fg("dim", `${label}: ${elapsed}s`), 0, 0));
+	component.addChild(
+		new Text(theme.fg("dim", `${label}: ${elapsed}s`), 0, 0),
+	);
 }
 
 /**
@@ -120,12 +130,18 @@ function rebuildRepoQueryResultComponent(
 			const icon =
 				r.status === "success" || r.status === "archived"
 					? theme.fg("success", "✓")
-					: r.status === "not_found" || r.status === "clone_failed" || r.status === "skipped"
+					: r.status === "not_found" ||
+							r.status === "clone_failed" ||
+							r.status === "skipped"
 						? theme.fg("error", "✗")
 						: theme.fg("warning", "⏳");
-			lines.push(`  ${icon} ${theme.fg("accent", r.identifier)} ${activity}`);
+			lines.push(
+				`  ${icon} ${theme.fg("accent", r.identifier)} ${activity}`,
+			);
 			if (r.suggestions && r.suggestions.length > 0) {
-				lines.push(`    ${theme.fg("dim", `→ did you mean: ${r.suggestions[0]}?`)}`);
+				lines.push(
+					`    ${theme.fg("dim", `→ did you mean: ${r.suggestions[0]}?`)}`,
+				);
 			}
 		}
 
@@ -152,8 +168,12 @@ function rebuildRepoQueryResultComponent(
 	// Expanded view: rich layout with Container + Markdown
 	if (options.expanded && hasAnswer) {
 		// Header
-		const successCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
-		const icon = allFailed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+		const successCount = details.results.filter(
+			(r) => r.status === "success" || r.status === "archived",
+		).length;
+		const icon = allFailed
+			? theme.fg("error", "✗")
+			: theme.fg("success", "✓");
 		component.addChild(
 			new Text(
 				`${icon} ${theme.fg("toolTitle", theme.bold("repo_query"))} ${theme.fg("accent", `${successCount}/${details.results.length}`)}`,
@@ -178,7 +198,9 @@ function rebuildRepoQueryResultComponent(
 		// Workspace
 		if (details.workspacePath) {
 			component.addChild(new Text(theme.fg("muted", "Workspace:"), 0, 0));
-			component.addChild(new Text(theme.fg("dim", details.workspacePath), 0, 0));
+			component.addChild(
+				new Text(theme.fg("dim", details.workspacePath), 0, 0),
+			);
 			component.addChild(new Spacer(1));
 		}
 
@@ -195,14 +217,22 @@ function rebuildRepoQueryResultComponent(
 			if (r.localPath) line += theme.fg("dim", ` → ${r.localPath}`);
 			component.addChild(new Text(line, 0, 0));
 			if (r.warnings.length > 0) {
-				component.addChild(new Text(`    ${theme.fg("warning", r.warnings[0])}`, 0, 0));
+				component.addChild(
+					new Text(`    ${theme.fg("warning", r.warnings[0])}`, 0, 0),
+				);
 			}
 			if (r.error) {
-				component.addChild(new Text(`    ${theme.fg("error", r.error)}`, 0, 0));
+				component.addChild(
+					new Text(`    ${theme.fg("error", r.error)}`, 0, 0),
+				);
 			}
 			if (r.suggestions && r.suggestions.length > 0) {
 				component.addChild(
-					new Text(`    ${theme.fg("dim", `Did you mean: ${r.suggestions.join(", ")}?`)}`, 0, 0),
+					new Text(
+						`    ${theme.fg("dim", `Did you mean: ${r.suggestions.join(", ")}?`)}`,
+						0,
+						0,
+					),
 				);
 			}
 		}
@@ -219,7 +249,9 @@ function rebuildRepoQueryResultComponent(
 	}
 
 	// Collapsed view
-	const successCount = details.results.filter((r) => r.status === "success" || r.status === "archived").length;
+	const successCount = details.results.filter(
+		(r) => r.status === "success" || r.status === "archived",
+	).length;
 	const icon = allFailed ? theme.fg("error", "✗") : theme.fg("success", "✓");
 	component.addChild(
 		new Text(
@@ -243,16 +275,31 @@ function rebuildRepoQueryResultComponent(
 		}
 		component.addChild(new Text(line, 0, 0));
 		if (r.error) {
-			component.addChild(new Text(`  ${theme.fg("error", r.error.substring(0, 60))}`, 0, 0));
-			if (r.error.length > 60) component.addChild(new Text(theme.fg("dim", "..."), 0, 0));
+			component.addChild(
+				new Text(
+					`  ${theme.fg("error", r.error.substring(0, 60))}`,
+					0,
+					0,
+				),
+			);
+			if (r.error.length > 60)
+				component.addChild(new Text(theme.fg("dim", "..."), 0, 0));
 		}
 	}
 	if (details.results.length > 3) {
-		component.addChild(new Text(theme.fg("muted", `... +${details.results.length - 3} more`), 0, 0));
+		component.addChild(
+			new Text(
+				theme.fg("muted", `... +${details.results.length - 3} more`),
+				0,
+				0,
+			),
+		);
 	}
 
 	if (hasAnswer) {
-		component.addChild(new Text(theme.fg("dim", "(Ctrl+O to expand)"), 0, 0));
+		component.addChild(
+			new Text(theme.fg("dim", "(Ctrl+O to expand)"), 0, 0),
+		);
 	}
 
 	appendDurationLine(component, theme, startedAt, endedAt);
@@ -260,7 +307,8 @@ function rebuildRepoQueryResultComponent(
 
 const RepoQueryParams = Type.Object({
 	query: Type.String({
-		description: "The question or task to answer by exploring the repositories",
+		description:
+			"The question or task to answer by exploring the repositories",
 	}),
 	repos: Type.Array(
 		Type.String({
@@ -324,18 +372,28 @@ export default function (pi: ExtensionAPI) {
 					addDebugEvent(debug, "debug dump generated", ctx);
 					if (ctx.hasUI) {
 						ctx.ui.setEditorText(report);
-						ctx.ui.notify("repo-query debug dump copied to editor", "info");
+						ctx.ui.notify(
+							"repo-query debug dump copied to editor",
+							"info",
+						);
 					}
 					break;
 				}
 				case "toggle": {
 					setDebugEnabled(debug, !debug.enabled, ctx);
-					addDebugEvent(debug, `debug ${debug.enabled ? "enabled" : "disabled"} (toggle)`, ctx);
+					addDebugEvent(
+						debug,
+						`debug ${debug.enabled ? "enabled" : "disabled"} (toggle)`,
+						ctx,
+					);
 					break;
 				}
 				default: {
 					if (ctx.hasUI) {
-						ctx.ui.notify("Unknown subcommand. Use: /repo-query-debug [on|off|status|toggle|dump]", "warning");
+						ctx.ui.notify(
+							"Unknown subcommand. Use: /repo-query-debug [on|off|status|toggle|dump]",
+							"warning",
+						);
 					}
 					return;
 				}
@@ -358,7 +416,8 @@ export default function (pi: ExtensionAPI) {
 			"GitHub repos are validated via API; non-existent repos return search suggestions.",
 			"Repositories are cached per session and reused across multiple queries.",
 		].join(" "),
-		promptSnippet: "Query git repositories by cloning them and exploring with a subagent",
+		promptSnippet:
+			"Query git repositories by cloning them and exploring with a subagent",
 		promptGuidelines: [
 			"Use repo_query when you need to investigate code in external repositories — don't try to read remote code manually.",
 			"Provide specific, targeted queries to repo_query; the subagent searches using grep/find/read and fares best with concrete questions about architecture, patterns, or file locations.",
@@ -382,14 +441,20 @@ export default function (pi: ExtensionAPI) {
 
 			let resolvedModel: string | undefined;
 			const results: RepoResult[] = [];
-			const reposToExplore: Array<{ parsed: ReturnType<typeof parseRepoIdentifier>; dirName: string }> = [];
+			const reposToExplore: Array<{
+				parsed: ReturnType<typeof parseRepoIdentifier>;
+				dirName: string;
+			}> = [];
 
 			const buildThought = (phase: RepoQueryPhase): string => {
 				const names = params.repos
 					.slice(0, 2)
 					.map((r) => formatRepoDisplayName(r).display)
 					.join(", ");
-				const rest = params.repos.length > 2 ? ` and ${params.repos.length - 2} more` : "";
+				const rest =
+					params.repos.length > 2
+						? ` and ${params.repos.length - 2} more`
+						: "";
 				switch (phase) {
 					case "parsing":
 						return `Looking up ${names}${rest}...`;
@@ -404,7 +469,10 @@ export default function (pi: ExtensionAPI) {
 				}
 			};
 
-			const makeDetails = (phase: RepoQueryPhase, thoughtOverride?: string): RepoQueryDetails => ({
+			const makeDetails = (
+				phase: RepoQueryPhase,
+				thoughtOverride?: string,
+			): RepoQueryDetails => ({
 				query: params.query,
 				workspacePath: workspace,
 				results: [...results],
@@ -433,7 +501,11 @@ export default function (pi: ExtensionAPI) {
 						ctx,
 					);
 				} catch (err) {
-					addDebugEvent(debug, `parse failed: ${raw} → ${err instanceof Error ? err.message : String(err)}`, ctx);
+					addDebugEvent(
+						debug,
+						`parse failed: ${raw} → ${err instanceof Error ? err.message : String(err)}`,
+						ctx,
+					);
 					results.push({
 						identifier: raw,
 						status: "skipped",
@@ -444,7 +516,11 @@ export default function (pi: ExtensionAPI) {
 					continue;
 				}
 
-				trackRepo(debug, raw, { status: "parsed", cloned: false, branch: parsed.branch });
+				trackRepo(debug, raw, {
+					status: "parsed",
+					cloned: false,
+					branch: parsed.branch,
+				});
 
 				// GitHub-specific validation
 				if (parsed.host === "github" && parsed.owner && parsed.repo) {
@@ -454,11 +530,22 @@ export default function (pi: ExtensionAPI) {
 					const cached = validationCache.get(cacheKey);
 					if (cached) {
 						validation = cached;
-						addDebugEvent(debug, `github validate (cached): ${parsed.owner}/${parsed.repo}`, ctx);
+						addDebugEvent(
+							debug,
+							`github validate (cached): ${parsed.owner}/${parsed.repo}`,
+							ctx,
+						);
 					} else {
 						try {
-							addDebugEvent(debug, `github validate: ${parsed.owner}/${parsed.repo}`, ctx);
-							validation = await validateGitHubRepo(parsed.owner, parsed.repo);
+							addDebugEvent(
+								debug,
+								`github validate: ${parsed.owner}/${parsed.repo}`,
+								ctx,
+							);
+							validation = await validateGitHubRepo(
+								parsed.owner,
+								parsed.repo,
+							);
 							validationCache.set(cacheKey, validation);
 						} catch (err) {
 							// GitHub API failure — don't block, proceed with clone attempt
@@ -492,19 +579,29 @@ export default function (pi: ExtensionAPI) {
 								suggestions: validation.suggestions,
 								error: `Repository '${parsed.displayName}' not found on GitHub.`,
 							});
-							trackRepo(debug, raw, { status: "not_found", cloned: false });
+							trackRepo(debug, raw, {
+								status: "not_found",
+								cloned: false,
+							});
 							emitPhase("validating");
 							continue;
 						}
 						if (validation.warning) {
-							addDebugEvent(debug, `github archived: ${parsed.displayName}`, ctx);
+							addDebugEvent(
+								debug,
+								`github archived: ${parsed.displayName}`,
+								ctx,
+							);
 							results.push({
 								identifier: raw,
 								status: "archived",
 								cloneUrl: parsed.cloneUrl,
 								warnings: [validation.warning],
 							});
-							trackRepo(debug, raw, { status: "archived", cloned: false });
+							trackRepo(debug, raw, {
+								status: "archived",
+								cloned: false,
+							});
 							// Still add to explore list
 						}
 					}
@@ -515,15 +612,30 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// ── Phase 2: Clone ──────────────────────────────────────────
-			addDebugEvent(debug, `phase: clone (${reposToExplore.length} repos to clone)`, ctx);
+			addDebugEvent(
+				debug,
+				`phase: clone (${reposToExplore.length} repos to clone)`,
+				ctx,
+			);
 			for (const { parsed } of reposToExplore) {
 				// Check if already have a result (e.g., archived warning)
-				const existing = results.find((r) => r.identifier === parsed.raw);
+				const existing = results.find(
+					(r) => r.identifier === parsed.raw,
+				);
 				if (existing && existing.status === "not_found") continue;
 
 				emitPhase("cloning");
-				addDebugEvent(debug, `clone start: ${parsed.raw} → ${parsed.dirName}`, ctx);
-				const cloneResult = await ensureRepoCloned(parsed, workspace, signal, pi);
+				addDebugEvent(
+					debug,
+					`clone start: ${parsed.raw} → ${parsed.dirName}`,
+					ctx,
+				);
+				const cloneResult = await ensureRepoCloned(
+					parsed,
+					workspace,
+					signal,
+					pi,
+				);
 				addDebugEvent(
 					debug,
 					`clone result: ${parsed.raw} → ${cloneResult.status}${cloneResult.error ? ` (${cloneResult.error})` : ""}`,
@@ -544,7 +656,10 @@ export default function (pi: ExtensionAPI) {
 							error: cloneResult.error,
 						});
 					}
-					trackRepo(debug, parsed.raw, { status: "clone_failed", cloned: false });
+					trackRepo(debug, parsed.raw, {
+						status: "clone_failed",
+						cloned: false,
+					});
 				} else if (!existing) {
 					results.push({
 						identifier: parsed.raw,
@@ -553,13 +668,21 @@ export default function (pi: ExtensionAPI) {
 						localPath: `${workspace}/${parsed.dirName}`,
 						warnings: [],
 					});
-					trackRepo(debug, parsed.raw, { status: "cloned", cloned: true, branch: parsed.branch });
+					trackRepo(debug, parsed.raw, {
+						status: "cloned",
+						cloned: true,
+						branch: parsed.branch,
+					});
 				} else {
 					if (existing.status !== "archived") {
 						existing.status = "success";
 					}
 					existing.localPath = `${workspace}/${parsed.dirName}`;
-					trackRepo(debug, parsed.raw, { status: existing.status, cloned: true, branch: parsed.branch });
+					trackRepo(debug, parsed.raw, {
+						status: existing.status,
+						cloned: true,
+						branch: parsed.branch,
+					});
 				}
 				emitPhase("cloning");
 			}
@@ -567,13 +690,25 @@ export default function (pi: ExtensionAPI) {
 			// ── Phase 3: Explore ────────────────────────────────────────
 			const readyRepos = reposToExplore.filter(({ parsed }) => {
 				const result = results.find((r) => r.identifier === parsed.raw);
-				return result && (result.status === "success" || result.status === "archived");
+				return (
+					result &&
+					(result.status === "success" ||
+						result.status === "archived")
+				);
 			});
 
-			addDebugEvent(debug, `phase: explore (${readyRepos.length} ready repos)`, ctx);
+			addDebugEvent(
+				debug,
+				`phase: explore (${readyRepos.length} ready repos)`,
+				ctx,
+			);
 
 			if (readyRepos.length === 0) {
-				addDebugEvent(debug, "explore: no ready repos, returning error", ctx);
+				addDebugEvent(
+					debug,
+					"explore: no ready repos, returning error",
+					ctx,
+				);
 
 				const errorParts = results
 					.filter((r) => r.error)
@@ -581,21 +716,32 @@ export default function (pi: ExtensionAPI) {
 
 				const suggestionParts = results
 					.filter((r) => r.suggestions && r.suggestions.length > 0)
-					.map((r) => `- ${r.identifier}: did you mean ${r.suggestions?.join(", ")}?`);
+					.map(
+						(r) =>
+							`- ${r.identifier}: did you mean ${r.suggestions?.join(", ")}?`,
+					);
 
 				const notFoundWithSuggestions = results.filter(
 					(r) => r.suggestions && r.suggestions.length > 0,
 				);
 
-				const parts: string[] = ["No repositories could be explored.", ...errorParts, ...suggestionParts];
+				const parts: string[] = [
+					"No repositories could be explored.",
+					...errorParts,
+					...suggestionParts,
+				];
 
 				if (notFoundWithSuggestions.length > 0) {
 					parts.push("");
-					parts.push("Some repositories were not found. Consider retrying with the suggested names:");
+					parts.push(
+						"Some repositories were not found. Consider retrying with the suggested names:",
+					);
 					for (const nf of notFoundWithSuggestions) {
 						const primary = nf.suggestions![0];
 						if (primary) {
-							parts.push(`- Use \`${primary}\` instead of \`${nf.identifier}\``);
+							parts.push(
+								`- Use \`${primary}\` instead of \`${nf.identifier}\``,
+							);
 						}
 					}
 				}
@@ -618,7 +764,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			emitPhase("exploring");
-			addDebugEvent(debug, `subagent spawn: ${readyRepos.length} repo(s)`, ctx);
+			addDebugEvent(
+				debug,
+				`subagent spawn: ${readyRepos.length} repo(s)`,
+				ctx,
+			);
 			const exploration = await runExplorer({
 				workspace,
 				repos: readyRepos.map((r) => r.parsed),
@@ -627,11 +777,17 @@ export default function (pi: ExtensionAPI) {
 				signal,
 				onUpdate: (partial) => {
 					// Update the result text with streaming answer
-					const text = partial.content[0]?.type === "text" ? partial.content[0].text : "";
+					const text =
+						partial.content[0]?.type === "text"
+							? partial.content[0].text
+							: "";
 					if (text) {
 						// Find first success/Archived result and attach answer
 						for (const r of results) {
-							if (r.status === "success" || r.status === "archived") {
+							if (
+								r.status === "success" ||
+								r.status === "archived"
+							) {
 								r.answer = text;
 								break;
 							}
@@ -639,8 +795,13 @@ export default function (pi: ExtensionAPI) {
 					}
 					// Stream actual subagent thinking if available
 					let subagentThought: string | undefined;
-					if (partial.details && typeof partial.details === "object" && "thought" in partial.details) {
-						const raw = (partial.details as Record<string, unknown>).thought;
+					if (
+						partial.details &&
+						typeof partial.details === "object" &&
+						"thought" in partial.details
+					) {
+						const raw = (partial.details as Record<string, unknown>)
+							.thought;
 						if (typeof raw === "string" && raw.trim().length > 0) {
 							subagentThought = raw;
 						}
@@ -653,7 +814,11 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			if (exploration.error) {
-				addDebugEvent(debug, `explore failed: ${exploration.error.substring(0, 120)}`, ctx);
+				addDebugEvent(
+					debug,
+					`explore failed: ${exploration.error.substring(0, 120)}`,
+					ctx,
+				);
 				for (const r of results) {
 					if (r.status === "success" || r.status === "archived") {
 						r.status = "exploration_failed";
@@ -661,7 +826,11 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 			} else {
-				addDebugEvent(debug, `explore success: answer=${exploration.answer.length} chars`, ctx);
+				addDebugEvent(
+					debug,
+					`explore success: answer=${exploration.answer.length} chars`,
+					ctx,
+				);
 				// Attach answer to all explored repos
 				for (const r of results) {
 					if (r.status === "success" || r.status === "archived") {
@@ -671,7 +840,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// ── Phase 4: Synthesize output ──────────────────────────────
-			const outputText = formatOutput(results, params.query, resolvedModel);
+			const outputText = formatOutput(
+				results,
+				params.query,
+				resolvedModel,
+			);
 
 			// Truncate if needed
 			const truncation = truncateHead(outputText, {
@@ -679,8 +852,14 @@ export default function (pi: ExtensionAPI) {
 				maxBytes: DEFAULT_MAX_BYTES,
 			});
 
-			const hasSuccessfulAnswer = results.some((r) => (r.status === "success" || r.status === "archived") && r.answer);
-			const hasRetryableFailures = results.some((r) => r.suggestions && r.suggestions.length > 0);
+			const hasSuccessfulAnswer = results.some(
+				(r) =>
+					(r.status === "success" || r.status === "archived") &&
+					r.answer,
+			);
+			const hasRetryableFailures = results.some(
+				(r) => r.suggestions && r.suggestions.length > 0,
+			);
 
 			addDebugEvent(
 				debug,
@@ -709,7 +888,9 @@ export default function (pi: ExtensionAPI) {
 
 			const repoList = args.repos.slice(0, 3).map((r: string) => {
 				const { display, branch } = formatRepoDisplayName(r);
-				return branch ? `${display}:${theme.fg("dim", branch)}` : display;
+				return branch
+					? `${display}:${theme.fg("dim", branch)}`
+					: display;
 			});
 			let repoText = repoList.join(", ");
 			if (args.repos.length > 3) {
@@ -727,13 +908,22 @@ export default function (pi: ExtensionAPI) {
 			const state = context?.state;
 
 			// Set startedAt if execution has started and we haven't tracked it yet
-			if (state && context?.executionStarted && state.startedAt === undefined) {
+			if (
+				state &&
+				context?.executionStarted &&
+				state.startedAt === undefined
+			) {
 				state.startedAt = Date.now();
 				state.endedAt = undefined;
 			}
 
 			// Live elapsed-time counter: start interval during partial exploration
-			if (state && state.startedAt !== undefined && isPartial && state.interval === undefined) {
+			if (
+				state &&
+				state.startedAt !== undefined &&
+				isPartial &&
+				state.interval === undefined
+			) {
 				state.interval = setInterval(() => context?.invalidate(), 1000);
 			}
 
@@ -765,10 +955,16 @@ export default function (pi: ExtensionAPI) {
 	});
 }
 
-export function formatOutput(results: RepoResult[], query: string, model?: string): string {
+export function formatOutput(
+	results: RepoResult[],
+	query: string,
+	model?: string,
+): string {
 	const lines: string[] = [];
 
-	const successes = results.filter((r) => r.status === "success" || r.status === "archived");
+	const successes = results.filter(
+		(r) => r.status === "success" || r.status === "archived",
+	);
 	const failures = results.filter(
 		(r) =>
 			r.status === "not_found" ||
@@ -776,7 +972,9 @@ export function formatOutput(results: RepoResult[], query: string, model?: strin
 			r.status === "exploration_failed" ||
 			r.status === "skipped",
 	);
-	const notFoundWithSuggestions = failures.filter((r) => r.suggestions && r.suggestions.length > 0);
+	const notFoundWithSuggestions = failures.filter(
+		(r) => r.suggestions && r.suggestions.length > 0,
+	);
 
 	if (successes.length > 0 && successes[0]?.answer) {
 		lines.push(`# Answer: ${query}`);
@@ -819,7 +1017,9 @@ export function formatOutput(results: RepoResult[], query: string, model?: strin
 		for (const nf of notFoundWithSuggestions) {
 			const primary = nf.suggestions![0];
 			if (primary) {
-				lines.push(`- Use \`${primary}\` instead of \`${nf.identifier}\``);
+				lines.push(
+					`- Use \`${primary}\` instead of \`${nf.identifier}\``,
+				);
 			}
 		}
 	}

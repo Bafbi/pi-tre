@@ -7,9 +7,12 @@ import {
 	isReadToolResult,
 	isToolCallEventType,
 	isWriteToolResult,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
-import { DEFAULT_MTIME_TOLERANCE_MS, requiresReadBeforeMutation } from "./guard.js";
+import {
+	DEFAULT_MTIME_TOLERANCE_MS,
+	requiresReadBeforeMutation,
+} from "./guard.js";
 import { resolveCanonicalPath } from "./path.js";
 import { type FileTrackingState, FileTrackingStore } from "./state.js";
 
@@ -42,10 +45,14 @@ function formatMtime(mtimeMs: number | undefined): string {
 	return new Date(mtimeMs).toISOString();
 }
 
-function computeStateReason(currentMtimeMs: number | undefined, tracked: FileTrackingState): string {
+function computeStateReason(
+	currentMtimeMs: number | undefined,
+	tracked: FileTrackingState,
+): string {
 	if (currentMtimeMs === undefined) return "file-missing-on-disk";
 	if (tracked.lastReadMtimeMs === undefined) return "no-read-record";
-	if (currentMtimeMs - tracked.lastReadMtimeMs <= DEFAULT_MTIME_TOLERANCE_MS) return "read-up-to-date";
+	if (currentMtimeMs - tracked.lastReadMtimeMs <= DEFAULT_MTIME_TOLERANCE_MS)
+		return "read-up-to-date";
 	return "read-stale-file-changed-after-read";
 }
 
@@ -54,7 +61,10 @@ function truncateForDebug(text: string, maxLength = 180): string {
 	return `${text.slice(0, maxLength)}...`;
 }
 
-function summarizeToolError(event: { content: Array<{ type: string; text?: string }>; details: unknown }): string {
+function summarizeToolError(event: {
+	content: Array<{ type: string; text?: string }>;
+	details: unknown;
+}): string {
 	const textParts = event.content
 		.filter((item) => item.type === "text" && typeof item.text === "string")
 		.map((item) => item.text?.trim())
@@ -89,8 +99,13 @@ export default function (pi: ExtensionAPI) {
 	let debugEnabled = false;
 
 	const getDebugLines = () => {
-		const tracked = store.entries().sort((a, b) => a.path.localeCompare(b.path));
-		const header = [`debug: ${debugEnabled ? "ON" : "OFF"}`, `tracked files: ${tracked.length}`];
+		const tracked = store
+			.entries()
+			.sort((a, b) => a.path.localeCompare(b.path));
+		const header = [
+			`debug: ${debugEnabled ? "ON" : "OFF"}`,
+			`tracked files: ${tracked.length}`,
+		];
 		const trackedLines = tracked.slice(0, 8).flatMap(({ path, state }) => {
 			const currentMtimeMs = getFileMtimeMs(path);
 			const reason = computeStateReason(currentMtimeMs, state);
@@ -102,7 +117,12 @@ export default function (pi: ExtensionAPI) {
 			];
 		});
 		const eventsHeader = debugEvents.length > 0 ? ["recent events:"] : [];
-		return [...header, ...trackedLines, ...eventsHeader, ...debugEvents.slice(-8)];
+		return [
+			...header,
+			...trackedLines,
+			...eventsHeader,
+			...debugEvents.slice(-8),
+		];
 	};
 
 	const syncDebugUi = (ctx: UiCtx) => {
@@ -112,7 +132,10 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.setStatus(STATUS_KEY, undefined);
 			return;
 		}
-		ctx.ui.setStatus(STATUS_KEY, `debug ON, tracked files: ${store.size()}`);
+		ctx.ui.setStatus(
+			STATUS_KEY,
+			`debug ON, tracked files: ${store.size()}`,
+		);
 		ctx.ui.setWidget(DEBUG_WIDGET_KEY, getDebugLines());
 	};
 
@@ -127,9 +150,13 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const buildDebugDump = (ctx: Pick<ExtensionContext, "cwd" | "sessionManager">) => {
+	const buildDebugDump = (
+		ctx: Pick<ExtensionContext, "cwd" | "sessionManager">,
+	) => {
 		const now = new Date().toISOString();
-		const tracked = store.entries().sort((a, b) => a.path.localeCompare(b.path));
+		const tracked = store
+			.entries()
+			.sort((a, b) => a.path.localeCompare(b.path));
 		const branch = ctx.sessionManager.getBranch();
 		const entries = ctx.sessionManager.getEntries();
 		const lines: string[] = [];
@@ -144,7 +171,9 @@ export default function (pi: ExtensionAPI) {
 		lines.push("");
 		lines.push("## session");
 		lines.push(`- cwd: ${ctx.cwd}`);
-		lines.push(`- sessionFile: ${ctx.sessionManager.getSessionFile() ?? "<in-memory>"}`);
+		lines.push(
+			`- sessionFile: ${ctx.sessionManager.getSessionFile() ?? "<in-memory>"}`,
+		);
 		lines.push(`- leafId: ${ctx.sessionManager.getLeafId() ?? "<none>"}`);
 		lines.push(`- branchEntries: ${branch.length}`);
 		lines.push(`- totalEntries: ${entries.length}`);
@@ -168,12 +197,18 @@ export default function (pi: ExtensionAPI) {
 				const reason = computeStateReason(currentMtimeMs, state);
 
 				lines.push(`### ${path}`);
-				lines.push(`- currentMtime: ${formatMtime(currentMtimeMs)} (${currentMtimeMs ?? "-"})`);
-				lines.push(`- lastReadMtime: ${formatMtime(state.lastReadMtimeMs)} (${state.lastReadMtimeMs ?? "-"})`);
+				lines.push(
+					`- currentMtime: ${formatMtime(currentMtimeMs)} (${currentMtimeMs ?? "-"})`,
+				);
+				lines.push(
+					`- lastReadMtime: ${formatMtime(state.lastReadMtimeMs)} (${state.lastReadMtimeMs ?? "-"})`,
+				);
 				lines.push(
 					`- lastAgentEditMtime: ${formatMtime(state.lastAgentEditMtimeMs)} (${state.lastAgentEditMtimeMs ?? "-"})`,
 				);
-				lines.push(`- decisionNow: ${shouldBlock ? "BLOCK write/edit" : "ALLOW write/edit"}`);
+				lines.push(
+					`- decisionNow: ${shouldBlock ? "BLOCK write/edit" : "ALLOW write/edit"}`,
+				);
 				lines.push(`- decisionReason: ${reason}`);
 				lines.push("");
 			}
@@ -203,7 +238,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
-		if (!isToolCallEventType("write", event) && !isToolCallEventType("edit", event)) {
+		if (
+			!isToolCallEventType("write", event) &&
+			!isToolCallEventType("edit", event)
+		) {
 			return undefined;
 		}
 
@@ -217,7 +255,10 @@ export default function (pi: ExtensionAPI) {
 		const currentMtimeMs = getFileMtimeMs(canonicalPath);
 		if (currentMtimeMs === undefined) {
 			// New file writes are allowed.
-			addDebugEvent(`tool_call:${event.toolName} allow (new file): ${toolPath}`, ctx);
+			addDebugEvent(
+				`tool_call:${event.toolName} allow (new file): ${toolPath}`,
+				ctx,
+			);
 			return undefined;
 		}
 
@@ -227,11 +268,17 @@ export default function (pi: ExtensionAPI) {
 			lastReadMtimeMs: tracked?.lastReadMtimeMs,
 		});
 		if (!shouldBlock) {
-			addDebugEvent(`tool_call:${event.toolName} allow: ${toolPath}`, ctx);
+			addDebugEvent(
+				`tool_call:${event.toolName} allow: ${toolPath}`,
+				ctx,
+			);
 			return undefined;
 		}
 
-		addDebugEvent(`tool_call:${event.toolName} BLOCK stale file: ${toolPath}`, ctx);
+		addDebugEvent(
+			`tool_call:${event.toolName} BLOCK stale file: ${toolPath}`,
+			ctx,
+		);
 		return {
 			block: true,
 			reason: `File '${toolPath}' has no fresh read for its current version. Read it again before mutating.`,
@@ -243,7 +290,10 @@ export default function (pi: ExtensionAPI) {
 			const toolPath = getPathFromInput(event.input);
 			const pathInfo = toolPath ? ` path=${toolPath}` : "";
 			const errorSummary = summarizeToolError(event);
-			addDebugEvent(`tool_result:${event.toolName} ignored (error)${pathInfo} message=${errorSummary}`, ctx);
+			addDebugEvent(
+				`tool_result:${event.toolName} ignored (error)${pathInfo} message=${errorSummary}`,
+				ctx,
+			);
 			return undefined;
 		}
 
@@ -262,7 +312,10 @@ export default function (pi: ExtensionAPI) {
 
 		if (isWriteToolResult(event) || isEditToolResult(event)) {
 			store.markAgentEdit(canonicalPath, mtimeMs);
-			addDebugEvent(`tool_result:${event.toolName} markAgentEdit ${toolPath}`, ctx);
+			addDebugEvent(
+				`tool_result:${event.toolName} markAgentEdit ${toolPath}`,
+				ctx,
+			);
 			return undefined;
 		}
 
@@ -295,18 +348,27 @@ export default function (pi: ExtensionAPI) {
 					addDebugEvent("debug dump generated", ctx);
 					if (ctx.hasUI) {
 						ctx.ui.setEditorText(report);
-						ctx.ui.notify("stale-write-guard debug dump copied to editor", "info");
+						ctx.ui.notify(
+							"stale-write-guard debug dump copied to editor",
+							"info",
+						);
 					}
 					break;
 				}
 				case "toggle": {
 					debugEnabled = !debugEnabled;
-					addDebugEvent(`debug ${debugEnabled ? "enabled" : "disabled"} (toggle)`, ctx);
+					addDebugEvent(
+						`debug ${debugEnabled ? "enabled" : "disabled"} (toggle)`,
+						ctx,
+					);
 					break;
 				}
 				default: {
 					if (ctx.hasUI) {
-						ctx.ui.notify("Unknown subcommand. Use: /stale-write-guard-debug [on|off|status|toggle|dump]", "warning");
+						ctx.ui.notify(
+							"Unknown subcommand. Use: /stale-write-guard-debug [on|off|status|toggle|dump]",
+							"warning",
+						);
 					}
 					return;
 				}

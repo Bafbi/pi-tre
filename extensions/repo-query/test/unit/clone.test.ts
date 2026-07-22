@@ -19,11 +19,16 @@ function mockPi(
 	execImpl: (
 		command: string,
 		args: string[],
-	) => Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>,
+	) => Promise<{
+		stdout: string;
+		stderr: string;
+		code: number;
+		killed: boolean;
+	}>,
 ) {
 	return {
 		exec: execImpl,
-	} as unknown as import("@mariozechner/pi-coding-agent").ExtensionAPI;
+	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
 }
 
 describe("ensureRepoCloned", () => {
@@ -35,10 +40,19 @@ describe("ensureRepoCloned", () => {
 		mkdirSync(join(repoDir, ".git"), { recursive: true });
 
 		const result = await ensureRepoCloned(
-			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
+			{
+				raw: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+			} as ParsedRepo,
 			workspace,
 			undefined,
-			mockPi(async () => ({ stdout: "", stderr: "", code: 0, killed: false })),
+			mockPi(async () => ({
+				stdout: "",
+				stderr: "",
+				code: 0,
+				killed: false,
+			})),
 		);
 
 		expect(result.status).toBe("existing");
@@ -49,10 +63,19 @@ describe("ensureRepoCloned", () => {
 		tempDirs.push(workspace);
 
 		const result = await ensureRepoCloned(
-			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
+			{
+				raw: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+			} as ParsedRepo,
 			workspace,
 			undefined,
-			mockPi(async () => ({ stdout: "", stderr: "", code: 0, killed: false })),
+			mockPi(async () => ({
+				stdout: "",
+				stderr: "",
+				code: 0,
+				killed: false,
+			})),
 		);
 
 		expect(result.status).toBe("cloned");
@@ -63,10 +86,19 @@ describe("ensureRepoCloned", () => {
 		tempDirs.push(workspace);
 
 		const result = await ensureRepoCloned(
-			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
+			{
+				raw: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+			} as ParsedRepo,
 			workspace,
 			undefined,
-			mockPi(async () => ({ stdout: "", stderr: "fatal: not found", code: 128, killed: false })),
+			mockPi(async () => ({
+				stdout: "",
+				stderr: "fatal: not found",
+				code: 128,
+				killed: false,
+			})),
 		);
 
 		expect(result.status).toBe("failed");
@@ -128,10 +160,20 @@ describe("ensureRepoCloned", () => {
 				callCount++;
 				if (callCount === 1) {
 					// git clone fails
-					return { stdout: "", stderr: "fatal: not found", code: 128, killed: false };
+					return {
+						stdout: "",
+						stderr: "fatal: not found",
+						code: 128,
+						killed: false,
+					};
 				}
 				// git ls-remote succeeds
-				return { stdout: lsRemoteOutput, stderr: "", code: 0, killed: false };
+				return {
+					stdout: lsRemoteOutput,
+					stderr: "",
+					code: 0,
+					killed: false,
+				};
 			}),
 		);
 
@@ -158,7 +200,12 @@ describe("ensureRepoCloned", () => {
 			mockPi(async () => {
 				callCount++;
 				// Both calls fail
-				return { stdout: "", stderr: "fatal: not found", code: 128, killed: false };
+				return {
+					stdout: "",
+					stderr: "fatal: not found",
+					code: 128,
+					killed: false,
+				};
 			}),
 		);
 
@@ -189,9 +236,19 @@ describe("ensureRepoCloned", () => {
 			mockPi(async (_cmd, args) => {
 				callCount++;
 				if (callCount === 1) {
-					return { stdout: "", stderr: "fatal: not found", code: 128, killed: false };
+					return {
+						stdout: "",
+						stderr: "fatal: not found",
+						code: 128,
+						killed: false,
+					};
 				}
-				return { stdout: lsRemoteOutput, stderr: "", code: 0, killed: false };
+				return {
+					stdout: lsRemoteOutput,
+					stderr: "",
+					code: 0,
+					killed: false,
+				};
 			}),
 		);
 
@@ -207,7 +264,11 @@ describe("ensureRepoCloned", () => {
 		let hadBranchFlag = false;
 
 		await ensureRepoCloned(
-			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
+			{
+				raw: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+			} as ParsedRepo,
 			workspace,
 			undefined,
 			mockPi(async (_cmd, args) => {
@@ -225,7 +286,11 @@ describe("ensureRepoCloned", () => {
 		let receivedSource = "";
 
 		await ensureRepoCloned(
-			{ raw: "~/my-repo", cloneUrl: "~/my-repo", dirName: "repo" } as ParsedRepo,
+			{
+				raw: "~/my-repo",
+				cloneUrl: "~/my-repo",
+				dirName: "repo",
+			} as ParsedRepo,
 			workspace,
 			undefined,
 			mockPi(async (_cmd, args) => {
@@ -244,10 +309,19 @@ describe("ensureRepoCloned", () => {
 		const repoDir = join(workspace, "repo");
 
 		const result = await ensureRepoCloned(
-			{ raw: "owner/repo", cloneUrl: "https://github.com/owner/repo.git", dirName: "repo" } as ParsedRepo,
+			{
+				raw: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+			} as ParsedRepo,
 			workspace,
 			undefined,
-			mockPi(async () => ({ stdout: "", stderr: "fatal: not found", code: 128, killed: false })),
+			mockPi(async () => ({
+				stdout: "",
+				stderr: "fatal: not found",
+				code: 128,
+				killed: false,
+			})),
 		);
 
 		expect(result.status).toBe("failed");

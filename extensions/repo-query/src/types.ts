@@ -13,7 +13,13 @@ export interface ParsedRepo {
 	repo?: string;
 }
 
-export type RepoStatus = "success" | "not_found" | "archived" | "clone_failed" | "exploration_failed" | "skipped";
+export type RepoStatus =
+	| "success"
+	| "not_found"
+	| "archived"
+	| "clone_failed"
+	| "exploration_failed"
+	| "skipped";
 
 export interface RepoResult {
 	identifier: string;
@@ -26,7 +32,12 @@ export interface RepoResult {
 	error?: string;
 }
 
-export type RepoQueryPhase = "parsing" | "validating" | "cloning" | "exploring" | "complete";
+export type RepoQueryPhase =
+	| "parsing"
+	| "validating"
+	| "cloning"
+	| "exploring"
+	| "complete";
 
 export interface RepoQueryDetails {
 	query: string;

@@ -8,7 +8,7 @@ import {
 	ExtensionRunner,
 	ModelRegistry,
 	SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 
 const tempDirs: string[] = [];
@@ -25,14 +25,25 @@ function setMtimeMs(path: string, mtimeMs: number): void {
 }
 
 async function createRunner(cwd: string): Promise<ExtensionRunner> {
-	const extensionPath = resolve(process.cwd(), "extensions/stale-write-guard/src/index.ts");
+	const extensionPath = resolve(
+		process.cwd(),
+		"extensions/stale-write-guard/src/index.ts",
+	);
 	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
 	expect(loaded.errors).toHaveLength(0);
 	expect(loaded.extensions).toHaveLength(1);
 
 	const sessionManager = SessionManager.inMemory();
-	const modelRegistry = ModelRegistry.create(AuthStorage.create(join(cwd, "auth.json")));
-	return new ExtensionRunner(loaded.extensions, loaded.runtime, cwd, sessionManager, modelRegistry);
+	const modelRegistry = ModelRegistry.create(
+		AuthStorage.create(join(cwd, "auth.json")),
+	);
+	return new ExtensionRunner(
+		loaded.extensions,
+		loaded.runtime,
+		cwd,
+		sessionManager,
+		modelRegistry,
+	);
 }
 
 afterEach(async () => {
@@ -51,9 +62,16 @@ describe("stale-write-guard extension", () => {
 		expect(debugCommand).toBeDefined();
 		expect(debugCommand?.invocationName).toBe("stale-write-guard-debug");
 
-		if (!debugCommand) throw new Error("Expected stale-write-guard-debug command to be registered");
-		await expect(debugCommand.handler("status", runner.createCommandContext())).resolves.toBeUndefined();
-		await expect(debugCommand.handler("dump", runner.createCommandContext())).resolves.toBeUndefined();
+		if (!debugCommand)
+			throw new Error(
+				"Expected stale-write-guard-debug command to be registered",
+			);
+		await expect(
+			debugCommand.handler("status", runner.createCommandContext()),
+		).resolves.toBeUndefined();
+		await expect(
+			debugCommand.handler("dump", runner.createCommandContext()),
+		).resolves.toBeUndefined();
 	});
 
 	it("blocks edit on existing file when no read record exists", async () => {

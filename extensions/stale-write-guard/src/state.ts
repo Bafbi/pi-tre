@@ -14,10 +14,12 @@ export class FileTrackingStore {
 	}
 
 	entries(): Array<{ path: string; state: FileTrackingState }> {
-		return Array.from(this.byCanonicalPath.entries()).map(([path, state]) => ({
-			path,
-			state: { ...state },
-		}));
+		return Array.from(this.byCanonicalPath.entries()).map(
+			([path, state]) => ({
+				path,
+				state: { ...state },
+			}),
+		);
 	}
 
 	markRead(path: string, mtimeMs: number): void {

@@ -10,7 +10,7 @@ import {
 	ExtensionRunner,
 	ModelRegistry,
 	SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { setTestExplorerImpl } from "../../src/explorer.js";
@@ -29,16 +29,20 @@ async function checkGitAvailable(): Promise<boolean> {
 
 async function checkGitHubReachable(): Promise<boolean> {
 	try {
-		await execAsync("git ls-remote --exit-code https://github.com/biomejs/biome.git HEAD", {
-			timeout: 2000,
-		});
+		await execAsync(
+			"git ls-remote --exit-code https://github.com/biomejs/biome.git HEAD",
+			{
+				timeout: 2000,
+			},
+		);
 		return true;
 	} catch {
 		return false;
 	}
 }
 
-const skipRemote = !(await checkGitAvailable()) || !(await checkGitHubReachable());
+const skipRemote =
+	!(await checkGitAvailable()) || !(await checkGitHubReachable());
 
 function makeRunnerCwd(): string {
 	const dir = mkdtempSync(join(tmpdir(), "repo-query-remote-clone-"));
@@ -46,14 +50,25 @@ function makeRunnerCwd(): string {
 }
 
 async function createRunner(cwd: string): Promise<ExtensionRunner> {
-	const extensionPath = resolve(process.cwd(), "extensions/repo-query/src/index.ts");
+	const extensionPath = resolve(
+		process.cwd(),
+		"extensions/repo-query/src/index.ts",
+	);
 	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
 	expect(loaded.errors).toHaveLength(0);
 	expect(loaded.extensions).toHaveLength(1);
 
 	const sessionManager = SessionManager.inMemory();
-	const modelRegistry = ModelRegistry.create(AuthStorage.create(join(cwd, "auth.json")));
-	return new ExtensionRunner(loaded.extensions, loaded.runtime, cwd, sessionManager, modelRegistry);
+	const modelRegistry = ModelRegistry.create(
+		AuthStorage.create(join(cwd, "auth.json")),
+	);
+	return new ExtensionRunner(
+		loaded.extensions,
+		loaded.runtime,
+		cwd,
+		sessionManager,
+		modelRegistry,
+	);
 }
 
 describe.skipIf(skipRemote)("repo_query remote clone", () => {
@@ -77,15 +92,22 @@ describe.skipIf(skipRemote)("repo_query remote clone", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
-		setTestExplorerImpl(async () => ({ answer: "Mock exploration result" }));
+		setTestExplorerImpl(async () => ({
+			answer: "Mock exploration result",
+		}));
 
 		const result = await repoQueryTool.definition.execute(
 			"test-remote-clone-1",
-			{ query: "What is the main entry point?", repos: ["biomejs/biome"] },
+			{
+				query: "What is the main entry point?",
+				repos: ["biomejs/biome"],
+			},
 			undefined,
 			undefined,
 			runner.createContext(),
@@ -125,11 +147,15 @@ describe.skipIf(skipRemote)("repo_query remote clone", () => {
 
 		const runner = await createRunner(cwd);
 		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+		const repoQueryTool = tools.find(
+			(t) => t.definition.name === "repo_query",
+		);
 		expect(repoQueryTool).toBeDefined();
 		if (!repoQueryTool) throw new Error("repo_query tool not found");
 
-		setTestExplorerImpl(async () => ({ answer: "Mock exploration result" }));
+		setTestExplorerImpl(async () => ({
+			answer: "Mock exploration result",
+		}));
 
 		// First call — triggers clone
 		const result1 = await repoQueryTool.definition.execute(
@@ -169,7 +195,9 @@ describe.skipIf(skipRemote)("repo_query remote clone", () => {
 		expect(details2.workspacePath).toBe(workspace1);
 
 		// Same local path
-		expect(details2.results[0]?.localPath).toBe(details1.results[0]?.localPath);
+		expect(details2.results[0]?.localPath).toBe(
+			details1.results[0]?.localPath,
+		);
 
 		// Repo still valid (was not re-cloned, just reused)
 		const reusedPath = details2.results[0]?.localPath;

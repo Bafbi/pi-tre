@@ -6,12 +6,18 @@ describe("processSubagentLine", () => {
 	it("extracts text_delta", () => {
 		const answers: string[] = [];
 		processSubagentLine(
-			JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hello " } }),
+			JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", delta: "hello " },
+			}),
 			(text) => answers.push(text),
 			() => {},
 		);
 		processSubagentLine(
-			JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "world" } }),
+			JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", delta: "world" },
+			}),
 			(text) => answers.push(text),
 			() => {},
 		);
@@ -21,7 +27,13 @@ describe("processSubagentLine", () => {
 	it("extracts thinking_delta", () => {
 		const thoughts: string[] = [];
 		processSubagentLine(
-			JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "step 1" } }),
+			JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: {
+					type: "thinking_delta",
+					delta: "step 1",
+				},
+			}),
 			() => {},
 			(text) => thoughts.push(text),
 		);
@@ -33,7 +45,10 @@ describe("processSubagentLine", () => {
 		processSubagentLine(
 			JSON.stringify({
 				type: "message_end",
-				message: { role: "assistant", content: [{ type: "text", text: "final answer" }] },
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "final answer" }],
+				},
 			}),
 			(text) => answers.push(text),
 			() => {},
@@ -44,19 +59,28 @@ describe("processSubagentLine", () => {
 	it("handles mixed stream of text_delta followed by message_end without duplicated callback arguments", () => {
 		const answers: string[] = [];
 		processSubagentLine(
-			JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Hello " } }),
+			JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", delta: "Hello " },
+			}),
 			(text) => answers.push(text),
 			() => {},
 		);
 		processSubagentLine(
-			JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "world" } }),
+			JSON.stringify({
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta", delta: "world" },
+			}),
 			(text) => answers.push(text),
 			() => {},
 		);
 		processSubagentLine(
 			JSON.stringify({
 				type: "message_end",
-				message: { role: "assistant", content: [{ type: "text", text: "Hello world" }] },
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "Hello world" }],
+				},
 			}),
 			(text) => answers.push(text),
 			() => {},
@@ -68,7 +92,10 @@ describe("processSubagentLine", () => {
 	it("ignores message_end when content is missing", () => {
 		const answers: string[] = [];
 		processSubagentLine(
-			JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
+			JSON.stringify({
+				type: "message_end",
+				message: { role: "assistant" },
+			}),
 			(text) => answers.push(text),
 			() => {},
 		);
@@ -78,7 +105,10 @@ describe("processSubagentLine", () => {
 	it("ignores message_end when content is not an array", () => {
 		const answers: string[] = [];
 		processSubagentLine(
-			JSON.stringify({ type: "message_end", message: { role: "assistant", content: "not an array" } }),
+			JSON.stringify({
+				type: "message_end",
+				message: { role: "assistant", content: "not an array" },
+			}),
 			(text) => answers.push(text),
 			() => {},
 		);
@@ -90,7 +120,10 @@ describe("processSubagentLine", () => {
 		processSubagentLine(
 			JSON.stringify({
 				type: "message_end",
-				message: { role: "user", content: [{ type: "text", text: "user text" }] },
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "user text" }],
+				},
 			}),
 			(text) => answers.push(text),
 			() => {},

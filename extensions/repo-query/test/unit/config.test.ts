@@ -91,13 +91,19 @@ describe("loadRepoQueryConfig", () => {
 
 describe("resolveModel", () => {
 	it("falls back to per-repo config", () => {
-		const config = { defaultModel: "default", models: { "foo/bar": "per-repo" } };
+		const config = {
+			defaultModel: "default",
+			models: { "foo/bar": "per-repo" },
+		};
 		const repos = [{ displayName: "foo/bar" }] as ParsedRepo[];
 		expect(resolveModel(config, repos)).toBe("per-repo");
 	});
 
 	it("falls back to defaultModel when no repo match", () => {
-		const config = { defaultModel: "default", models: { "other/repo": "per-repo" } };
+		const config = {
+			defaultModel: "default",
+			models: { "other/repo": "per-repo" },
+		};
 		const repos = [{ displayName: "foo/bar" }] as ParsedRepo[];
 		expect(resolveModel(config, repos)).toBe("default");
 	});

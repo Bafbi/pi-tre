@@ -14,9 +14,9 @@
 		"generate-schema": "npx tsx scripts/generate-schema.ts"
 	},
 	"peerDependencies": {
-		"@mariozechner/pi-coding-agent": "*",
-		"@mariozechner/pi-tui": "*",
-		"@sinclair/typebox": "*"
+		"@earendil-works/pi-coding-agent": "catalog:pi-dev",
+		"@earendil-works/pi-tui": "catalog:pi-dev",
+		"@sinclair/typebox": "catalog:pi-dev"
 	},
 	"dependencies": {
 		"@octokit/rest": "^21.0.0",

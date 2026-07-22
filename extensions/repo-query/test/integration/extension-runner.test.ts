@@ -9,7 +9,7 @@ import {
 	ExtensionRunner,
 	ModelRegistry,
 	SessionManager,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { setTestExplorerImpl } from "../../src/explorer.js";
@@ -33,14 +33,25 @@ function makeRunnerCwd(): string {
 }
 
 async function createRunner(cwd: string): Promise<ExtensionRunner> {
-	const extensionPath = resolve(process.cwd(), "extensions/repo-query/src/index.ts");
+	const extensionPath = resolve(
+		process.cwd(),
+		"extensions/repo-query/src/index.ts",
+	);
 	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
 	expect(loaded.errors).toHaveLength(0);
 	expect(loaded.extensions).toHaveLength(1);
 
 	const sessionManager = SessionManager.inMemory();
-	const modelRegistry = ModelRegistry.create(AuthStorage.create(join(cwd, "auth.json")));
-	return new ExtensionRunner(loaded.extensions, loaded.runtime, cwd, sessionManager, modelRegistry);
+	const modelRegistry = ModelRegistry.create(
+		AuthStorage.create(join(cwd, "auth.json")),
+	);
+	return new ExtensionRunner(
+		loaded.extensions,
+		loaded.runtime,
+		cwd,
+		sessionManager,
+		modelRegistry,
+	);
 }
 
 afterEach(async () => {
@@ -74,21 +85,40 @@ describe("repo-query extension", () => {
 			// Create a fake local git repo
 			const localRepo = join(cwd, "my-local-repo");
 			mkdirSync(localRepo, { recursive: true });
-			writeFileSync(join(localRepo, "README.md"), "# My Local Repo\n\nThis is a test repo.\n", "utf8");
-			writeFileSync(join(localRepo, "main.ts"), 'console.log("hello");\n', "utf8");
+			writeFileSync(
+				join(localRepo, "README.md"),
+				"# My Local Repo\n\nThis is a test repo.\n",
+				"utf8",
+			);
+			writeFileSync(
+				join(localRepo, "main.ts"),
+				'console.log("hello");\n',
+				"utf8",
+			);
 
 			// Initialize git repo
 			execSync("git init", { cwd: localRepo, stdio: "ignore" });
-			execSync("git config user.email 'test@test.com'", { cwd: localRepo, stdio: "ignore" });
-			execSync("git config user.name 'Test'", { cwd: localRepo, stdio: "ignore" });
+			execSync("git config user.email 'test@test.com'", {
+				cwd: localRepo,
+				stdio: "ignore",
+			});
+			execSync("git config user.name 'Test'", {
+				cwd: localRepo,
+				stdio: "ignore",
+			});
 			execSync("git add .", { cwd: localRepo, stdio: "ignore" });
-			execSync("git commit -m 'init'", { cwd: localRepo, stdio: "ignore" });
+			execSync("git commit -m 'init'", {
+				cwd: localRepo,
+				stdio: "ignore",
+			});
 
 			const runner = await createRunner(cwd);
 
 			// Get the tool and execute it directly
 			const tools = runner.getAllRegisteredTools();
-			const repoQueryTool = tools.find((t) => t.definition.name === "repo_query");
+			const repoQueryTool = tools.find(
+				(t) => t.definition.name === "repo_query",
+			);
 			expect(repoQueryTool).toBeDefined();
 			if (!repoQueryTool) throw new Error("repo_query tool not found");
 
@@ -112,7 +142,10 @@ describe("repo-query extension", () => {
 			expect(text.length).toBeGreaterThan(0);
 			expect(text).toContain("README.md");
 
-			const details = result.details as { results: Array<{ status: string }>; workspacePath: string };
+			const details = result.details as {
+				results: Array<{ status: string }>;
+				workspacePath: string;
+			};
 			expect(details.results[0]?.status).toBe("success");
 
 			// Track workspace for cleanup
