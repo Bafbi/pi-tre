@@ -33,10 +33,6 @@ run = "pnpm exec tsc -p tsconfig.json --noEmit"
 description = "Run lint + typecheck + tests for this extension"
 depends = [":lint", ":typecheck", ":test"]
 
-[tasks.install]
-description = "Install workspace dependencies"
-run = "pnpm install"
-
 [tasks.format]
 description = "Format repository with Biome"
 run = "pnpm run format"

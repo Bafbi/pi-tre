@@ -8,6 +8,7 @@
 ## Tooling standards
 - **Mise is the source of truth** for dev tools and shared tasks.
   - Use `mise run <task>` instead of ad-hoc one-off commands when possible.
+  - Use monorepo task syntax for per-extension tasks: `mise //extensions/<name>:<task>`.
 - **pnpm** is the only package manager for this monorepo.
   - Use workspaces for shared tooling and extension packages.
 - **Biome** handles formatting + linting.
@@ -15,9 +16,24 @@
 
 
 ## Repo workflow
-1. `mise run install`
-2. `mise run check`
-3. `mise run dev`
+
+Every extension exposes four tasks via mise task templates: `lint`, `typecheck`, `test`, and `check` (which runs all three).
+
+### Global (full repo)
+1. `mise run check` — lint + typecheck + test across all extensions
+   (pnpm deps are auto-installed by `[deps.pnpm] auto = true`)
+
+### Per-extension (single module)
+1. `mise run //extensions/<name>:check` — lint + typecheck + test for one extension
+2. Or individual steps: `mise //extensions/<name>:lint`, `:typecheck`, `:test`
+
+
+## Check requirement
+
+**Any modification to an extension must pass its per-extension check before committing.**
+- If the change touches a single extension: `mise //extensions/<name>:check`
+- If the change spans multiple extensions or the root: `mise check`
+- Fix any failures before committing. Do not bypass the check.
 
 ## Commit conventions
 - Follow **Conventional Commits**:
