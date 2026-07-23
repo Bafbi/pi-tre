@@ -15,7 +15,8 @@
 		"extensions": [
 			"./extensions/stale-write-guard/src/index.ts",
 			"./extensions/leaf-copy/src/index.ts",
-			"./extensions/repo-query/src/index.ts"
+			"./extensions/repo-query/src/index.ts",
+			"./extensions/sillajje/src/index.ts"
 		]
 	},
 	"devDependencies": {
