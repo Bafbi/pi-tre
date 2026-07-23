@@ -7,7 +7,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { redirect } from "./path-redirect.js";
 import { SessionState } from "./state.js";
 import { formatPill } from "./status-pill.js";
-import { createWorkspace, type ExecFn } from "./workspace.js";
+import {
+	cleanupWorkspace,
+	createWorkspace,
+	type ExecFn,
+	workspaceName as wsName,
+} from "./workspace.js";
 
 /**
  * Walk up from `startDir` looking for a `.jj/` directory.
@@ -177,6 +182,8 @@ export default function (pi: ExtensionAPI) {
 	// -----------------------------------------------------------------------
 
 	pi.on("input", async (_event, ctx) => {
+		state.markPrompted();
+
 		if (state.isInactive()) return undefined;
 		if (state.isArchived()) {
 			if (ctx.hasUI) {
@@ -188,6 +195,23 @@ export default function (pi: ExtensionAPI) {
 			return { action: "handled" as const };
 		}
 		return undefined;
+	});
+
+	// -----------------------------------------------------------------------
+	// session_shutdown — clean up unused workspaces
+	// -----------------------------------------------------------------------
+
+	pi.on("session_shutdown", async (_event, ctx) => {
+		if (state.isInactive() || state.isArchived()) return;
+
+		const wsPath = state.getWorkspacePath();
+		const sessionId = state.getSessionId();
+		if (!wsPath || !sessionId) return;
+
+		if (!state.hasUserPrompted()) {
+			await cleanupWorkspace(exec, wsName(sessionId), wsPath);
+			syncPill(ctx);
+		}
 	});
 
 	// -----------------------------------------------------------------------

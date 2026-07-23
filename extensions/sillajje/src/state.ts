@@ -22,6 +22,9 @@ export class SessionState {
 	/** The session ID derived from the Pi session manager. */
 	private sessionId: string | undefined;
 
+	/** Whether the user has sent at least one prompt in this session. */
+	private hasPrompted = false;
+
 	// ---------------------------------------------------------------------------
 	// Getters
 	// ---------------------------------------------------------------------------
@@ -56,6 +59,10 @@ export class SessionState {
 
 	isJjAvailable(): boolean {
 		return this.jjAvailable;
+	}
+
+	hasUserPrompted(): boolean {
+		return this.hasPrompted;
 	}
 
 	// ---------------------------------------------------------------------------
@@ -97,11 +104,16 @@ export class SessionState {
 		this.lifecycle = "inactive";
 	}
 
+	markPrompted(): void {
+		this.hasPrompted = true;
+	}
+
 	reset(): void {
 		this.lifecycle = "inactive";
 		this.repoRoot = undefined;
 		this.jjAvailable = false;
 		this.workspacePath = undefined;
 		this.sessionId = undefined;
+		this.hasPrompted = false;
 	}
 }

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	cleanupWorkspace,
 	createWorkspace,
 	type ExecFn,
 	getRepoSlug,
@@ -173,5 +174,61 @@ describe("workspaceForget", () => {
 			"forget",
 			"sillajje-abc123",
 		]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// cleanupWorkspace
+// ---------------------------------------------------------------------------
+
+describe("cleanupWorkspace", () => {
+	it("forgets workspace and deletes directory", async () => {
+		const tmpDir = mkdtempSync(join(tmpdir(), "sillajje-cleanup-"));
+		const wsPath = join(tmpDir, "workspace-dir");
+		mkdirSync(wsPath, { recursive: true });
+
+		const exec = vi.fn<ExecFn>().mockResolvedValue(ok());
+
+		await cleanupWorkspace(exec, "sillajje-abc", wsPath);
+
+		// Should have called workspace forget
+		expect(exec).toHaveBeenCalledWith("jj", [
+			"workspace",
+			"forget",
+			"sillajje-abc",
+		]);
+
+		// Directory should be deleted
+		expect(existsSync(wsPath)).toBe(false);
+
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("does not throw when workspace forget fails", async () => {
+		const tmpDir = mkdtempSync(join(tmpdir(), "sillajje-cleanup-"));
+		const wsPath = join(tmpDir, "workspace-dir");
+		mkdirSync(wsPath, { recursive: true });
+
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValue(fail("no such workspace"));
+
+		// Should not throw despite exec failure
+		await expect(
+			cleanupWorkspace(exec, "sillajje-abc", wsPath),
+		).resolves.toBeUndefined();
+
+		// Directory should still be deleted
+		expect(existsSync(wsPath)).toBe(false);
+
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("does not throw when directory does not exist", async () => {
+		const exec = vi.fn<ExecFn>().mockResolvedValue(ok());
+
+		await expect(
+			cleanupWorkspace(exec, "sillajje-abc", "/tmp/nonexistent-dir"),
+		).resolves.toBeUndefined();
 	});
 });

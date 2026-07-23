@@ -5,7 +5,7 @@
  * via an injected `ExecFn` adapter so the module stays testable.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { basename, dirname } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -123,4 +123,26 @@ export async function workspaceForget(
 	name: string,
 ): Promise<void> {
 	await exec("jj", ["workspace", "forget", name]);
+}
+
+/**
+ * Remove a workspace entirely: forget it in jj and delete its directory.
+ * Graceful — errors are swallowed so cleanup never throws.
+ */
+export async function cleanupWorkspace(
+	exec: ExecFn,
+	workspaceName: string,
+	workspacePath: string,
+): Promise<void> {
+	try {
+		await workspaceForget(exec, workspaceName);
+	} catch {
+		// Workspace may already be gone — that's fine.
+	}
+
+	try {
+		rmSync(workspacePath, { recursive: true, force: true });
+	} catch {
+		// Directory may already be deleted — that's fine.
+	}
 }

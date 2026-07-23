@@ -81,4 +81,23 @@ describe("SessionState", () => {
 		expect(s.getSessionId()).toBe("sess-001");
 		expect(s.getWorkspacePath()).toBe("/tmp/pi/sillajje/repo/sess-001");
 	});
+
+	it("hasUserPrompted defaults to false", () => {
+		const s = new SessionState();
+		expect(s.hasUserPrompted()).toBe(false);
+	});
+
+	it("markPrompted sets hasUserPrompted to true", () => {
+		const s = new SessionState();
+		s.markPrompted();
+		expect(s.hasUserPrompted()).toBe(true);
+	});
+
+	it("reset clears hasUserPrompted", () => {
+		const s = new SessionState();
+		s.markPrompted();
+		expect(s.hasUserPrompted()).toBe(true);
+		s.reset();
+		expect(s.hasUserPrompted()).toBe(false);
+	});
 });
