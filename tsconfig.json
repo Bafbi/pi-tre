@@ -6,6 +6,12 @@
 		},
 		{
 			"path": "./extensions/repo-query"
+		},
+		{
+			"path": "./extensions/leaf-copy"
+		},
+		{
+			"path": "./extensions/sillajje"
 		}
 	]
 }

@@ -1,5 +1,5 @@
 {
-	"name": "@pi-tre/leaf-copy",
+	"name": "@pi-tre/sillajje",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -16,6 +16,6 @@
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "catalog:pi-dev",
-		"@earendil-works/pi-ai": "catalog:pi-dev"
+		"@sinclair/typebox": "catalog:pi-dev"
 	}
 }

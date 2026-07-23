@@ -1,0 +1,11 @@
+[tasks.lint]
+extends = "ext:lint"
+
+[tasks.test]
+extends = "ext:test"
+
+[tasks.typecheck]
+extends = "ext:typecheck"
+
+[tasks.check]
+extends = "ext:check"

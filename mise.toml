@@ -1,3 +1,9 @@
+monorepo_root = true
+
+[monorepo]
+config_roots = ["extensions/*"]
+lockfile = true
+
 [tools]
 node = "25"
 pnpm = "latest"
@@ -11,28 +17,43 @@ auto = true
 [shell_alias]
 "biome" = "pnpm exec biome"
 
+[task_templates."ext:test"]
+description = "Run tests for this extension"
+run = "pnpm exec vitest run"
+
+[task_templates."ext:lint"]
+description = "Run Biome checks for this extension"
+run = "pnpm exec biome check ."
+
+[task_templates."ext:typecheck"]
+description = "Type-check this extension"
+run = "pnpm exec tsc -p tsconfig.json --noEmit"
+
+[task_templates."ext:check"]
+description = "Run lint + typecheck + tests for this extension"
+depends = [":lint", ":typecheck", ":test"]
+
 [tasks.install]
 description = "Install workspace dependencies"
-run = "pnpm run install"
-
-[tasks.lint]
-description = "Run Biome lint checks"
-depends = ["format"]
-run = "pnpm run lint"
+run = "pnpm install"
 
 [tasks.format]
 description = "Format repository with Biome"
 run = "pnpm run format"
 
-[tasks.typecheck]
-description = "Type-check all workspace packages"
-run = "pnpm run typecheck"
+[tasks.lint]
+description = "Run Biome lint checks"
+depends = ["//:format"]
+run = "pnpm run lint"
 
 [tasks.test]
-description = "Run test suite"
-depends = ["lint", "typecheck"]
+description = "Run all extension tests"
 run = "pnpm run test"
+
+[tasks.typecheck]
+description = "Type-check all workspace packages"
+run = "pnpm -r run typecheck"
 
 [tasks.check]
 description = "Run lint + typecheck + tests"
-run = { tasks = ["lint", "typecheck", "test"] }
+run = { tasks = ["//:lint", "//:typecheck", "//:test"] }
