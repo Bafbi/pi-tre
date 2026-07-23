@@ -19,14 +19,17 @@ auto = true
 
 [task_templates."ext:test"]
 description = "Run tests for this extension"
+depends = [":typecheck", "//:lint"]
 run = "pnpm exec vitest run"
 
 [task_templates."ext:lint"]
 description = "Run Biome checks for this extension"
+depends = ["//:format"]
 run = "pnpm exec biome check ."
 
 [task_templates."ext:typecheck"]
 description = "Type-check this extension"
+depends = ["//:format"]
 run = "pnpm exec tsc -p tsconfig.json --noEmit"
 
 [task_templates."ext:check"]
