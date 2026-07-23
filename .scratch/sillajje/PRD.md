@@ -36,9 +36,11 @@ Sillajje is a Pi extension that automatically versions every agent interaction a
 
 A sillajje session is in exactly one of three states, derived from jj workspace and bookmark presence:
 
-- **Inactive** — no jj repo, or jj not on PATH. Extension no-ops; all handlers are transparent pass-throughs.
-- **Active** — workspace directory exists on disk, bookmark `sillajje/<session-id>` exists, system prompt is patched, tool-call path redirection is active. Prompting is allowed.
+- **Inactive** — jj not on PATH, not in a jj repo, not in TUI mode, session is ephemeral (`--no-session`), or workspace creation failed. Extension no-ops; all handlers are transparent pass-throughs.
+- **Active** — all preconditions met (jj available, inside a jj repo, TUI mode, file-backed session), workspace directory exists on disk, bookmark `sillajje/<session-id>` exists, system prompt is patched, tool-call path redirection is active. Prompting is allowed.
 - **Archived** — bookmark exists but workspace directory is absent. Prompting is blocked via an `input` event handler that returns `{ action: "handled" }` with a notification.
+
+Sillajje only activates in interactive TUI mode (`ctx.mode === "tui"`) with a file-backed session (`ctx.sessionManager.getSessionFile() !== undefined`). Print mode (`-p`), RPC, JSON, and `--no-session` are excluded.
 
 Transitions: `session_start` checks state → creates workspace if absent (inactive → active). `/sillajje archive` deletes workspace directory + `jj workspace forget` (active → archived). `/sillajje unarchive` recreates workspace + `jj workspace add` (archived → active).
 

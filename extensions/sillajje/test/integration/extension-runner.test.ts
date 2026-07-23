@@ -32,19 +32,35 @@ async function createRunner(cwd: string): Promise<ExtensionRunner> {
 	expect(loaded.errors).toHaveLength(0);
 	expect(loaded.extensions).toHaveLength(1);
 
-	const sessionManager = SessionManager.inMemory();
+	// Use a file-backed session so sillajje's TUI + non-ephemeral gate passes.
+	// The session file goes into the temp cwd which is cleaned up by afterEach.
+	const sessionManager = SessionManager.create(cwd, join(cwd, "sessions"));
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(cwd, "auth.json"),
 		allowModelNetwork: false,
 	});
 	const modelRegistry = new ModelRegistry(modelRuntime);
-	return new ExtensionRunner(
+	const runner = new ExtensionRunner(
 		loaded.extensions,
 		loaded.runtime,
 		cwd,
 		sessionManager,
 		modelRegistry,
 	);
+
+	// Set TUI mode with a minimal UI mock so sillajje's mode gate passes.
+	// Individual tests that need to assert on setStatus can override this.
+	runner.setUIContext(
+		{
+			setStatus: () => {},
+			notify: () => {},
+			setEditorText: () => {},
+			getEditorText: () => "",
+		} as unknown as Parameters<typeof runner.setUIContext>[0],
+		"tui",
+	);
+
+	return runner;
 }
 
 afterEach(async () => {
@@ -76,9 +92,12 @@ describe("sillajje extension", () => {
 		// Set up a mock UI so syncPill calls setStatus
 		const setStatus = vi.fn();
 		runner.setUIContext(
-			{ setStatus } as unknown as Parameters<
-				typeof runner.setUIContext
-			>[0],
+			{
+				setStatus,
+				notify: () => {},
+				setEditorText: () => {},
+				getEditorText: () => "",
+			} as unknown as Parameters<typeof runner.setUIContext>[0],
 			"tui",
 		);
 
@@ -157,9 +176,12 @@ describe("sillajje in jj repo", () => {
 
 			const setStatus = vi.fn();
 			runner.setUIContext(
-				{ setStatus } as unknown as Parameters<
-					typeof runner.setUIContext
-				>[0],
+				{
+					setStatus,
+					notify: () => {},
+					setEditorText: () => {},
+					getEditorText: () => "",
+				} as unknown as Parameters<typeof runner.setUIContext>[0],
 				"tui",
 			);
 

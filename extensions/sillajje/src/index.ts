@@ -74,6 +74,16 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		state.reset();
 
+		// Sillajje only activates in interactive TUI mode with a file-backed session.
+		// Print mode (-p), RPC, JSON, and --no-session are excluded.
+		if (
+			ctx.mode !== "tui" ||
+			ctx.sessionManager.getSessionFile() === undefined
+		) {
+			syncPill(ctx);
+			return;
+		}
+
 		const jjAvailable = await isJjOnPath(pi);
 		const repoRoot = jjAvailable ? findJjRepoRoot(ctx.cwd) : undefined;
 
