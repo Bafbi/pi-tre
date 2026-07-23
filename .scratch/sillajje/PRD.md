@@ -25,7 +25,7 @@ Sillajje is a Pi extension that automatically versions every agent interaction a
 11. As a Pi user, I want mid-stream steering corrections to fold into the same interaction's change rather than creating spurious new changes, so that the log reflects meaningful boundaries.
 12. As a Pi user, I want session bookmarks to be purely local and never auto-pushed, so that my experimental work doesn't clutter the remote.
 13. As a Pi user, I want the extension to notify me clearly when an error occurs (e.g., sub-generator failure, missing jj binary), so that I know something went wrong rather than silently missing history.
-14. As a Pi user, I want each session to start from `trunk()` so that every session begins from a known, stable base.
+14. As a Pi user, I want each session to start from the current working-copy commit (`@`) so that the agent works from exactly where I am, including local commits ahead of the remote trunk.
 15. As a developer reviewing agent work, I want the commit body to contain the user's original prompt, so that I can understand why a change was requested.
 16. As a developer resuming work after a break, I want the commit body to contain a structured summary of what the agent did, so that I can catch up without re-reading the transcript.
 17. As a Pi user, I want the footer to show sillajje session state at a glance (active/archived, workspace path or bookmark), so that I don't need to run `/sillajje status` to know what's happening.
@@ -84,7 +84,7 @@ Two-template vs one-template approach to be determined by testing — a single p
 
 ### Workspace isolation
 
-Workspaces live at `~/.pi/sillajje/<repo>/<session-id>/` (configurable via `sillajje.workspaces-root`). Each is created from `trunk()` via `jj workspace add`. The agent's cwd cannot be changed by the extension (Pi limitation), so path redirection is used: `read`/`write`/`edit` inputs get absolute workspace paths, `bash` commands get a `cd <workspace> &&` prefix. The system prompt informs the agent of its workspace path.
+Workspaces live at `~/.pi/sillajje/<repo>/<session-id>/` (configurable via `sillajje.workspaces-root`). Each is created from the current working-copy commit (`@`) via `jj workspace add --revision @`. This means sessions start from whatever branch/commit the user is on — including local commits ahead of the remote trunk. The agent's cwd cannot be changed by the extension (Pi limitation), so path redirection is used: `read`/`write`/`edit` inputs get absolute workspace paths, `bash` commands get a `cd <workspace> &&` prefix. The system prompt informs the agent of its workspace path.
 
 Gitignored files are absent from workspaces. Repos must be reproducible via mise for dependencies and tooling.
 

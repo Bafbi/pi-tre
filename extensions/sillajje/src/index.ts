@@ -1,10 +1,13 @@
 import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { redirect } from "./path-redirect.js";
 import { SessionState } from "./state.js";
+import { formatPill } from "./status-pill.js";
+import { createWorkspace, type ExecFn } from "./workspace.js";
 
 /**
  * Walk up from `startDir` looking for a `.jj/` directory.
@@ -39,6 +42,9 @@ async function isJjOnPath(pi: ExtensionAPI): Promise<boolean> {
 	}
 }
 
+/** Default workspaces root directory. */
+const DEFAULT_WORKSPACES_ROOT = `${homedir()}/.pi/sillajje`;
+
 /**
  * sillajje — Auto-versioning for Pi agent sessions on jj.
  *
@@ -47,6 +53,19 @@ async function isJjOnPath(pi: ExtensionAPI): Promise<boolean> {
  */
 export default function (pi: ExtensionAPI) {
 	const state = new SessionState();
+
+	// Wrap pi.exec as an ExecFn adapter for the workspace module.
+	const exec: ExecFn = (command, args, options) =>
+		pi.exec(command, args, options);
+
+	// Helper: sync the footer status pill to current state.
+	const syncPill = (ctx: {
+		hasUI: boolean;
+		ui: { setStatus: (key: string, text: string | undefined) => void };
+	}) => {
+		if (!ctx.hasUI) return;
+		ctx.ui.setStatus("sillajje", formatPill(state));
+	};
 
 	// -----------------------------------------------------------------------
 	// session_start — detect jj, determine state
@@ -65,13 +84,36 @@ export default function (pi: ExtensionAPI) {
 			state.setSessionId(sessionId);
 		}
 
-		if (state.isActive()) {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] detected jj repo at ${state.getRepoRoot()} — session ${state.getSessionId()}`,
-					"info",
+		if (state.isActive() && repoRoot && sessionId) {
+			try {
+				const info = await createWorkspace(
+					exec,
+					repoRoot,
+					sessionId,
+					DEFAULT_WORKSPACES_ROOT,
 				);
+				state.setWorkspacePath(info.workspacePath);
+				syncPill(ctx);
+
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] workspace ready at ${info.workspacePath}`,
+						"info",
+					);
+				}
+			} catch (err) {
+				state.setInactive();
+				syncPill(ctx);
+
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] workspace creation failed: ${String(err)}`,
+						"error",
+					);
+				}
 			}
+		} else {
+			syncPill(ctx);
 		}
 	});
 
@@ -79,9 +121,25 @@ export default function (pi: ExtensionAPI) {
 	// before_agent_start — no-op for issue 01 (prompt injection in issue 02)
 	// -----------------------------------------------------------------------
 
-	pi.on("before_agent_start", async (_event, _ctx) => {
+	pi.on("before_agent_start", async (event, _ctx) => {
 		if (state.isInactive()) return undefined;
-		return undefined;
+
+		const wsPath = state.getWorkspacePath();
+		if (!wsPath) return undefined;
+
+		const workspaceBlock = [
+			"",
+			"## Sillajje Workspace",
+			"",
+			`Your file operations are isolated in a jj workspace at \`${wsPath}\`.`,
+			"All read/write/edit paths will be redirected there automatically.",
+			`bash commands run inside \`${wsPath}\`.`,
+			"",
+		].join("\n");
+
+		return {
+			systemPrompt: event.systemPrompt + workspaceBlock,
+		};
 	});
 
 	// -----------------------------------------------------------------------

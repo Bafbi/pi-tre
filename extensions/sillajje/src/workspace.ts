@@ -1,39 +1,126 @@
 /**
  * Workspace lifecycle: creation, detection, archiving, and unarchiving of jj workspaces.
  *
- * This module wraps `jj workspace` commands. All jj interaction goes through here.
+ * This module wraps `jj workspace` commands. All jj interaction goes through here
+ * via an injected `ExecFn` adapter so the module stays testable.
  */
 
-import type { SessionState } from "./state.js";
+import { existsSync, mkdirSync } from "node:fs";
+import { basename, dirname } from "node:path";
 
-export interface WorkspaceStatus {
-	/** Derived lifecycle from jj workspace + bookmark presence. */
-	lifecycle: "active" | "archived" | "absent";
-	workspacePath: string | undefined;
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Subset of pi.exec result shape used by workspace operations. */
+export interface ExecResult {
+	code: number;
+	stdout: string;
+	stderr: string;
+}
+
+/** Exec adapter matching `ExtensionAPI.exec`. */
+export type ExecFn = (
+	command: string,
+	args: string[],
+	options?: { cwd?: string },
+) => Promise<ExecResult>;
+
+export interface WorkspaceInfo {
+	/** Absolute path to the workspace directory on disk. */
+	workspacePath: string;
+	/** jj workspace name, e.g. `sillajje-<sessionId>`. */
+	workspaceName: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Derive a safe directory slug from an absolute repo root path. */
+export function getRepoSlug(repoRoot: string): string {
+	return basename(repoRoot);
+}
+
+/** Resolve the absolute workspace directory path without creating it. */
+export function resolveWorkspacePath(
+	repoRoot: string,
+	sessionId: string,
+	workspacesRoot: string,
+): string {
+	return `${workspacesRoot}/${getRepoSlug(repoRoot)}/${sessionId}`;
 }
 
 /**
- * Determine workspace status from filesystem and jj state.
- * Stub for issue 01 — jj detection happens in session_start via `jj root`.
+ * Derive a jj workspace name from a session ID.
+ * jj workspace names use `-` separators (unlike bookmarks which use `/`).
  */
-export function detectWorkspace(
-	_repoRoot: string,
-	_sessionId: string,
-): WorkspaceStatus {
-	return { lifecycle: "absent", workspacePath: undefined };
+export function workspaceName(sessionId: string): string {
+	return `sillajje-${sessionId}`;
 }
 
-/** Create a jj workspace for the session. Stub. */
-export async function createWorkspace(_state: SessionState): Promise<void> {
-	// Stub for issue 02
+// ---------------------------------------------------------------------------
+// Workspace operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a jj workspace checked out from the current working copy (`@`).
+ *
+ * Idempotent: if the workspace directory already exists on disk, skips creation
+ * and returns the existing path.
+ */
+export async function createWorkspace(
+	exec: ExecFn,
+	repoRoot: string,
+	sessionId: string,
+	workspacesRoot: string,
+): Promise<WorkspaceInfo> {
+	const wsName = workspaceName(sessionId);
+	const wsPath = resolveWorkspacePath(repoRoot, sessionId, workspacesRoot);
+
+	// Idempotent: don't recreate if the workspace directory already exists
+	if (existsSync(wsPath)) {
+		return { workspacePath: wsPath, workspaceName: wsName };
+	}
+
+	// Create the parent directory of the workspace path.
+	// jj workspace add will create the leaf directory (session-id),
+	// but the repo-slug directory must already exist.
+	mkdirSync(dirname(wsPath), { recursive: true });
+
+	const result = await exec(
+		"jj",
+		["workspace", "add", "--name", wsName, "--revision", "@", wsPath],
+		{ cwd: repoRoot },
+	);
+
+	if (result.code !== 0) {
+		throw new Error(
+			`jj workspace add failed (exit ${result.code}): ${result.stderr}`,
+		);
+	}
+
+	return { workspacePath: wsPath, workspaceName: wsName };
 }
 
-/** Archive a workspace: jj workspace forget + rm -rf. Stub. */
-export async function archiveWorkspace(_state: SessionState): Promise<void> {
-	// Stub for issue 06
+/**
+ * Check whether a jj workspace with the given name exists.
+ */
+export async function workspaceExists(
+	exec: ExecFn,
+	name: string,
+): Promise<boolean> {
+	const result = await exec("jj", ["workspace", "list"]);
+	if (result.code !== 0) return false;
+	return result.stdout.includes(name);
 }
 
-/** Unarchive a workspace: jj workspace add. Stub. */
-export async function unarchiveWorkspace(_state: SessionState): Promise<void> {
-	// Stub for issue 06
+/**
+ * Forget a jj workspace by name.
+ */
+export async function workspaceForget(
+	exec: ExecFn,
+	name: string,
+): Promise<void> {
+	await exec("jj", ["workspace", "forget", name]);
 }
