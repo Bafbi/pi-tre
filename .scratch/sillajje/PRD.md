@@ -28,6 +28,7 @@ Sillajje is a Pi extension that automatically versions every agent interaction a
 14. As a Pi user, I want each session to start from `trunk()` so that every session begins from a known, stable base.
 15. As a developer reviewing agent work, I want the commit body to contain the user's original prompt, so that I can understand why a change was requested.
 16. As a developer resuming work after a break, I want the commit body to contain a structured summary of what the agent did, so that I can catch up without re-reading the transcript.
+17. As a Pi user, I want the footer to show sillajje session state at a glance (active/archived, workspace path or bookmark), so that I don't need to run `/sillajje status` to know what's happening.
 
 ## Implementation Decisions
 
@@ -96,6 +97,16 @@ Each session gets a local bookmark `sillajje/<session-id>` set to the working-co
 **Archive:** `jj workspace forget <name>` + `rm -rf <workspace-path>`. Bookmark persists. Manual only, no auto-archive.
 
 **Unarchive:** `jj workspace add --name sillajje-<session-id> --revision sillajje/<session-id> <path>`. Workspace recreated, system prompt re-patched, tool handlers re-enabled.
+
+### Footer status pill
+
+The extension sets a status pill on the footer extension-status line via `ctx.ui.setStatus("sillajje", text)`. The pill format depends on lifecycle:
+
+- **Active:** `sillajje: [active] <shortened-workspace-path>` — path shortened the same way the footer shortens cwd (`~` for home, relative otherwise).
+- **Archived:** `sillajje: [archived] sillajje/<session-id>` — the bookmark name since the workspace directory is gone.
+- **Inactive:** pill is cleared (no status set).
+
+The pill updates on every lifecycle transition: `session_start`, `/sillajje archive`, and `/sillajje unarchive`.
 
 ### Commands
 
