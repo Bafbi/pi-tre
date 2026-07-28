@@ -2,7 +2,7 @@
 
 **What to build:** After `agent_settled`, the extension spawns a headless `pi -p` process using a cheaper model to generate a conventional-commit subject line and a concise summary of the agent's interaction. The sub-generator receives a mustache-templated prompt containing: the session transcript (user messages, agent tool calls, agent responses — tool outputs excluded to reduce noise), the file diff from `jj diff`, and prior change descriptions as compressed context. Its structured text output (subject on line 1, summary in the remainder) replaces the placeholder in the commit body. `jj show` now displays an AI-generated subject and summary.
 
-**Blocked by:** 04 — Change stamping
+**Blocked by:** None — can start immediately. Change stamping (issue 04) is already complete.
 
 **Status:** ready-for-agent
 

@@ -1,8 +1,8 @@
 import { statSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { loadSillajjeConfig } from "./config.js";
 import { createDebugLogger } from "./debug-log.js";
 import { buildCommitBody, buildMetadata, deriveSubject } from "./metadata.js";
 import { redirect } from "./path-redirect.js";
@@ -48,8 +48,11 @@ async function isJjOnPath(pi: ExtensionAPI): Promise<boolean> {
 	}
 }
 
-/** Default workspaces root directory. */
-const DEFAULT_WORKSPACES_ROOT = `${homedir()}/.pi/sillajje`;
+/**
+ * Workspaces root, loaded from `.pi/configs/sillajje.json`.
+ * Initialised lazily in `session_start` once the repo root is known.
+ */
+let activeConfig: ReturnType<typeof loadSillajjeConfig> | undefined;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,7 +84,8 @@ function extractAssistantText(msg: {
  */
 export default function (pi: ExtensionAPI) {
 	const state = new SessionState();
-	let debug = createDebugLogger();
+	// Start with no-op logger; recreated in session_start once config is loaded.
+	let debug = createDebugLogger({ enabled: false });
 
 	debug.event("extension_loaded");
 
@@ -126,9 +130,11 @@ export default function (pi: ExtensionAPI) {
 
 		state.setDetection(jjAvailable, repoRoot);
 
-		// Re-create the logger with the detected repo root so project-level
-		// config (.pi/configs/sillajje.json) takes effect.
-		debug = createDebugLogger(repoRoot);
+		// Load sillajje config (project-level `.pi/configs/sillajje.json`
+		// or global `~/.pi/configs/sillajje.json`). Used for debug logging,
+		// workspace root, and sub-generator model.
+		activeConfig = loadSillajjeConfig(repoRoot);
+		debug = createDebugLogger({ enabled: activeConfig.debug });
 
 		const sessionId = ctx.sessionManager.getSessionId();
 		if (sessionId !== undefined) {
@@ -142,7 +148,7 @@ export default function (pi: ExtensionAPI) {
 					exec,
 					repoRoot,
 					sessionId,
-					DEFAULT_WORKSPACES_ROOT,
+					activeConfig.workspacesRoot,
 				);
 				state.setWorkspacePath(info.workspacePath);
 				debug.event("workspace_ready", { path: info.workspacePath });

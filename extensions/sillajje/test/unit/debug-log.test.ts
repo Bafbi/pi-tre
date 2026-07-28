@@ -8,11 +8,9 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDebugLogger } from "../../src/debug-log";
 
-const GLOBAL_CONFIG_DIR = join(homedir(), ".pi/configs");
-const GLOBAL_CONFIG_PATH = join(GLOBAL_CONFIG_DIR, "sillajje.json");
 const LOG_PATH = join(homedir(), ".pi/logs/sillajje.log");
 
 const tempDirs: string[] = [];
@@ -20,11 +18,6 @@ const tempDirs: string[] = [];
 function cleanLog() {
 	try {
 		rmSync(LOG_PATH);
-	} catch {
-		/* ok */
-	}
-	try {
-		rmSync(GLOBAL_CONFIG_PATH);
 	} catch {
 		/* ok */
 	}
@@ -37,92 +30,34 @@ function cleanLog() {
 	}
 }
 
-function writeGlobalConfig(debug: boolean) {
-	mkdirSync(GLOBAL_CONFIG_DIR, { recursive: true });
-	writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify({ debug }));
-}
-
 function readLog(): string {
 	if (!existsSync(LOG_PATH)) return "";
 	return readFileSync(LOG_PATH, "utf-8");
 }
 
 describe("createDebugLogger", () => {
+	beforeEach(cleanLog);
 	afterEach(cleanLog);
 
 	// -------------------------------------------------------------------
-	// No repoRoot — uses global config only
+	// Enabled / disabled
 	// -------------------------------------------------------------------
 
-	it("returns a no-op logger when no config exists", () => {
-		cleanLog();
-		const logger = createDebugLogger();
+	it("returns a no-op logger when enabled is false", () => {
+		const logger = createDebugLogger({ enabled: false });
 		expect(logger.enabled).toBe(false);
 		logger.event("test");
 		expect(existsSync(LOG_PATH)).toBe(false);
 	});
 
-	it("returns a no-op logger when global debug is false", () => {
-		writeGlobalConfig(false);
-		const logger = createDebugLogger();
+	it("returns a no-op logger by default", () => {
+		const logger = createDebugLogger({ enabled: false });
 		expect(logger.enabled).toBe(false);
 	});
 
-	it("returns an active logger when global debug is true", () => {
-		writeGlobalConfig(true);
-		const logger = createDebugLogger();
+	it("returns an active logger when enabled is true", () => {
+		const logger = createDebugLogger({ enabled: true });
 		expect(logger.enabled).toBe(true);
-	});
-
-	// -------------------------------------------------------------------
-	// With repoRoot — project config takes precedence
-	// -------------------------------------------------------------------
-
-	it("uses project config when present and debug=true", () => {
-		// Global config is OFF, project config is ON
-		writeGlobalConfig(false);
-		const repoRoot = mkdtempSync(
-			join(homedir(), ".pi/sillajje-debug-test-"),
-		);
-		tempDirs.push(repoRoot);
-		const projCfgDir = join(repoRoot, ".pi/configs");
-		mkdirSync(projCfgDir, { recursive: true });
-		writeFileSync(
-			join(projCfgDir, "sillajje.json"),
-			JSON.stringify({ debug: true }),
-		);
-
-		const logger = createDebugLogger(repoRoot);
-		expect(logger.enabled).toBe(true);
-	});
-
-	it("falls back to global when project config is missing", () => {
-		writeGlobalConfig(true);
-		const repoRoot = mkdtempSync(
-			join(homedir(), ".pi/sillajje-debug-test-"),
-		);
-		tempDirs.push(repoRoot);
-		// No .pi/configs/sillajje.json in repoRoot
-
-		const logger = createDebugLogger(repoRoot);
-		expect(logger.enabled).toBe(true);
-	});
-
-	it("project config debug=false overrides global debug=true", () => {
-		writeGlobalConfig(true);
-		const repoRoot = mkdtempSync(
-			join(homedir(), ".pi/sillajje-debug-test-"),
-		);
-		tempDirs.push(repoRoot);
-		const projCfgDir = join(repoRoot, ".pi/configs");
-		mkdirSync(projCfgDir, { recursive: true });
-		writeFileSync(
-			join(projCfgDir, "sillajje.json"),
-			JSON.stringify({ debug: false }),
-		);
-
-		const logger = createDebugLogger(repoRoot);
-		expect(logger.enabled).toBe(false);
 	});
 
 	// -------------------------------------------------------------------
@@ -130,8 +65,7 @@ describe("createDebugLogger", () => {
 	// -------------------------------------------------------------------
 
 	it("writes event entries when enabled", () => {
-		writeGlobalConfig(true);
-		const logger = createDebugLogger();
+		const logger = createDebugLogger({ enabled: true });
 		logger.event("my_event", { count: 42 });
 
 		const raw = readLog();
@@ -141,8 +75,7 @@ describe("createDebugLogger", () => {
 	});
 
 	it("writes error entries with message and stack", () => {
-		writeGlobalConfig(true);
-		const logger = createDebugLogger();
+		const logger = createDebugLogger({ enabled: true });
 		logger.error("my_error", new Error("test error"));
 
 		const raw = readLog();
@@ -153,8 +86,7 @@ describe("createDebugLogger", () => {
 	});
 
 	it("handles non-Error objects in error()", () => {
-		writeGlobalConfig(true);
-		const logger = createDebugLogger();
+		const logger = createDebugLogger({ enabled: true });
 		logger.error("plain", "just a string");
 
 		const raw = readLog();
@@ -162,8 +94,7 @@ describe("createDebugLogger", () => {
 	});
 
 	it("writes raw messages", () => {
-		writeGlobalConfig(true);
-		const logger = createDebugLogger();
+		const logger = createDebugLogger({ enabled: true });
 		logger.raw("hello world");
 
 		const raw = readLog();
@@ -172,8 +103,7 @@ describe("createDebugLogger", () => {
 	});
 
 	it("appends multiple entries", () => {
-		writeGlobalConfig(true);
-		const logger = createDebugLogger();
+		const logger = createDebugLogger({ enabled: true });
 		logger.event("first");
 		logger.event("second");
 

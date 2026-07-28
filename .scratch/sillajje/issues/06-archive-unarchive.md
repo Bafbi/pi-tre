@@ -2,7 +2,7 @@
 
 **What to build:** The `/sillajje` command gains `archive` and `unarchive` subcommands alongside the existing `status`. Archiving a session deletes its workspace directory and runs `jj workspace forget`, keeping the bookmark for traceability. Unarchiving recreates the workspace via `jj workspace add` and restores the checkout. An archived session blocks user prompts via the `input` event handler, showing a clear notification. The `status` subcommand reports the full session state: active/archived/inactive, workspace path, and bookmark name.
 
-**Blocked by:** 05 — Sub-generator
+**Blocked by:** None — can start immediately. All prerequisite event wiring (session_start, tool_call, input) is in place.
 
 **Status:** ready-for-agent
 

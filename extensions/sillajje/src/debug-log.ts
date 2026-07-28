@@ -1,13 +1,16 @@
 /**
  * Debug logger for sillajje.
  *
- * When debug is enabled (via `.pi/configs/sillajje.json` in the repo
- * or `~/.pi/configs/sillajje.json` globally, with `{ "debug": true }`),
- * writes timestamped JSON-line entries to `~/.pi/logs/sillajje.log`.
+ * When enabled, writes timestamped JSON-line entries to `~/.pi/logs/sillajje.log`.
  * When disabled, all methods are no-ops.
+ *
+ * Accepts its enabled flag as a dependency — callers provide the config
+ * (from `config.ts`) rather than resolving it internally. This keeps the
+ * module testable without filesystem mocking and follows the codebase-design
+ * principle of "accept dependencies, don't create them."
  */
 
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -26,46 +29,16 @@ export interface DebugLogger {
 	raw(message: string): void;
 }
 
+export interface DebugLoggerOptions {
+	/** Whether the logger is enabled. */
+	enabled: boolean;
+}
+
 // ---------------------------------------------------------------------------
-// Config resolution
+// Log path
 // ---------------------------------------------------------------------------
 
-const GLOBAL_CONFIG_PATH = join(homedir(), ".pi/configs/sillajje.json");
 const LOG_PATH = join(homedir(), ".pi/logs/sillajje.log");
-
-/**
- * Read the debug flag from a JSON config file.
- * Returns `false` if the file doesn't exist or can't be parsed.
- */
-function readDebugFlag(configPath: string): boolean {
-	try {
-		const raw = readFileSync(configPath, "utf-8");
-		const config = JSON.parse(raw);
-		return config.debug === true;
-	} catch {
-		return false;
-	}
-}
-
-/**
- * Resolve the debug flag. Checks project-local config first
- * (`.pi/configs/sillajje.json` relative to `repoRoot`): if it exists,
- * its value wins. Otherwise falls back to the global config.
- */
-function resolveDebugFlag(repoRoot?: string): boolean {
-	if (repoRoot) {
-		const localPath = join(repoRoot, ".pi/configs/sillajje.json");
-		try {
-			const raw = readFileSync(localPath, "utf-8");
-			const config = JSON.parse(raw);
-			// Project config exists — its value is authoritative.
-			return config.debug === true;
-		} catch {
-			// Project config doesn't exist or is borked — fall through.
-		}
-	}
-	return readDebugFlag(GLOBAL_CONFIG_PATH);
-}
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -74,14 +47,11 @@ function resolveDebugFlag(repoRoot?: string): boolean {
 /**
  * Create a debug logger.
  *
- * When `repoRoot` is provided, checks `.pi/configs/sillajje.json` there first;
- * otherwise uses the global config at `~/.pi/configs/sillajje.json`.
- * Returns a no-op logger when debug is not enabled.
+ * @param options - `{ enabled: boolean }`. When `false` (the default),
+ *   returns a no-op logger. Pass `{ enabled: true }` to activate file logging.
  */
-export function createDebugLogger(repoRoot?: string): DebugLogger {
-	const enabled = resolveDebugFlag(repoRoot);
-
-	if (!enabled) {
+export function createDebugLogger(options: DebugLoggerOptions): DebugLogger {
+	if (!options.enabled) {
 		return noopLogger;
 	}
 

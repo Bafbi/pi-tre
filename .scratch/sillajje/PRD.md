@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: active — issues 01-04 complete, 04b/05/06/07/08/09 designed
 
 # Sillajje — Auto-versioning for Pi agent sessions
 
@@ -8,7 +8,7 @@ Pi agent sessions have no built-in version control. When an agent makes file edi
 
 ## Solution
 
-Sillajje is a Pi extension that automatically versions every agent interaction as a jj change. It creates an isolated jj workspace per Pi session, redirects all agent file operations there, and on every `agent_settled` event stamps a jj change with: a conventional-commit subject line, the user's prompt, programmatic metadata (tools used, call count, elapsed time), an AI-generated summary of the interaction, and the agent's final response. The result is a complete, reviewable trail — a *sillage* — of every interaction via standard jj tooling (`jj log`, `jj show`, `jj diff`). Sessions can be archived (workspace deleted, bookmark kept) and unarchived to reclaim disk space without losing history.
+Sillajje is a Pi extension that automatically versions every agent interaction as a jj change. It creates an isolated jj workspace per Pi session, redirects all agent file operations there, and on every `agent_end` event stamps a jj change with: a conventional-commit subject line, the user's prompt, programmatic metadata (tools used, call count, elapsed time), an AI-generated summary of the interaction, and the agent's final response. The result is a complete, reviewable trail — a *sillage* — of every interaction via standard jj tooling (`jj log`, `jj show`, `jj diff`). Sessions can be archived (workspace deleted, bookmark kept) and unarchived to reclaim disk space without losing history.
 
 ## User Stories
 
@@ -25,7 +25,7 @@ Sillajje is a Pi extension that automatically versions every agent interaction a
 11. As a Pi user, I want mid-stream steering corrections to fold into the same interaction's change rather than creating spurious new changes, so that the log reflects meaningful boundaries.
 12. As a Pi user, I want session bookmarks to be purely local and never auto-pushed, so that my experimental work doesn't clutter the remote.
 13. As a Pi user, I want the extension to notify me clearly when an error occurs (e.g., sub-generator failure, missing jj binary), so that I know something went wrong rather than silently missing history.
-14. As a Pi user, I want each session to start from the current working-copy commit (`@`) so that the agent works from exactly where I am, including local commits ahead of the remote trunk.
+14. As a Pi user, I want each session to start from the parent of the working copy (`@-`) — the last stable commit — so that the agent works from a clean baseline. When `@-` doesn't exist (e.g. first commit), fall back to `@`. I want `!` and `!!` commands to run from the workspace so I can use `jj` and other tools directly.
 15. As a developer reviewing agent work, I want the commit body to contain the user's original prompt, so that I can understand why a change was requested.
 16. As a developer resuming work after a break, I want the commit body to contain a structured summary of what the agent did, so that I can catch up without re-reading the transcript.
 17. As a Pi user, I want the footer to show sillajje session state at a glance (active/archived, workspace path or bookmark), so that I don't need to run `/sillajje status` to know what's happening.
@@ -46,13 +46,15 @@ Transitions: `session_start` checks state → creates workspace if absent (inact
 
 ### Extension events wired
 
-The extension hooks five Pi events:
+The extension hooks these Pi events:
 
-- `session_start` — detects jj availability, determines repo root, creates workspace from `trunk()`, sets up state tracking.
-- `before_agent_start` — injects system prompt patching the agent's working directory to the workspace path. No-op if inactive.
-- `agent_settled` — on new interactions (not steering), snapshots working copy, builds metadata, spawns sub-generator, stamps jj change with full commit body, sets bookmark. No-op if inactive.
+- `session_start` — detects jj availability, determines repo root, creates workspace from `@-` (fallback `@`), runs post-init commands, sets up state tracking.
+- `before_agent_start` — injects system prompt patching the agent's working directory to the workspace path. The prompt also explains that the workspace is a clean checkout (gitignored files absent) and that dependencies may need installing. No-op if inactive.
+- `agent_end` — on new interactions (not steering), captures the agent response from the last assistant message, snapshots working copy, builds metadata, stamps jj change with full commit body, sets bookmark. `agent_settled` is also wired but only for logging — it does not reliably reach extension handlers in this Pi version, so stamping happens in `agent_end`. No-op if inactive.
+- `session_shutdown` — cleans up the workspace directory if the user never sent a prompt (ephemeral session cleanup).
 - `tool_call` — rewrites paths for `read`/`write`/`edit` to absolute workspace paths; wraps `bash` with `cd <workspace> &&` prefix. No-op if inactive.
 - `input` — blocks prompts on archived sessions with a notification. Passes through otherwise.
+- `user_bash` — when active, intercepts `!` and `!!` commands and executes them from the workspace directory instead of the original repo cwd. Uses `createLocalBashOperations()` to wrap Pi's built-in shell backend with an overridden `cwd`. No-op if inactive.
 
 ### Interaction boundary
 
@@ -86,19 +88,51 @@ Two-template vs one-template approach to be determined by testing — a single p
 
 ### Workspace isolation
 
-Workspaces live at `~/.pi/sillajje/<repo>/<session-id>/` (configurable via `sillajje.workspaces-root`). Each is created from the current working-copy commit (`@`) via `jj workspace add --revision @`. This means sessions start from whatever branch/commit the user is on — including local commits ahead of the remote trunk. The agent's cwd cannot be changed by the extension (Pi limitation), so path redirection is used: `read`/`write`/`edit` inputs get absolute workspace paths, `bash` commands get a `cd <workspace> &&` prefix. The system prompt informs the agent of its workspace path.
+Workspaces live at `~/.pi/sillajje/<repo>/<session-id>/` (configurable via `sillajje.workspaces-root`). Each is created from the parent of the working copy (`@-`) via `jj workspace add --revision @-`. Sessions start from the last stable commit. If `@-` doesn't exist (e.g. first commit in the repo), falls back to `@`.
 
-Gitignored files are absent from workspaces. Repos must be reproducible via mise for dependencies and tooling.
+The agent's cwd cannot be changed by the extension (Pi limitation), so path redirection is used: `read`/`write`/`edit` inputs get absolute workspace paths, `bash` commands get a `cd <workspace> &&` prefix. The system prompt informs the agent of its workspace path and explains that gitignored files (node_modules, etc.) are absent and dependencies may need installing.
+
+Gitignored files are absent from workspaces. Repos must provide their own method for installing dependencies (the extension does not assume mise or any other tool).
+
+#### `!` and `!!` command redirection
+
+Pi's `user_bash` event fires when the user types `!` or `!!` commands. Sillajje intercepts this event and redirects execution to the workspace directory — so `!jj new <rev>` runs inside the workspace, not the original repo. The implementation wraps `createLocalBashOperations()` with the workspace path as `cwd`. No special command is needed; standard `!` shell execution transparently targets the workspace.
+
+This works for any shell command, not just `jj`. For example `!pnpm test` runs tests from the workspace where dependencies were installed.
 
 ### Bookmarks
 
 Each session gets a local bookmark `sillajje/<session-id>` set to the working-copy commit after each change is stamped. Bookmarks are never auto-pushed to remotes. Kept on archive for traceability.
+
+### Post-init commands
+
+After workspace creation, the extension runs a configurable list of shell commands synchronously. Useful for installing dependencies before the agent starts working.
+
+Configuration via `.pi/configs/sillajje.json`:
+
+```json
+{
+  "postInit": ["pnpm install", "mise install"]
+}
+```
+
+Override via `SILLAJJE_POST_INIT` environment variable (`;` as separator):
+
+```bash
+SILLAJJE_POST_INIT="pnpm install; mise install" pi
+```
+
+Commands run sequentially, blocking `session_start` until complete. Progress and errors shown via `ctx.ui.notify`. Errors are non-fatal — session activates regardless. Commands should be idempotent; they run on every `session_start`.
 
 ### Archive and unarchive
 
 **Archive:** `jj workspace forget <name>` + `rm -rf <workspace-path>`. Bookmark persists. Manual only, no auto-archive.
 
 **Unarchive:** `jj workspace add --name sillajje-<session-id> --revision sillajje/<session-id> <path>`. Workspace recreated, system prompt re-patched, tool handlers re-enabled.
+
+### Absolute path guard
+
+When the agent uses an absolute path that points into the original repo (detected by matching against `repoRoot`), the `tool_call` handler **blocks** the tool call with a message telling the agent to use a relative path instead. This prevents accidental writes to the real repo from inside the workspace. The `path-redirect.ts` module returns a `repoRelativePath` hint that the caller turns into a block reason.
 
 ### Footer status pill
 
@@ -122,12 +156,15 @@ Single command `/sillajje` with subcommands:
 
 Internal modules with deep interfaces:
 
-- **session.ts** — central orchestrator. Callers (index.ts event handlers) delegate here. Hides workspace, sub-generator, metadata, and path-redirect modules behind a small surface: `init`, `blockIfArchived`, `onSettle`, `archive`, `unarchive`, `status`.
-- **workspace.ts** — jj workspace CRUD. Interface: `create`, `status` (active/archived/absent), `archive`, `unarchive`.
-- **sub-generator.ts** — spawn headless pi, parse structured output. Interface: `generate(context) → { subject, summary }`.
-- **metadata.ts** — pure function: `build(interaction) → string`.
-- **path-redirect.ts** — pure function: `redirect(event, workspacePath) → void` (mutates event.input in place).
-- **state.ts** — session state tracking across the extension lifecycle.
+- **index.ts** — extension factory and event wiring. Orchestrates all other modules by calling their interfaces from Pi event handlers. (No separate `session.ts` orchestrator — orchestration complexity was low enough that a dedicated module would be shallow.)
+- **workspace.ts** — jj workspace CRUD. Interface: `create`, `exists`, `forget`, `cleanupWorkspace`, plus helpers `workspaceName`, `getRepoSlug`, `resolveWorkspacePath`.
+- **sub-generator.ts** — currently a stub (issue 05). Planned interface: `generate(context) → { subject, summary }`.
+- **metadata.ts** — pure function: `build(meta) → string`, plus `deriveSubject(prompt) → string` (first-line placeholder — sub-generator replacement in issue 05) and `buildCommitBody(data) → string`.
+- **path-redirect.ts** — pure function: `redirect(event, workspacePath, repoRoot) → RedirectInfo`. Returns metadata about what was rewritten and whether the path falls inside the original repo (absolute-path guard). Mutates `event.input` in place.
+- **state.ts** — session state tracking (lifecycle, interaction counters, prompt/response storage) via `SessionState` class.
+- **config.ts** — loads typed `SillajjeConfig` from `.pi/configs/sillajje.json` (project-local takes precedence over global). Single-function interface: `loadSillajjeConfig(repoRoot?) → SillajjeConfig`.
+- **debug-log.ts** — debug logger writing JSON lines to `~/.pi/logs/sillajje.log`. Accepts `{ enabled: boolean }` as a dependency (from config.ts).
+- **status-pill.ts** — pure function: `formatPill(state) → string | undefined`.
 
 ### Architecture Decision Record
 
@@ -135,11 +172,18 @@ ADR-0001 records the choice of workspace isolation via separate jj workspaces + 
 
 ### Configuration
 
-```toml
-[sillajje]
-sub-generator-model = "openai/gpt-4o-mini"
-workspaces-root = "~/.pi/sillajje"
+Configuration lives in `.pi/configs/sillajje.json` (project-local, takes precedence) or `~/.pi/configs/sillajje.json` (global fallback). Loaded by `config.ts` with hardcoded defaults.
+
+```json
+{
+  "debug": false,
+  "workspacesRoot": "~/.pi/sillajje",
+  "subGeneratorModel": "openai/gpt-4o-mini",
+  "postInit": []
+}
 ```
+
+Environment variable override for post-init commands: `SILLAJJE_POST_INIT` (semicolon-separated).
 
 ## Testing Decisions
 
@@ -169,6 +213,8 @@ Follows the test structure of `stale-write-guard`: unit tests for pure modules (
 
 ## Further Notes
 
+- Subject line is currently a **placeholder** — `deriveSubject()` in `metadata.ts` uses the first line of the user prompt, truncated to 72 chars. The full sub-generator (issue 05) will produce conventional-commit subjects.
+- Elapsed time tracking has a known imprecision: `agent_start` may fire multiple times per interaction (retries, compactions), and `agent_end` may fire once per response chunk. See issue 04b for the cumulative segment-tracker fix.
 - The extension name "sillajje" is a portmanteau of the French "sillage" (wake, trail) and "jj" — the trail of changes an agent leaves behind.
 - The domain glossary is in `extensions/sillajje/CONTEXT.md`.
 - Session ID is derived from `ctx.sessionManager.getSessionId()`.

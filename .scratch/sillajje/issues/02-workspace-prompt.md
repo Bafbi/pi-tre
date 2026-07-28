@@ -4,16 +4,20 @@
 
 **Blocked by:** 01 — Scaffold, jj detection, and inactive no-op
 
-**Status:** ready-for-agent
+**Status:** complete
 
-- [ ] `workspace.ts` module with interface: `create(name, trunkRev, targetPath) → WorkspaceInfo`, `exists(name) → boolean`
-- [ ] Workspace directory created at `<workspaces-root>/<repo-slug>/<session-id>/`
-- [ ] `jj workspace add` executed with correct name and path, based on `trunk()`
-- [ ] `session_start` handler calls workspace creation when state transitions from inactive to active
-- [ ] `before_agent_start` handler injects workspace path into system prompt (appended to `event.systemPrompt`)
-- [ ] Workspace path uses session ID from `ctx.sessionManager.getSessionId()`
-- [ ] Workspace root is configurable via `sillajje.workspaces-root` (default: `~/.pi/sillajje`)
-- [ ] `~/.pi/sillajje/` directory created if it doesn't exist
-- [ ] Unit tests for `workspace.ts` with mocked jj CLI adapter (mock `execSync`/`spawn` — test that correct commands are constructed, test error paths)
-- [ ] Integration test via ExtensionRunner: fires `session_start` in jj repo, asserts workspace directory exists on disk, asserts `jj workspace list` includes the new workspace
-- [ ] Integration test via ExtensionRunner: fires `before_agent_start`, asserts system prompt contains workspace path
+**Implementation notes:**
+- The `create` interface uses `ExecFn` adapter (injected) instead of `trunk()` — uses `@` (current working copy)
+- Workspace root is loaded from `config.ts` (`.pi/configs/sillajje.json`) — `workspacesRoot` field, default `~/.pi/sillajje`
+
+- [x] `workspace.ts` module with `create`, `exists`, `forget`, `cleanupWorkspace` + helpers
+- [x] Workspace directory created at `<workspaces-root>/<repo-slug>/<session-id>/`
+- [x] `jj workspace add` executed with correct name and path, based on `@`
+- [x] `session_start` handler calls workspace creation when state transitions from inactive to active
+- [x] `before_agent_start` handler injects workspace path into system prompt (appended to `event.systemPrompt`)
+- [x] Workspace path uses session ID from `ctx.sessionManager.getSessionId()`
+- [x] Workspace root is configurable via config file (`.pi/configs/sillajje.json` `workspacesRoot`), default `~/.pi/sillajje`
+- [x] `~/.pi/sillajje/` directory created if it doesn't exist
+- [x] Unit tests for `workspace.ts` with mocked `ExecFn` adapter
+- [x] Integration test via ExtensionRunner: fires `session_start` in jj repo, asserts workspace directory exists on disk, asserts `jj workspace list` includes the new workspace
+- [x] Integration test via ExtensionRunner: fires `before_agent_start`, asserts system prompt contains workspace path
