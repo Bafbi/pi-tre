@@ -1,10 +1,13 @@
+import type { InteractionMeta } from "./metadata.js";
+
 /** Lifecycle state of a sillajje session. */
 export type SessionLifecycle = "inactive" | "active" | "archived";
 
 /**
  * In-memory session state.
  *
- * Tracks jj availability, repo root, workspace path, and lifecycle.
+ * Tracks jj availability, repo root, workspace path, lifecycle,
+ * and per-interaction data for change stamping.
  * Callers query state via getters and transition via explicit methods.
  */
 export class SessionState {
@@ -24,6 +27,20 @@ export class SessionState {
 
 	/** Whether the user has sent at least one prompt in this session. */
 	private hasPrompted = false;
+
+	// ---------------------------------------------------------------------------
+	// Interaction tracking (per-interaction, reset after each stamp)
+	// ---------------------------------------------------------------------------
+
+	private newInteraction = false;
+	private prompt: string | undefined;
+	private toolCallCount = 0;
+	private toolNamesSet: Set<string> = new Set();
+	private thinkingBlocks = 0;
+	private agentStartAt = 0;
+	private response: string | undefined;
+	/** Tracks the streamingBehavior from the last `input` event. Used in `before_agent_start` to detect new interactions for queued follow-ups that may bypass `input`. */
+	private lastStreamingBehavior: string | undefined = undefined;
 
 	// ---------------------------------------------------------------------------
 	// Getters
@@ -115,5 +132,101 @@ export class SessionState {
 		this.workspacePath = undefined;
 		this.sessionId = undefined;
 		this.hasPrompted = false;
+		this.resetInteraction();
+	}
+
+	// ---------------------------------------------------------------------------
+	// Interaction tracking — getters & recorders
+	// ---------------------------------------------------------------------------
+
+	/**
+	 * Mark whether a new interaction has begun, based on the `input` event.
+	 * `steer` deliveries fold into the current interaction; everything else starts a new one.
+	 *
+	 * Also stores the streaming behavior so `before_agent_start` can use it
+	 * for queued follow-ups that may bypass the `input` event.
+	 */
+	startInteraction(streamingBehavior: string | undefined): void {
+		this.lastStreamingBehavior = streamingBehavior;
+		if (streamingBehavior !== "steer") {
+			this.newInteraction = true;
+		}
+		// steering: keep newInteraction false (fold into current interaction)
+	}
+
+	hasNewInteraction(): boolean {
+		return this.newInteraction;
+	}
+
+	/**
+	 * Called from `before_agent_start` as a fallback for when the `input` event
+	 * didn't fire (e.g. queued follow-ups). Uses the last known streaming behavior.
+	 */
+	enableInteractionIfNotSteering(): void {
+		if (this.lastStreamingBehavior !== "steer") {
+			this.newInteraction = true;
+		}
+	}
+
+	recordPrompt(text: string): void {
+		this.prompt = text;
+	}
+
+	getInteractionPrompt(): string | undefined {
+		return this.prompt;
+	}
+
+	markAgentStart(): void {
+		this.agentStartAt = Date.now();
+	}
+
+	getInteractionElapsedMs(): number {
+		if (this.agentStartAt === 0) return 0;
+		return Date.now() - this.agentStartAt;
+	}
+
+	recordToolCall(toolName: string): void {
+		this.toolCallCount++;
+		this.toolNamesSet.add(toolName);
+	}
+
+	recordThinkingBlock(): void {
+		this.thinkingBlocks++;
+	}
+
+	recordAgentResponse(text: string): void {
+		this.response = text;
+	}
+
+	getInteractionResponse(): string | undefined {
+		return this.response;
+	}
+
+	/**
+	 * Return a snapshot of the current interaction data for metadata building.
+	 * Returns undefined when there is no new interaction to stamp or the prompt is missing.
+	 */
+	getInteractionData(sessionId: string): InteractionMeta | undefined {
+		if (!this.newInteraction || !this.prompt) return undefined;
+
+		return {
+			toolNames: [...this.toolNamesSet],
+			toolCallCount: this.toolCallCount,
+			elapsedMs: this.getInteractionElapsedMs(),
+			thinkingBlocks: this.thinkingBlocks,
+			sessionId,
+		};
+	}
+
+	/** Reset per-interaction counters. Called after each stamp. */
+	resetInteraction(): void {
+		this.newInteraction = false;
+		this.prompt = undefined;
+		this.toolCallCount = 0;
+		this.toolNamesSet = new Set();
+		this.thinkingBlocks = 0;
+		this.agentStartAt = 0;
+		this.response = undefined;
+		this.lastStreamingBehavior = undefined;
 	}
 }

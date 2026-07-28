@@ -101,3 +101,203 @@ describe("SessionState", () => {
 		expect(s.hasUserPrompted()).toBe(false);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Interaction tracking
+// ---------------------------------------------------------------------------
+
+describe("SessionState interaction tracking", () => {
+	it("startInteraction with undefined streamingBehavior marks new interaction", () => {
+		const s = new SessionState();
+		s.startInteraction(undefined);
+		expect(s.hasNewInteraction()).toBe(true);
+	});
+
+	it("startInteraction with followUp marks new interaction", () => {
+		const s = new SessionState();
+		s.startInteraction("followUp");
+		expect(s.hasNewInteraction()).toBe(true);
+	});
+
+	it("startInteraction with steer does NOT mark new interaction", () => {
+		const s = new SessionState();
+		s.startInteraction("steer");
+		expect(s.hasNewInteraction()).toBe(false);
+	});
+
+	it("recordPrompt stores the prompt text", () => {
+		const s = new SessionState();
+		s.recordPrompt("Fix the login bug");
+		expect(s.getInteractionPrompt()).toBe("Fix the login bug");
+	});
+
+	it("markAgentStart records a timestamp", () => {
+		const before = Date.now();
+		const s = new SessionState();
+		s.markAgentStart();
+		const after = Date.now();
+		const elapsed = s.getInteractionElapsedMs();
+		expect(elapsed).toBeGreaterThanOrEqual(0);
+		expect(elapsed).toBeLessThanOrEqual(after - before + 50);
+	});
+
+	it("recordToolCall increments count and tracks unique names", () => {
+		const s = new SessionState();
+		s.startInteraction(undefined);
+		s.recordPrompt("test");
+		s.recordToolCall("read");
+		s.recordToolCall("write");
+		s.recordToolCall("read");
+
+		const data = s.getInteractionData("sess-1");
+		expect(data).toBeDefined();
+		if (!data) throw new Error("data should be defined");
+		expect(data.toolCallCount).toBe(3);
+		expect(data.toolNames).toEqual(["read", "write"]);
+	});
+
+	it("recordThinkingBlock increments thinking block count", () => {
+		const s = new SessionState();
+		s.startInteraction(undefined);
+		s.recordPrompt("test");
+		s.recordThinkingBlock();
+		s.recordThinkingBlock();
+
+		const data = s.getInteractionData("sess-1");
+		expect(data).toBeDefined();
+		if (!data) throw new Error("data should be defined");
+		expect(data.thinkingBlocks).toBe(2);
+	});
+
+	it("recordAgentResponse stores the response", () => {
+		const s = new SessionState();
+		s.recordAgentResponse("I fixed the bug.");
+		expect(s.getInteractionResponse()).toBe("I fixed the bug.");
+	});
+
+	it("getInteractionData returns snapshot with all fields", () => {
+		const s = new SessionState();
+		s.startInteraction(undefined);
+		s.recordPrompt("Add a login page");
+		s.markAgentStart();
+		s.recordToolCall("write");
+		s.recordToolCall("edit");
+		s.recordThinkingBlock();
+		s.recordAgentResponse("Done.");
+
+		const data = s.getInteractionData("abc");
+		expect(data).toBeDefined();
+		if (!data) throw new Error("data should be defined");
+		expect(data.toolNames).toEqual(["write", "edit"]);
+		expect(data.toolCallCount).toBe(2);
+		expect(data.thinkingBlocks).toBe(1);
+		expect(data.elapsedMs).toBeGreaterThanOrEqual(0);
+		expect(data.sessionId).toBe("abc");
+	});
+
+	it("getInteractionData returns undefined when no new interaction", () => {
+		const s = new SessionState();
+		s.recordPrompt("test");
+		s.markAgentStart();
+
+		// Without calling startInteraction, hasNewInteraction defaults to false
+		expect(s.getInteractionData("id")).toBeUndefined();
+	});
+
+	it("getInteractionData returns undefined when prompt is missing", () => {
+		const s = new SessionState();
+		s.startInteraction(undefined);
+		s.markAgentStart();
+
+		expect(s.getInteractionData("id")).toBeUndefined();
+	});
+
+	it("enableInteractionIfNotSteering enables new interaction when no steering was recorded", () => {
+		const s = new SessionState();
+		// Simulate: a fresh prompt — input fires with undefined streamingBehavior
+		s.startInteraction(undefined);
+		// After stamp, reset is called
+		s.resetInteraction();
+		expect(s.hasNewInteraction()).toBe(false);
+		// Now a queued follow-up comes in via before_agent_start (no preceding input)
+		// lastStreamingBehavior is undefined after reset → treated as non-steer
+		s.enableInteractionIfNotSteering();
+		expect(s.hasNewInteraction()).toBe(true);
+	});
+
+	it("enableInteractionIfNotSteering enables after followUp and reset", () => {
+		const s = new SessionState();
+		// Simulate: input fires with "followUp"
+		s.startInteraction("followUp");
+		expect(s.hasNewInteraction()).toBe(true);
+		// After stamp, reset
+		s.resetInteraction();
+		expect(s.hasNewInteraction()).toBe(false);
+		// Now a queued follow-up comes via before_agent_start without input.
+		// lastStreamingBehavior was reset, so it's undefined → non-steer.
+		s.enableInteractionIfNotSteering();
+		expect(s.hasNewInteraction()).toBe(true);
+	});
+
+	it("enableInteractionIfNotSteering does NOT enable after steer input", () => {
+		const s = new SessionState();
+		// Normal steer flow: input fires with "steer", then before_agent_start fires
+		s.startInteraction("steer");
+		expect(s.hasNewInteraction()).toBe(false);
+		s.enableInteractionIfNotSteering();
+		// Should still be false because lastStreamingBehavior is "steer"
+		expect(s.hasNewInteraction()).toBe(false);
+	});
+
+	it("startInteraction + enableInteractionIfNotSteering without reset: steer stays false", () => {
+		const s = new SessionState();
+		// Normal steer flow: input fires with steer, then before_agent_start fires
+		s.startInteraction("steer");
+		expect(s.hasNewInteraction()).toBe(false);
+		s.enableInteractionIfNotSteering();
+		// Should still be false because lastStreamingBehavior is "steer"
+		expect(s.hasNewInteraction()).toBe(false);
+	});
+
+	it("lastStreamingBehavior is reset by resetInteraction", () => {
+		const s = new SessionState();
+		s.startInteraction("followUp");
+		s.recordPrompt("test");
+		s.resetInteraction();
+		// After reset, enableInteractionIfNotSteering should default to
+		// treating undefined as non-steer (new interaction)
+		s.enableInteractionIfNotSteering();
+		expect(s.hasNewInteraction()).toBe(true);
+	});
+
+	it("resetInteraction clears all interaction state", () => {
+		const s = new SessionState();
+		s.startInteraction(undefined);
+		s.recordPrompt("test");
+		s.markAgentStart();
+		s.recordToolCall("read");
+		s.recordThinkingBlock();
+		s.recordAgentResponse("done");
+
+		s.resetInteraction();
+
+		expect(s.hasNewInteraction()).toBe(false);
+		expect(s.getInteractionPrompt()).toBeUndefined();
+		expect(s.getInteractionResponse()).toBeUndefined();
+
+		const data = s.getInteractionData("id");
+		expect(data).toBeUndefined();
+	});
+
+	it("reset clears interaction tracking", () => {
+		const s = new SessionState();
+		s.startInteraction(undefined);
+		s.recordPrompt("test");
+		s.recordToolCall("read");
+
+		s.reset();
+
+		expect(s.hasNewInteraction()).toBe(false);
+		expect(s.getInteractionPrompt()).toBeUndefined();
+	});
+});
