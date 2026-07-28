@@ -46,7 +46,7 @@ describe("deriveSubject", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildMetadata", () => {
-	it("produces the metadata block with all fields", () => {
+	it("produces the compact metadata block", () => {
 		const result = buildMetadata({
 			toolNames: ["read", "write", "bash"],
 			toolCallCount: 14,
@@ -55,12 +55,8 @@ describe("buildMetadata", () => {
 			sessionId: "abc123",
 		});
 
-		expect(result).toContain("tools_used: read, write, bash");
-		expect(result).toContain("tool_calls: 14");
-		expect(result).toContain("elapsed: 45.2s");
-		expect(result).toContain("thinking_blocks: 3");
-		expect(result).toContain("workspace: sillajje/abc123");
-		expect(result).toContain("generated_by: sillajje");
+		expect(result).toContain("Meta: read, write, bash | 14 calls | 45.2s");
+		expect(result).toContain("  3 blocks | sillajje/abc123");
 	});
 
 	it("handles zero tool calls", () => {
@@ -72,10 +68,8 @@ describe("buildMetadata", () => {
 			sessionId: "sess-1",
 		});
 
-		expect(result).toContain("tools_used:");
-		expect(result).toContain("tool_calls: 0");
-		expect(result).toContain("elapsed: 1.2s");
-		expect(result).toContain("thinking_blocks: 0");
+		expect(result).toContain("Meta:  | 0 calls | 1.2s");
+		expect(result).toContain("  0 blocks | sillajje/sess-1");
 	});
 
 	it("formats elapsed time with one decimal", () => {
@@ -87,7 +81,7 @@ describe("buildMetadata", () => {
 			sessionId: "x",
 		};
 
-		expect(buildMetadata(meta)).toContain("elapsed: 15.2s");
+		expect(buildMetadata(meta)).toContain("15.2s");
 	});
 
 	it("formats sub-second elapsed time", () => {
@@ -99,7 +93,7 @@ describe("buildMetadata", () => {
 			sessionId: "x",
 		};
 
-		expect(buildMetadata(meta)).toContain("elapsed: 0.5s");
+		expect(buildMetadata(meta)).toContain("0.5s");
 	});
 });
 
@@ -108,39 +102,104 @@ describe("buildMetadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildCommitBody", () => {
-	it("builds the full commit body with all sections", () => {
+	it("builds the full body with Prompt, Meta, Summary, Response sections", () => {
 		const body = buildCommitBody({
 			subject: "feat: add login page",
 			prompt: "Add a login page with email and password fields",
-			metadata: "tools_used: write, edit\ntool_calls: 5\nelapsed: 12.3s",
+			metadata:
+				"Meta: write, edit | 5 calls | 12.3s\n  0 blocks | sillajje/s1",
 			response: "I created the login page with form validation.",
+			summary:
+				"Created the login page with email/password fields and validation.",
 		});
 
 		expect(body).toBe(
 			[
 				"feat: add login page",
 				"",
+				"Prompt:",
 				"Add a login page with email and password fields",
 				"",
-				"tools_used: write, edit",
-				"tool_calls: 5",
-				"elapsed: 12.3s",
+				"Meta: write, edit | 5 calls | 12.3s",
+				"  0 blocks | sillajje/s1",
 				"",
+				"Summary:",
+				"Created the login page with email/password fields and validation.",
+				"",
+				"Response:",
 				"I created the login page with form validation.",
 			].join("\n"),
 		);
 	});
 
-	it("handles empty response", () => {
+	it("omits Summary section when summary is empty", () => {
+		const body = buildCommitBody({
+			subject: "fix: bug",
+			prompt: "Fix the bug",
+			metadata: "Meta: write | 1 calls | 0.5s\n  0 blocks | sillajje/s1",
+			response: "Fixed.",
+			summary: "",
+		});
+
+		expect(body).toBe(
+			[
+				"fix: bug",
+				"",
+				"Prompt:",
+				"Fix the bug",
+				"",
+				"Meta: write | 1 calls | 0.5s",
+				"  0 blocks | sillajje/s1",
+				"",
+				"Response:",
+				"Fixed.",
+			].join("\n"),
+		);
+		expect(body).not.toContain("undefined");
+	});
+
+	it("omits Response section when response is empty", () => {
 		const body = buildCommitBody({
 			subject: "chore: agent interaction",
 			prompt: "hello",
-			metadata: "tools_used:\ntool_calls: 0",
+			metadata: "Meta:  | 0 calls | 0.2s\n  0 blocks | sillajje/s1",
 			response: "",
+			summary: "",
 		});
 
+		expect(body).toContain("Prompt:");
 		expect(body).toContain("hello");
 		expect(body).toContain("chore: agent interaction");
+		expect(body).not.toContain("Response:");
+		expect(body).not.toContain("undefined");
+	});
+
+	it("omits Prompt section when prompt is empty", () => {
+		const body = buildCommitBody({
+			subject: "fix: crash",
+			prompt: "",
+			metadata: "Meta: bash | 3 calls | 2.1s\n  0 blocks | sillajje/s1",
+			response: "Fixed the crash.",
+			summary: "",
+		});
+
+		expect(body).toContain("fix: crash");
+		expect(body).toContain("Response:");
+		expect(body).not.toContain("Prompt:");
+	});
+
+	it("handles empty metadata gracefully", () => {
+		const body = buildCommitBody({
+			subject: "chore: update",
+			prompt: "update deps",
+			metadata: "",
+			response: "",
+			summary: "",
+		});
+
+		expect(body).toContain("chore: update");
+		expect(body).toContain("Prompt:");
+		expect(body).not.toContain("Response:");
 		expect(body).not.toContain("undefined");
 	});
 });

@@ -64,7 +64,23 @@ export function workspaceName(sessionId: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Create a jj workspace checked out from the current working copy (`@`).
+ * Resolve the base revision for a new workspace.
+ *
+ * Prefers `@-` (parent of the working copy — the last stable commit), falling
+ * back to `@` (current working copy) when `@-` does not exist, which happens
+ * on the first commit in a repo.
+ */
+async function resolveBaseRevision(
+	exec: ExecFn,
+	repoRoot: string,
+): Promise<string> {
+	const result = await exec("jj", ["log", "-r", "@-"], { cwd: repoRoot });
+	return result.code === 0 ? "@-" : "@";
+}
+
+/**
+ * Create a jj workspace checked out from `@-` (parent of working copy),
+ * falling back to `@` when `@-` does not exist.
  *
  * Idempotent: if the workspace directory already exists on disk, skips creation
  * and returns the existing path.
@@ -88,9 +104,19 @@ export async function createWorkspace(
 	// but the repo-slug directory must already exist.
 	mkdirSync(dirname(wsPath), { recursive: true });
 
+	const baseRevision = await resolveBaseRevision(exec, repoRoot);
+
 	const result = await exec(
 		"jj",
-		["workspace", "add", "--name", wsName, "--revision", "@", wsPath],
+		[
+			"workspace",
+			"add",
+			"--name",
+			wsName,
+			"--revision",
+			baseRevision,
+			wsPath,
+		],
 		{ cwd: repoRoot },
 	);
 

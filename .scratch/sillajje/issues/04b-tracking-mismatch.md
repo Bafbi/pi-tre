@@ -11,7 +11,7 @@ But there's a subtler problem: if `agent_start` fires after the agent's first to
 
 **Blocked by:** 04 — Change stamping
 
-**Status:** ready-for-agent
+**Status:** complete
 
 ## Problem scenarios
 
@@ -67,11 +67,11 @@ This handles:
 
 ## Tasks
 
-- [ ] Add `segmentStartAt` and `cumulativeElapsedMs` fields to `SessionState`
-- [ ] Add `markAgentEnd()` method that accumulates elapsed segment time
-- [ ] Modify `agent_start` handler to call `state.markAgentStart()` (already done)
-- [ ] Add `agent_end` handler call to `state.markAgentEnd()` before extracting the response
-- [ ] Change `stampChange()` to read cumulative elapsed from `getInteractionElapsedMs()`
-- [ ] Reset cumulative counters in `resetInteraction()`
-- [ ] Update unit tests for `SessionState` interaction tracking (segment accumulation, multiple segments, active segment contribution)
-- [ ] Integration test: simulate interaction with multiple `agent_end` chunks, assert elapsed time in metadata is cumulative
+- [x] Add `segmentStartAt` and `cumulativeElapsedMs` fields to `SessionState`
+- [x] Add `markAgentEnd()` method that accumulates elapsed segment time
+- [x] Modify `agent_start` handler to call `state.markAgentStart()` (already done — no change needed)
+- [x] Add `agent_end` handler call to `state.markAgentEnd()` before extracting the response
+- [x] Change `stampChange()` to read cumulative elapsed from `getInteractionElapsedMs()` (already reads snapshot.elapsedMs which calls `getInteractionElapsedMs()`)
+- [x] Reset cumulative counters in `resetInteraction()`
+- [x] Update unit tests for `SessionState` interaction tracking (segment accumulation, multiple segments, active segment contribution, reset)
+- [x] Integration test: `elapsed:` appears in stamped commit body

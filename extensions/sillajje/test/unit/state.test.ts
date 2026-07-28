@@ -131,7 +131,7 @@ describe("SessionState interaction tracking", () => {
 		expect(s.getInteractionPrompt()).toBe("Fix the login bug");
 	});
 
-	it("markAgentStart records a timestamp", () => {
+	it("markAgentStart records a timestamp (running segment)", () => {
 		const before = Date.now();
 		const s = new SessionState();
 		s.markAgentStart();
@@ -139,6 +139,55 @@ describe("SessionState interaction tracking", () => {
 		const elapsed = s.getInteractionElapsedMs();
 		expect(elapsed).toBeGreaterThanOrEqual(0);
 		expect(elapsed).toBeLessThanOrEqual(after - before + 50);
+	});
+
+	it("markAgentEnd adds one segment to cumulative", () => {
+		const s = new SessionState();
+		s.markAgentStart();
+		const elapsed = s.getInteractionElapsedMs();
+		s.markAgentEnd();
+		// After end, getter should return at least as much as before end
+		const afterEnd = s.getInteractionElapsedMs();
+		expect(afterEnd).toBeGreaterThanOrEqual(elapsed - 5); // slight timing tolerance
+	});
+
+	it("markAgentEnd accumulates multiple segments", async () => {
+		const s = new SessionState();
+
+		s.markAgentStart();
+		await new Promise((r) => setTimeout(r, 10));
+		s.markAgentEnd();
+		const afterSeg1 = s.getInteractionElapsedMs();
+
+		s.markAgentStart();
+		await new Promise((r) => setTimeout(r, 10));
+		s.markAgentEnd();
+		const afterSeg2 = s.getInteractionElapsedMs();
+
+		// Each segment adds to the cumulative total
+		expect(afterSeg1).toBeGreaterThanOrEqual(5);
+		expect(afterSeg2).toBeGreaterThan(afterSeg1);
+	});
+
+	it("getInteractionElapsedMs returns cumulative when no running segment", () => {
+		const s = new SessionState();
+		s.markAgentStart();
+		s.markAgentEnd();
+		const frozen = s.getInteractionElapsedMs();
+		// After a small delay, the value should not increase because no segment is running
+		const later = s.getInteractionElapsedMs();
+		expect(later).toBe(frozen);
+	});
+
+	it("resetInteraction clears cumulative elapsed", async () => {
+		const s = new SessionState();
+		s.markAgentStart();
+		await new Promise((r) => setTimeout(r, 10));
+		s.markAgentEnd();
+		expect(s.getInteractionElapsedMs()).toBeGreaterThan(0);
+
+		s.resetInteraction();
+		expect(s.getInteractionElapsedMs()).toBe(0);
 	});
 
 	it("recordToolCall increments count and tracks unique names", () => {

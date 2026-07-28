@@ -63,7 +63,9 @@ const GLOBAL_CONFIG_PATH = join(HOME, ".pi/configs/sillajje.json");
  * Read a JSON config file and return a partial config object.
  * Returns `undefined` when the file doesn't exist or can't be parsed.
  */
-function readConfigFile(configPath: string): Partial<SillajjeConfig> | undefined {
+function readConfigFile(
+	configPath: string,
+): Partial<SillajjeConfig> | undefined {
 	try {
 		const raw = readFileSync(configPath, "utf-8");
 		const parsed = JSON.parse(raw);

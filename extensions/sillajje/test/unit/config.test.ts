@@ -50,7 +50,9 @@ describe("loadSillajjeConfig", () => {
 	});
 
 	it("returns defaults when no config files exist with repoRoot", () => {
-		const repoRoot = mkdtempSync(join(homedir(), ".pi/sillajje-config-test-"));
+		const repoRoot = mkdtempSync(
+			join(homedir(), ".pi/sillajje-config-test-"),
+		);
 		tempDirs.push(repoRoot);
 		const config = loadSillajjeConfig(repoRoot);
 		expect(config.debug).toBe(false);
@@ -94,7 +96,9 @@ describe("loadSillajjeConfig", () => {
 
 	it("project-local config overrides global config", () => {
 		writeGlobalConfig({ debug: false, workspacesRoot: "/global" });
-		const repoRoot = mkdtempSync(join(homedir(), ".pi/sillajje-config-test-"));
+		const repoRoot = mkdtempSync(
+			join(homedir(), ".pi/sillajje-config-test-"),
+		);
 		tempDirs.push(repoRoot);
 		writeProjectConfig(repoRoot, {
 			debug: true,
@@ -110,7 +114,9 @@ describe("loadSillajjeConfig", () => {
 
 	it("project-local config is authoritative even when global is also present", () => {
 		writeGlobalConfig({ debug: true });
-		const repoRoot = mkdtempSync(join(homedir(), ".pi/sillajje-config-test-"));
+		const repoRoot = mkdtempSync(
+			join(homedir(), ".pi/sillajje-config-test-"),
+		);
 		tempDirs.push(repoRoot);
 		writeProjectConfig(repoRoot, { debug: false });
 
@@ -157,7 +163,9 @@ describe("loadSillajjeConfig", () => {
 
 	it("falls through when project config directory doesn't exist", () => {
 		writeGlobalConfig({ debug: true });
-		const repoRoot = mkdtempSync(join(homedir(), ".pi/sillajje-config-test-"));
+		const repoRoot = mkdtempSync(
+			join(homedir(), ".pi/sillajje-config-test-"),
+		);
 		tempDirs.push(repoRoot);
 		// No .pi/configs/ in repoRoot
 
@@ -167,7 +175,9 @@ describe("loadSillajjeConfig", () => {
 
 	it("falls through when project config file is malformed", () => {
 		writeGlobalConfig({ debug: true, workspacesRoot: "/global" });
-		const repoRoot = mkdtempSync(join(homedir(), ".pi/sillajje-config-test-"));
+		const repoRoot = mkdtempSync(
+			join(homedir(), ".pi/sillajje-config-test-"),
+		);
 		tempDirs.push(repoRoot);
 		// Create a malformed file
 		mkdirSync(join(repoRoot, ".pi/configs"), { recursive: true });

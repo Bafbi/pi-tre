@@ -37,7 +37,8 @@ export class SessionState {
 	private toolCallCount = 0;
 	private toolNamesSet: Set<string> = new Set();
 	private thinkingBlocks = 0;
-	private agentStartAt = 0;
+	private segmentStartAt = 0;
+	private cumulativeElapsedMs = 0;
 	private response: string | undefined;
 	/** Tracks the streamingBehavior from the last `input` event. Used in `before_agent_start` to detect new interactions for queued follow-ups that may bypass `input`. */
 	private lastStreamingBehavior: string | undefined = undefined;
@@ -176,13 +177,31 @@ export class SessionState {
 		return this.prompt;
 	}
 
+	/** Mark the start of an agent run segment. */
 	markAgentStart(): void {
-		this.agentStartAt = Date.now();
+		this.segmentStartAt = Date.now();
 	}
 
+	/**
+	 * Mark the end of an agent run segment, adding its duration
+	 * to the cumulative elapsed time for this interaction.
+	 */
+	markAgentEnd(): void {
+		if (this.segmentStartAt > 0) {
+			this.cumulativeElapsedMs += Date.now() - this.segmentStartAt;
+			this.segmentStartAt = 0;
+		}
+	}
+
+	/**
+	 * Return the total elapsed time for the current interaction.
+	 * Includes both completed segments (cumulative) and the currently
+	 * running segment, if any.
+	 */
 	getInteractionElapsedMs(): number {
-		if (this.agentStartAt === 0) return 0;
-		return Date.now() - this.agentStartAt;
+		const running =
+			this.segmentStartAt > 0 ? Date.now() - this.segmentStartAt : 0;
+		return this.cumulativeElapsedMs + running;
 	}
 
 	recordToolCall(toolName: string): void {
@@ -225,7 +244,8 @@ export class SessionState {
 		this.toolCallCount = 0;
 		this.toolNamesSet = new Set();
 		this.thinkingBlocks = 0;
-		this.agentStartAt = 0;
+		this.segmentStartAt = 0;
+		this.cumulativeElapsedMs = 0;
 		this.response = undefined;
 		this.lastStreamingBehavior = undefined;
 	}

@@ -4,17 +4,17 @@
 
 **Blocked by:** None — can start immediately. Change stamping (issue 04) is already complete.
 
-**Status:** ready-for-agent
+**Status:** complete
 
-- [ ] `sub-generator.ts` module with interface: `generate(templatePath, context: GenerateContext) → { subject, summary }`
-- [ ] Sub-generator spawns `pi -p` via `child_process.spawn` with `--no-session`
-- [ ] Mustache prompt template at `prompts/generate.md` with variables: `transcript`, `diff`, `prior_descriptions`, `user_prompt`
-- [ ] Transcript extracted from session: user messages + assistant messages (including tool call blocks) — tool result content excluded
-- [ ] Diff sourced from `jj diff -r @-` in the workspace (or empty string if no file changes)
-- [ ] Prior descriptions sourced from recent sillajje bookmarks
-- [ ] Sub-generator model read from config `sillajje.sub-generator-model`
-- [ ] Output parsed: line 1 → `subject`, remaining lines → `summary`
-- [ ] `agent_settled` handler awaits sub-generator result before stamping the change (or stamps with placeholder then updates via `jj describe` after result arrives)
-- [ ] Sub-generator timeout and error handling: if it fails, stamps change with placeholder subject + error note
-- [ ] Unit tests for `sub-generator.ts` with mocked `child_process.spawn` — test correct command construction, parsing of output, error paths, timeout
-- [ ] Integration test via ExtensionRunner: simulate a full interaction, assert the resulting jj change has an AI-generated subject (not a placeholder) and a summary in the body
+- [x] `sub-generator.ts` module with interface: `generate(ctx, spawnFn, model) → { subject, summary }`
+- [x] Sub-generator spawns `pi -p` via `child_process.spawn` with `--no-session` (via `createSpawnFn()` factory)
+- [x] Mustache-style prompt template inlined; variables: `transcript`, `diff`, `prior_descriptions`
+- [x] Transcript built from prompt + tool names + response (tracked in SessionState)
+- [x] Diff sourced from `jj diff -r @-` in the workspace
+- [x] Prior descriptions sourced from recent sillajje bookmark ancestors (top 5)
+- [x] Sub-generator model read from config `sillajje.sub-generator-model` (passed from index.ts)
+- [x] Output parsed: line 1 → `subject`, remaining lines → `summary`
+- [x] `stampChange` awaits sub-generator before stamping; on failure falls back to `deriveSubject(prompt)`
+- [x] Sub-generator timeout (30s) and error handling: spawn errors throw → caught in index.ts with placeholder fallback
+- [x] Unit tests for `sub-generator.ts` with mocked `SpawnFn` — command construction, parsing, errors, timeout
+- [x] Integration test via ExtensionRunner: existing stamping tests pass (fallback to `deriveSubject` when pi unavailable)

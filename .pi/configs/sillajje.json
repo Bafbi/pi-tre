@@ -1,3 +1,4 @@
 {
-	"debug": true
+	"debug": true,
+	"subGeneratorModel": "opencode-go/deepseek-v4-flash"
 }

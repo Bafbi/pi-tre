@@ -1,13 +1,18 @@
 import { statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	createLocalBashOperations,
+	type ExtensionAPI,
+	type UserBashEventResult,
+} from "@earendil-works/pi-coding-agent";
 import { loadSillajjeConfig } from "./config.js";
 import { createDebugLogger } from "./debug-log.js";
 import { buildCommitBody, buildMetadata, deriveSubject } from "./metadata.js";
 import { redirect } from "./path-redirect.js";
 import { SessionState } from "./state.js";
 import { formatPill } from "./status-pill.js";
+import { createSpawnFn, generate } from "./sub-generator.js";
 import {
 	cleanupWorkspace,
 	createWorkspace,
@@ -205,6 +210,14 @@ export default function (pi: ExtensionAPI) {
 			"All read/write/edit paths will be redirected there automatically.",
 			`bash commands run inside \`${wsPath}\`.`,
 			"",
+			"This is a clean checkout — gitignored files (node_modules, build artifacts, etc.)",
+			"are absent. This is expected and normal. If the agent needs dependencies,",
+			"install them using whatever method the repo recommends (e.g. pnpm install).",
+			"",
+			"Use **relative paths** for all file operations. Absolute paths that point",
+			"back at the original repository will be blocked and instructed to use a",
+			"relative path instead.",
+			"",
 		].join("\n");
 
 		return {
@@ -261,10 +274,83 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		const prompt = state.getInteractionPrompt() ?? "";
-		const subject = deriveSubject(prompt);
-		const metadata = buildMetadata(snapshot);
 		const response = state.getInteractionResponse() ?? "";
-		const body = buildCommitBody({ subject, prompt, metadata, response });
+		const metadata = buildMetadata(snapshot);
+
+		// Build transcript and get diff for the sub-generator.
+		const transcript = [
+			`User: ${prompt}`,
+			"",
+			`Tools used: ${snapshot.toolNames.join(", ")}`,
+			"",
+			"Assistant:",
+			response,
+		].join("\n");
+
+		const diffResult = await pi.exec("jj", ["diff", "-r", "@-"], {
+			cwd: wsPath,
+		});
+		const diff = diffResult.code === 0 ? diffResult.stdout : "";
+
+		// Get prior descriptions from the recent sillajje bookmark history.
+		let priorDescriptions: string[] = [];
+		try {
+			const priorResult = await pi.exec(
+				"jj",
+				[
+					"log",
+					"-r",
+					`ancestors(sillajje/${sessionId})`,
+					"--no-graph",
+					"-T",
+					"description.first_line()",
+				],
+				{ cwd: wsPath },
+			);
+			if (priorResult.code === 0) {
+				priorDescriptions = priorResult.stdout
+					.split("\n")
+					.filter((l: string) => l.trim().length > 0)
+					.slice(0, 5);
+			}
+		} catch {
+			// Non-fatal — prior descriptions are optional context.
+		}
+
+		let subject: string;
+		let summary: string;
+		try {
+			const spawnFn = createSpawnFn();
+			const subResult = await generate(
+				{ transcript, diff, previousDescriptions: priorDescriptions },
+				spawnFn,
+				activeConfig?.subGeneratorModel,
+			);
+			subject = subResult.subject;
+			summary = subResult.summary;
+			debug.event("sub_generator_result", {
+				subject,
+				summaryLen: summary.length,
+			});
+		} catch (err) {
+			debug.error("sub_generator_failed", err);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] commit subject generation failed: ${err instanceof Error ? err.message : String(err)}`,
+					"warning",
+				);
+			}
+			subject = deriveSubject(prompt);
+			summary = "";
+		}
+
+		const body = buildCommitBody({
+			subject,
+			prompt,
+			metadata,
+			response,
+			summary,
+		});
 
 		try {
 			// 0. Ensure the workspace working copy isn't stale.
@@ -303,11 +389,8 @@ export default function (pi: ExtensionAPI) {
 
 			// 3. Seal the current working copy and start a fresh one on top.
 			//    This ensures each interaction is a separate change in `jj log`.
-			const newResult = await pi.exec(
-				"jj",
-				["new", "-m", `sillajje: continue ${sessionId}`],
-				{ cwd: wsPath },
-			);
+			//    No -m flag — the new empty change should have no description.
+			const newResult = await pi.exec("jj", ["new"], { cwd: wsPath });
 			debug.event("jj_new", { code: newResult.code });
 			if (newResult.code !== 0 && ctx.hasUI) {
 				ctx.ui.notify(
@@ -332,6 +415,11 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_end", async (event, ctx) => {
 		debug.event("agent_end", { messageCount: event.messages.length });
 		if (state.isInactive()) return undefined;
+
+		// Accumulate this agent run segment into the cumulative elapsed timer.
+		// This handles retry/compact scenarios where `agent_start` fires again
+		// mid-interaction — each segment adds to the total rather than resetting.
+		state.markAgentEnd();
 
 		// Find the last assistant message and extract its text.
 		const assistantMsgs = event.messages.filter(
@@ -426,6 +514,29 @@ export default function (pi: ExtensionAPI) {
 			return { action: "handled" as const };
 		}
 		return undefined;
+	});
+
+	// -----------------------------------------------------------------------
+	// user_bash — redirect !/!! commands to workspace directory
+	// -----------------------------------------------------------------------
+
+	pi.on("user_bash", async (event, _ctx) => {
+		debug.event("user_bash", { command: event.command });
+
+		if (state.isInactive()) return undefined;
+
+		const wsPath = state.getWorkspacePath();
+		if (!wsPath) return undefined;
+
+		const ops = createLocalBashOperations();
+		const result: UserBashEventResult = {
+			operations: {
+				exec: (command, _cwd, options) =>
+					ops.exec(command, wsPath, options),
+			},
+		};
+
+		return result;
 	});
 
 	// -----------------------------------------------------------------------

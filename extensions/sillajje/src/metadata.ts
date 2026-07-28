@@ -20,6 +20,8 @@ export interface CommitBodyData {
 	prompt: string;
 	metadata: string;
 	response: string;
+	/** AI-generated summary from the sub-generator. Optional — empty string omits the section. */
+	summary: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,17 +50,14 @@ export function deriveSubject(prompt: string): string {
 
 /**
  * Build the programmatic metadata block for the commit body.
+ * Returns a compact two-line block.
  */
 export function buildMetadata(meta: InteractionMeta): string {
 	const elapsed = (meta.elapsedMs / 1000).toFixed(1);
 
 	return [
-		`tools_used: ${meta.toolNames.join(", ")}`,
-		`tool_calls: ${meta.toolCallCount}`,
-		`elapsed: ${elapsed}s`,
-		`thinking_blocks: ${meta.thinkingBlocks}`,
-		`workspace: sillajje/${meta.sessionId}`,
-		`generated_by: sillajje`,
+		`Meta: ${meta.toolNames.join(", ")} | ${meta.toolCallCount} calls | ${elapsed}s`,
+		`  ${meta.thinkingBlocks} blocks | sillajje/${meta.sessionId}`,
 	].join("\n");
 }
 
@@ -67,17 +66,37 @@ export function buildMetadata(meta: InteractionMeta): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Build the full commit body from subject, prompt, metadata, and response.
+ * Build the full commit body with labeled sections.
+ *
+ * Each narrative section (Prompt, Summary, Response) is prefixed with `Label:\n`
+ * so the boundary is unambiguous even if the content contains markdown.
+ * Metadata is a compact block. Empty sections are omitted.
+ *
+ * Section order:
+ *   subject blank-line Prompt blank-line Meta blank-line Summary blank-line Response
  */
 export function buildCommitBody(data: CommitBodyData): string {
-	const parts: string[] = [data.subject, "", data.prompt];
+	const parts: string[] = [data.subject, ""];
+
+	if (data.prompt) {
+		parts.push("Prompt:", data.prompt, "");
+	}
 
 	if (data.metadata) {
-		parts.push("", data.metadata);
+		parts.push(data.metadata, "");
+	}
+
+	if (data.summary) {
+		parts.push("Summary:", data.summary, "");
 	}
 
 	if (data.response) {
-		parts.push("", data.response);
+		parts.push("Response:", data.response);
+	}
+
+	// Strip trailing blank line if the last section was omitted
+	while (parts.length > 0 && parts[parts.length - 1] === "") {
+		parts.pop();
 	}
 
 	return parts.join("\n");

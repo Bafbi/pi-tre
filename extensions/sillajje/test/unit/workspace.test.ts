@@ -60,12 +60,16 @@ describe("workspaceName", () => {
 // ---------------------------------------------------------------------------
 
 describe("createWorkspace", () => {
-	it("calls jj workspace add with correct arguments from trunk()", async () => {
+	it("calls jj workspace add with --revision @- when @- exists", async () => {
 		const tmpDir = mkdtempSync(join(tmpdir(), "sillajje-ws-test-"));
 		const wsRoot = join(tmpDir, "workspaces");
 		const repo = join(tmpDir, "repo");
 
-		const exec = vi.fn<ExecFn>().mockResolvedValue(ok());
+		// First call: @- exists, second call: workspace add succeeds
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValueOnce(ok())
+			.mockResolvedValueOnce(ok());
 
 		const info = await createWorkspace(exec, repo, "abc123", wsRoot);
 
@@ -73,17 +77,49 @@ describe("createWorkspace", () => {
 		expect(info.workspacePath).toBe(`${wsRoot}/repo/abc123`);
 		expect(existsSync(wsRoot)).toBe(true);
 
-		expect(exec).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = exec.mock.calls[0];
+		expect(exec).toHaveBeenCalledTimes(2);
+		// First call: check @- exists
+		const [logCmd, logArgs, logOpts] = exec.mock.calls[0];
+		expect(logCmd).toBe("jj");
+		expect(logArgs).toEqual(["log", "-r", "@-"]);
+		expect(logOpts).toEqual({ cwd: repo });
+
+		// Second call: workspace add with @-
+		const [cmd, args, opts] = exec.mock.calls[1];
 		expect(cmd).toBe("jj");
 		expect(args[0]).toBe("workspace");
 		expect(args[1]).toBe("add");
 		expect(args[2]).toBe("--name");
 		expect(args[3]).toBe("sillajje-abc123");
 		expect(args[4]).toBe("--revision");
-		expect(args[5]).toBe("@");
+		expect(args[5]).toBe("@-");
 		expect(args[6]).toBe(`${wsRoot}/repo/abc123`);
 		expect(opts).toEqual({ cwd: repo });
+
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("falls back to --revision @ when @- does not exist", async () => {
+		const tmpDir = mkdtempSync(join(tmpdir(), "sillajje-ws-test-"));
+		const wsRoot = join(tmpDir, "workspaces");
+		const repo = join(tmpDir, "repo");
+
+		// First call: @- doesn't exist, second call: workspace add succeeds
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValueOnce(fail("revset @- not found"))
+			.mockResolvedValueOnce(ok());
+
+		const info = await createWorkspace(exec, repo, "abc123", wsRoot);
+
+		expect(info.workspaceName).toBe("sillajje-abc123");
+		expect(info.workspacePath).toBe(`${wsRoot}/repo/abc123`);
+
+		expect(exec).toHaveBeenCalledTimes(2);
+		// Second call: workspace add with @ (fallback)
+		const [, args] = exec.mock.calls[1];
+		expect(args[4]).toBe("--revision");
+		expect(args[5]).toBe("@");
 
 		rmSync(tmpDir, { recursive: true, force: true });
 	});
@@ -111,9 +147,11 @@ describe("createWorkspace", () => {
 		const wsRoot = join(tmpDir, "workspaces");
 		const repo = join(tmpDir, "repo");
 
+		// First call: @- exists, second call: workspace add fails
 		const exec = vi
 			.fn<ExecFn>()
-			.mockResolvedValue(fail("no such revision"));
+			.mockResolvedValueOnce(ok())
+			.mockResolvedValueOnce(fail("no such revision"));
 
 		await expect(
 			createWorkspace(exec, repo, "abc123", wsRoot),

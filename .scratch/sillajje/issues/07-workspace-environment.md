@@ -8,31 +8,31 @@
 
 **Blocked by:** 02 — Workspace creation (complete). The workspace must exist before any of these apply.
 
-**Status:** ready-for-agent
+**Status:** complete
 
 ## Tasks
 
 ### 7a — Workspace base revision
 
-- [ ] In `workspace.ts`, change `createWorkspace` to use `@-` instead of `@`: `jj workspace add --name <name> --revision @- <path>`
-- [ ] Fall back to `@` when `@-` doesn't exist (e.g. first commit in repo) — detect via `jj log -r @-` exit code before workspace creation
-- [ ] Unit test: verify correct `--revision` flag is passed for both cases
-- [ ] Integration test: workspace created from `@-` exists and is a valid checkout
+- [x] In `workspace.ts`, change `createWorkspace` to use `@-` instead of `@`: `jj workspace add --name <name> --revision @- <path>`
+- [x] Fall back to `@` when `@-` doesn't exist (e.g. first commit in repo) — detect via `jj log -r @-` exit code before workspace creation
+- [x] Unit test: verify correct `--revision` flag is passed for both cases
+- [x] Integration test: workspace created from `@-` exists and is a valid checkout
 
 ### 7b — System prompt education
 
-- [ ] Update the workspace block in `before_agent_start` handler to explain:
+- [x] Update the workspace block in `before_agent_start` handler to explain:
   - This is a clean checkout — gitignored files (node_modules, etc.) are absent
   - This is normal
   - Install dependencies using whatever method the repo recommends
   - Use relative paths; absolute paths pointing at the original repo will be blocked
-- [ ] Integration test: system prompt contains the explanatory text about missing deps
+- [x] Integration test: system prompt contains the explanatory text about missing deps
 
 ### 7c — `user_bash` interception
 
-- [ ] Import `createLocalBashOperations` from `@earendil-works/pi-coding-agent`
-- [ ] Register `pi.on("user_bash", ...)` handler in `index.ts`
-- [ ] When active: wrap `createLocalBashOperations()` and override `cwd` with workspace path
-- [ ] When inactive: pass through (return `undefined`)
-- [ ] Unit test: mocked `user_bash` event, assert workspace cwd override
-- [ ] Integration test: `!pwd` in active session returns workspace path; `!pwd` in inactive session returns original cwd
+- [x] Import `createLocalBashOperations` from `@earendil-works/pi-coding-agent`
+- [x] Register `pi.on("user_bash", ...)` handler in `index.ts`
+- [x] When active: wrap `createLocalBashOperations()` and override `cwd` with workspace path
+- [x] When inactive: pass through (return `undefined`)
+- [x] Integration test: active session returns `{ operations }`, inactive returns undefined
+- [x] Integration test: `operations.exec()` ignores passed cwd and runs in workspace path

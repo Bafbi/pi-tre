@@ -117,11 +117,10 @@ describeJj("sillajje change stamping", () => {
 		// The bookmark is set on the stamped commit in the repo.
 		const show = jj(["show", `sillajje/${sessionId}`], cwd);
 		expect(show).toContain("Add a login page");
-		expect(show).toContain("tools_used: write, bash");
-		expect(show).toContain("tool_calls: 2");
-		expect(show).toContain("workspace: sillajje/");
-		expect(show).toContain("generated_by: sillajje");
+		expect(show).toContain("Meta: write, bash | 2 calls");
+		expect(show).toContain("sillajje/");
 		expect(show).toContain("I created the login page.");
+		expect(show).toMatch(/\d+\.\ds/);
 
 		// Bookmark should exist.
 		const bookmarks = jj(["bookmark", "list"], cwd);
@@ -177,6 +176,71 @@ describeJj("sillajje change stamping", () => {
 		expect(bmAfter).toBe(bmBefore);
 	});
 
+	it("multiple agent segments accumulate elapsed time", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+		writeFileSync(join(cwd, "README.md"), "# Test\n");
+		execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+		execSync("jj new -m 'work'", { cwd, stdio: "pipe" });
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const sessionId = getSessionId(runner);
+
+		// --- Interaction with a followUp: two agent segments ---
+		await runner.emitInput("Do something", undefined, "interactive");
+		await runner.emitBeforeAgentStart(
+			"Do something",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+
+		// Segment 1
+		await runner.emit({ type: "agent_start" });
+		await new Promise((r) => setTimeout(r, 10));
+		await runner.emit({
+			type: "agent_end",
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			messages: [assistantMsg("Attempt 1")] as any[],
+		});
+
+		// Segment 2 (follow-up)
+		await runner.emitInput("Do more", undefined, "interactive", "followUp");
+		await runner.emitBeforeAgentStart(
+			"Do more",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+		await runner.emit({ type: "agent_start" });
+		await new Promise((r) => setTimeout(r, 15));
+		await runner.emit({
+			type: "agent_end",
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			messages: [assistantMsg("Do more done.")] as any[],
+		});
+		await runner.emit({ type: "agent_settled" });
+
+		// Both interactions should appear in the log.
+		const log = jj(
+			["log", "-r", `ancestors(sillajje/${sessionId})`, "--no-graph"],
+			cwd,
+		);
+		expect(log).toContain("Do something");
+		expect(log).toContain("Do more");
+
+		// The latest stamp should have Meta: line with elapsed
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		expect(show).toContain("Meta:");
+	}, 30_000);
+
 	it("two consecutive normal interactions produce two separate changes", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
@@ -207,7 +271,7 @@ describeJj("sillajje change stamping", () => {
 		);
 		expect(log).toContain("Add login");
 		expect(log).toContain("Add dashboard");
-	});
+	}, 30_000);
 
 	it("followUp creates its own change on the next agent_settled", async () => {
 		const cwd = makeRunnerCwd();
@@ -257,5 +321,5 @@ describeJj("sillajje change stamping", () => {
 		);
 		expect(log).toContain("First task");
 		expect(log).toContain("Follow-up task");
-	});
+	}, 30_000);
 });

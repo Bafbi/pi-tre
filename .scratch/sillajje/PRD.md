@@ -1,4 +1,4 @@
-Status: active — issues 01-04 complete, 04b/05/06/07/08/09 designed
+Status: active — issues 01-05, 04b, 07 complete; 06/08/09 designed
 
 # Sillajje — Auto-versioning for Pi agent sessions
 

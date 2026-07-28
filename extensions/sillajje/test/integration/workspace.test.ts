@@ -38,7 +38,7 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		expect(call[1]).toContain(".pi/sillajje");
 	});
 
-	it("session_start creates a jj workspace on trunk()", async () => {
+	it("session_start creates a jj workspace", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
 
@@ -52,6 +52,33 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 
 		const defaultRoot = `${homedir()}/.pi/sillajje`;
 		expect(existsSync(defaultRoot)).toBe(true);
+	});
+
+	it("workspace is created and appears in jj workspace list", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+		// Create an initial commit so @- exists.
+		execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+		execSync("jj new -m 'second'", { cwd, stdio: "pipe" });
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const ctx = runner.createContext();
+		const sessionId = ctx.sessionManager.getSessionId();
+		expect(sessionId).toBeDefined();
+
+		const workspaceList = execSync("jj workspace list", {
+			cwd,
+			encoding: "utf-8",
+			stdio: "pipe",
+		});
+		expect(workspaceList).toContain(`sillajje-${sessionId}`);
 	});
 
 	it("before_agent_start injects workspace path into system prompt", async () => {
@@ -98,5 +125,30 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		await expect(
 			cmd?.handler("status", runner.createCommandContext()),
 		).resolves.toBeUndefined();
+	});
+
+	it("system prompt explains workspace is a clean checkout with missing deps and relative paths", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const result = await runner.emitBeforeAgentStart(
+			"do something",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+
+		expect(result?.systemPrompt).toContain("clean checkout");
+		expect(result?.systemPrompt).toContain("node_modules");
+		expect(result?.systemPrompt).toContain("install");
+		expect(result?.systemPrompt).toContain("relative paths");
 	});
 });
