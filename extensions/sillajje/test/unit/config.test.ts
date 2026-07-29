@@ -7,6 +7,7 @@ import { loadSillajjeConfig } from "../../src/config";
 const GLOBAL_CONFIG_DIR = join(homedir(), ".pi/configs");
 const GLOBAL_CONFIG_PATH = join(GLOBAL_CONFIG_DIR, "sillajje.json");
 const tempDirs: string[] = [];
+const ENV_VAR = "SILLAJJE_POST_INIT";
 
 function cleanUp() {
 	try {
@@ -21,6 +22,7 @@ function cleanUp() {
 			/* ok */
 		}
 	}
+	delete process.env[ENV_VAR];
 }
 
 function writeGlobalConfig(config: Record<string, unknown>) {
@@ -80,6 +82,50 @@ describe("loadSillajjeConfig", () => {
 		writeGlobalConfig({ subGeneratorModel: "claude-sonnet" });
 		const config = loadSillajjeConfig();
 		expect(config.subGeneratorModel).toBe("claude-sonnet");
+	});
+
+	it("reads postInit from global config", () => {
+		writeGlobalConfig({
+			postInit: ["pnpm install", "mise install"],
+		});
+		const config = loadSillajjeConfig();
+		expect(config.postInit).toEqual(["pnpm install", "mise install"]);
+	});
+
+	it("parses SILLAJJE_POST_INIT env var into postInit array", () => {
+		process.env[ENV_VAR] = "pnpm install; mise install";
+		const config = loadSillajjeConfig();
+		expect(config.postInit).toEqual(["pnpm install", "mise install"]);
+	});
+
+	it("SILLAJJE_POST_INIT env var overrides global config", () => {
+		writeGlobalConfig({ postInit: ["from-config"] });
+		process.env[ENV_VAR] = "from-env";
+		const config = loadSillajjeConfig();
+		expect(config.postInit).toEqual(["from-env"]);
+	});
+
+	it("SILLAJJE_POST_INIT env var overrides project config", () => {
+		const repoRoot = mkdtempSync(
+			join(homedir(), ".pi/sillajje-config-test-"),
+		);
+		tempDirs.push(repoRoot);
+		writeProjectConfig(repoRoot, { postInit: ["from-project"] });
+		process.env[ENV_VAR] = "from-env";
+		const config = loadSillajjeConfig(repoRoot);
+		expect(config.postInit).toEqual(["from-env"]);
+	});
+
+	it("empty SILLAJJE_POST_INIT env var yields empty array", () => {
+		process.env[ENV_VAR] = "";
+		const config = loadSillajjeConfig();
+		expect(config.postInit).toEqual([]);
+	});
+
+	it("whitespace-only entries in SILLAJJE_POST_INIT are trimmed", () => {
+		process.env[ENV_VAR] = "  pnpm install ;  mise install  ";
+		const config = loadSillajjeConfig();
+		expect(config.postInit).toEqual(["pnpm install", "mise install"]);
 	});
 
 	it("partial global config merges with defaults", () => {

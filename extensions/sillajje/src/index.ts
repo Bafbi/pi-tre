@@ -101,6 +101,65 @@ export default function (pi: ExtensionAPI) {
 	const exec: ExecFn = (command, args, options) =>
 		pi.exec(command, args, options);
 
+	// -------------------------------------------------------------------
+	// runPostInit — execute post-init commands after workspace creation
+	// -------------------------------------------------------------------
+
+	const runPostInit = async (ctx: {
+		hasUI: boolean;
+		ui: { notify: (msg: string, type: "info" | "warning" | "error") => void };
+	}) => {
+		const commands = activeConfig?.postInit;
+		if (!commands || commands.length === 0) return;
+
+		const wsPath = state.getWorkspacePath();
+		if (!wsPath) return;
+
+		let allSucceeded = true;
+		for (const cmd of commands) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(`[sillajje] post-init: ${cmd}...`, "info");
+			}
+			try {
+				const result = await pi.exec("sh", ["-c", cmd], {
+					cwd: wsPath,
+				});
+				if (result.code !== 0) {
+					allSucceeded = false;
+					debug.error("post_init_failed", {
+						cmd,
+						code: result.code,
+						stderr: result.stderr,
+					});
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] post-init command failed (exit ${result.code}): ${cmd}`,
+							"error",
+						);
+					}
+				}
+			} catch (err) {
+				allSucceeded = false;
+				debug.error("post_init_error", { cmd, err: String(err) });
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] post-init command failed: ${cmd}`,
+						"error",
+					);
+				}
+			}
+		}
+
+		if (ctx.hasUI) {
+			ctx.ui.notify(
+				allSucceeded
+					? `[sillajje] post-init: ${commands.length} command(s) completed`
+					: "[sillajje] post-init: completed with errors",
+				allSucceeded ? "info" : "warning",
+			);
+		}
+	};
+
 	// Helper: sync the footer status pill to current state.
 	const syncPill = (ctx: {
 		hasUI: boolean;
@@ -159,6 +218,10 @@ export default function (pi: ExtensionAPI) {
 					activeConfig.workspacesRoot,
 				);
 				state.setWorkspacePath(info.workspacePath);
+
+				// Run post-init commands (non-fatal — session activates regardless).
+				await runPostInit(ctx);
+
 				debug.event("workspace_ready", { path: info.workspacePath });
 				syncPill(ctx);
 

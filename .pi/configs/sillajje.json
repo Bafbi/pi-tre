@@ -1,4 +1,6 @@
 {
+	"$schema": "../../extensions/sillajje/sillajje-config.schema.json",
 	"debug": true,
-	"subGeneratorModel": "opencode-go/deepseek-v4-flash"
+	"subGeneratorModel": "opencode-go/deepseek-v4-flash",
+	"postInit": ["mise trust", "mise deps"]
 }

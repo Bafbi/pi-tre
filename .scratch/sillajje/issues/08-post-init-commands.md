@@ -18,7 +18,7 @@ SILLAJJE_POST_INIT="pnpm install; mise install" pi
 
 **Blocked by:** None — can start immediately. Workspace creation (issue 02) and config system (config.ts) are already in place.
 
-**Status:** ready-for-agent
+**Status:** complete
 
 ## Design
 
@@ -30,15 +30,15 @@ SILLAJJE_POST_INIT="pnpm install; mise install" pi
 
 ## Tasks
 
-- [ ] Add `postInit: string[]` field to `SillajjeConfig` interface in `config.ts`
-- [ ] Add `SILLAJJE_POST_INIT` env var parsing in `config.ts` (split on `;`)
-- [ ] Env var takes precedence over config file
-- [ ] In `session_start` handler, after workspace creation: iterate `postInit` commands
-- [ ] Run each command via `pi.exec(cmd, [], { cwd: workspacePath })` or shell execution
-- [ ] Wrap in try/catch, notify on each failure, continue to next command
-- [ ] Show progress notification: `[sillajje] running post-init: pnpm install...`
-- [ ] Show success notification: `[sillajje] post-init complete`
-- [ ] Show error notification on failure: `[sillajje] post-init command failed: ...`
-- [ ] Unit tests for `config.ts`: postInit field loading, env var parsing, precedence
-- [ ] Integration test: session_start runs post-init commands, success/error notifications fire
-- [ ] Integration test: commands run from workspace directory (create a file, assert it exists in workspace)
+- [x] Add `postInit: string[]` field to `SillajjeConfig` interface in `config.ts`
+- [x] Add `SILLAJJE_POST_INIT` env var parsing in `config.ts` (split on `;`)
+- [x] Env var takes precedence over config file
+- [x] In `session_start` handler, after workspace creation: iterate `postInit` commands
+- [x] Run each command via `pi.exec("sh", ["-c", cmd], { cwd: wsPath })`
+- [x] Wrap in try/catch, notify on each failure, continue to next command
+- [x] Show progress notification: `[sillajje] post-init: pnpm install...`
+- [x] Show completion notification (success or with-errors variants)
+- [x] Show error notification on failure: `[sillajje] post-init command failed: ...`
+- [x] Unit tests for `config.ts`: postInit field loading, env var parsing, precedence (6 new tests)
+- [x] Integration test: commands create files in workspace (2 tests)
+- [x] Integration test: errors are non-fatal, session activates, subsequent commands still run

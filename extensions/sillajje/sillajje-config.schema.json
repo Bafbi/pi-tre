@@ -1,0 +1,29 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema#",
+	"additionalProperties": false,
+	"type": "object",
+	"properties": {
+		"$schema": {
+			"type": "string"
+		},
+		"debug": {
+			"default": false,
+			"type": "boolean"
+		},
+		"workspacesRoot": {
+			"default": "/home/neudeline/.pi/sillajje",
+			"type": "string"
+		},
+		"subGeneratorModel": {
+			"default": "openai/gpt-4o-mini",
+			"type": "string"
+		},
+		"postInit": {
+			"default": [],
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		}
+	}
+}
