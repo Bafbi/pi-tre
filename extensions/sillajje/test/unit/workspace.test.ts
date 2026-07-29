@@ -4,11 +4,14 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	bookmarkExists,
 	cleanupWorkspace,
 	createWorkspace,
 	type ExecFn,
 	getRepoSlug,
+	getWorkspacePathByName,
 	resolveWorkspacePath,
+	unarchiveWorkspace,
 	workspaceExists,
 	workspaceForget,
 	workspaceName,
@@ -268,5 +271,129 @@ describe("cleanupWorkspace", () => {
 		await expect(
 			cleanupWorkspace(exec, "sillajje-abc", "/tmp/nonexistent-dir"),
 		).resolves.toBeUndefined();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// getWorkspacePathByName
+// ---------------------------------------------------------------------------
+
+describe("getWorkspacePathByName", () => {
+	it("returns path when workspace name is found in jj workspace list", async () => {
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValue(
+				ok("default: /repo\nsillajje-abc123: /tmp/ws/repo/abc123\n"),
+			);
+
+		const path = await getWorkspacePathByName(exec, "sillajje-abc123");
+		expect(path).toBe("/tmp/ws/repo/abc123");
+	});
+
+	it("returns undefined when workspace name not in list", async () => {
+		const exec = vi.fn<ExecFn>().mockResolvedValue(ok("default: /repo\n"));
+
+		await expect(
+			getWorkspacePathByName(exec, "sillajje-unknown"),
+		).resolves.toBeUndefined();
+	});
+
+	it("returns undefined when jj workspace list fails", async () => {
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValue(fail("fatal: not a jj repo"));
+
+		await expect(
+			getWorkspacePathByName(exec, "sillajje-abc123"),
+		).resolves.toBeUndefined();
+	});
+
+	it("parses correct line when multiple workspaces exist", async () => {
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValue(
+				ok(
+					"default: /main\nsillajje-aaa: /ws/aaa\nsillajje-bbb: /ws/bbb\n",
+				),
+			);
+
+		const path = await getWorkspacePathByName(exec, "sillajje-bbb");
+		expect(path).toBe("/ws/bbb");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// bookmarkExists
+// ---------------------------------------------------------------------------
+
+describe("bookmarkExists", () => {
+	it("returns true when bookmark name appears in jj bookmark list", async () => {
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValue(ok("sillajje/abc123: xyz123\n"));
+
+		await expect(
+			bookmarkExists(exec, "sillajje/abc123", "/repo"),
+		).resolves.toBe(true);
+	});
+
+	it("returns false when bookmark not in list", async () => {
+		const exec = vi.fn<ExecFn>().mockResolvedValue(ok(""));
+
+		await expect(
+			bookmarkExists(exec, "sillajje/abc123", "/repo"),
+		).resolves.toBe(false);
+	});
+
+	it("returns false when jj bookmark list fails", async () => {
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValue(fail("fatal: not a jj repo"));
+
+		await expect(
+			bookmarkExists(exec, "sillajje/abc123", "/repo"),
+		).resolves.toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// unarchiveWorkspace
+// ---------------------------------------------------------------------------
+
+describe("unarchiveWorkspace", () => {
+	it("calls jj workspace add with correct --revision and path", async () => {
+		const exec = vi.fn<ExecFn>().mockResolvedValue(ok());
+
+		const info = await unarchiveWorkspace(
+			exec,
+			"/home/user/repo",
+			"abc123",
+			"/tmp/ws",
+		);
+
+		expect(info.workspaceName).toBe("sillajje-abc123");
+		expect(info.workspacePath).toBe("/tmp/ws/repo/abc123");
+
+		expect(exec).toHaveBeenCalledTimes(1);
+		const [cmd, args, opts] = exec.mock.calls[0];
+		expect(cmd).toBe("jj");
+		expect(args[0]).toBe("workspace");
+		expect(args[1]).toBe("add");
+		expect(args[2]).toBe("--name");
+		expect(args[3]).toBe("sillajje-abc123");
+		expect(args[4]).toBe("--revision");
+		expect(args[5]).toBe("sillajje/abc123");
+		expect(args[6]).toBe("/tmp/ws/repo/abc123");
+		expect(opts).toEqual({ cwd: "/home/user/repo" });
+	});
+
+	it("throws when jj workspace add fails", async () => {
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValue(fail("no such revision"));
+
+		await expect(
+			unarchiveWorkspace(exec, "/home/user/repo", "abc123", "/tmp/ws"),
+		).rejects.toThrow("jj workspace add failed");
 	});
 });

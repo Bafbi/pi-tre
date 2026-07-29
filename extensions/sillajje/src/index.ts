@@ -17,6 +17,9 @@ import {
 	cleanupWorkspace,
 	createWorkspace,
 	type ExecFn,
+	getWorkspacePathByName,
+	resolveWorkspacePath,
+	unarchiveWorkspace,
 	workspaceName as wsName,
 } from "./workspace.js";
 
@@ -188,8 +191,10 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event, _ctx) => {
 		debug.event("before_agent_start", { promptLen: event.prompt.length });
-		if (state.isInactive()) {
-			debug.event("before_agent_start_skip", { reason: "inactive" });
+		if (state.isInactive() || state.isArchived()) {
+			debug.event("before_agent_start_skip", {
+				reason: state.isInactive() ? "inactive" : "archived",
+			});
 			return undefined;
 		}
 
@@ -591,21 +596,140 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				case "archive": {
+					const parts = args.trim().split(/\s+/);
+					const targetSessionId = parts[1] || state.getSessionId();
+
+					if (!targetSessionId) {
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								"[sillajje] no session ID available to archive",
+								"error",
+							);
+						}
+						break;
+					}
+
+					const wsNameInternal = wsName(targetSessionId);
+					let wsPath: string | undefined;
+
+					// If archiving the current session, use the stored workspace path.
+					// Otherwise, look it up from jj workspace list.
+					if (
+						targetSessionId === state.getSessionId() &&
+						state.getWorkspacePath()
+					) {
+						wsPath = state.getWorkspacePath();
+					} else {
+						try {
+							wsPath = await getWorkspacePathByName(
+								exec,
+								wsNameInternal,
+							);
+						} catch {
+							// getWorkspacePathByName catches errors internally
+						}
+					}
+
+					if (!wsPath) {
+						// Workspace already gone — just update state if it's the current session.
+						if (
+							targetSessionId === state.getSessionId() &&
+							state.isActive()
+						) {
+							state.setArchived();
+							state.clearWorkspacePath();
+							state.resetInteraction();
+							syncPill(ctx);
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									`[sillajje] session ${targetSessionId} archived (workspace already gone)`,
+									"info",
+								);
+							}
+						} else if (ctx.hasUI) {
+							ctx.ui.notify(
+								`[sillajje] no workspace found for session ${targetSessionId}`,
+								"warning",
+							);
+						}
+						break;
+					}
+
+					// Forget the workspace and delete the directory.
+					await cleanupWorkspace(exec, wsNameInternal, wsPath);
+
+					// Update state if this is the current session.
+					if (targetSessionId === state.getSessionId()) {
+						state.setArchived();
+						state.clearWorkspacePath();
+						state.resetInteraction();
+					}
+
+					syncPill(ctx);
+
 					if (ctx.hasUI) {
 						ctx.ui.notify(
-							"[sillajje] archive not yet implemented",
-							"warning",
+							`[sillajje] session ${targetSessionId} archived`,
+							"info",
 						);
 					}
 					break;
 				}
 
 				case "unarchive": {
-					if (ctx.hasUI) {
-						ctx.ui.notify(
-							"[sillajje] unarchive not yet implemented",
-							"warning",
+					const parts = args.trim().split(/\s+/);
+					const targetSessionId = parts[1];
+
+					if (!targetSessionId) {
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								"[sillajje] usage: /sillajje unarchive <session-id>",
+								"warning",
+							);
+						}
+						break;
+					}
+
+					const repoRoot = state.getRepoRoot();
+					const workspacesRoot = activeConfig?.workspacesRoot;
+					if (!repoRoot || !workspacesRoot) {
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								"[sillajje] cannot unarchive: no repo root or config",
+								"error",
+							);
+						}
+						break;
+					}
+
+					try {
+						const info = await unarchiveWorkspace(
+							exec,
+							repoRoot,
+							targetSessionId,
+							workspacesRoot,
 						);
+
+						// Restore state for the unarchived session.
+						state.setSessionId(targetSessionId);
+						state.setActive();
+						state.setWorkspacePath(info.workspacePath);
+						syncPill(ctx);
+
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								`[sillajje] workspace restored at ${info.workspacePath}`,
+								"info",
+							);
+						}
+					} catch (err) {
+						debug.error("unarchive_failed", err);
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								`[sillajje] unarchive failed: ${String(err)}`,
+								"error",
+							);
+						}
 					}
 					break;
 				}

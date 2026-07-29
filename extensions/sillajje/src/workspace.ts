@@ -1,8 +1,8 @@
 /**
  * Workspace lifecycle: creation, detection, archiving, and unarchiving of jj workspaces.
  *
- * This module wraps `jj workspace` commands. All jj interaction goes through here
- * via an injected `ExecFn` adapter so the module stays testable.
+ * This module wraps `jj workspace` and `jj bookmark` commands. All jj interaction
+ * goes through here via an injected `ExecFn` adapter so the module stays testable.
  */
 
 import { existsSync, mkdirSync, rmSync } from "node:fs";
@@ -171,4 +171,96 @@ export async function cleanupWorkspace(
 	} catch {
 		// Directory may already be deleted — that's fine.
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Archive / unarchive helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Get the workspace directory path from `jj workspace list` for a given
+ * workspace name.
+ *
+ * Parses the output format `<name>: <path>` and returns the path when the
+ * named workspace is found. Returns `undefined` when no match is found or
+ * the command fails.
+ */
+export async function getWorkspacePathByName(
+	exec: ExecFn,
+	name: string,
+): Promise<string | undefined> {
+	const result = await exec("jj", ["workspace", "list"]);
+	if (result.code !== 0) return undefined;
+
+	for (const line of result.stdout.split("\n")) {
+		const colonIdx = line.indexOf(":");
+		if (colonIdx === -1) continue;
+		const wsName = line.slice(0, colonIdx).trim();
+		const wsPath = line.slice(colonIdx + 1).trim();
+		if (wsName === name && wsPath.length > 0) return wsPath;
+	}
+
+	return undefined;
+}
+
+/**
+ * Check whether a jj bookmark exists by scanning `jj bookmark list`.
+ */
+export async function bookmarkExists(
+	exec: ExecFn,
+	bookmarkName: string,
+	repoRoot: string,
+): Promise<boolean> {
+	const result = await exec("jj", ["bookmark", "list"], { cwd: repoRoot });
+	if (result.code !== 0) return false;
+	return result.stdout
+		.split("\n")
+		.some((line) => line.trim().startsWith(bookmarkName));
+}
+
+/**
+ * Unarchive a sillajje session: recreate a jj workspace from the session's
+ * bookmark.
+ *
+ * Runs `jj workspace add --name <name> --revision sillajje/<id> <path>`
+ * to restore the workspace from the saved bookmark. The bookmark must exist
+ * before calling this.
+ *
+ * @throws when `jj workspace add` fails.
+ */
+export async function unarchiveWorkspace(
+	exec: ExecFn,
+	repoRoot: string,
+	sessionId: string,
+	workspacesRoot: string,
+): Promise<WorkspaceInfo> {
+	const wsName = workspaceName(sessionId);
+	const wsPath = resolveWorkspacePath(repoRoot, sessionId, workspacesRoot);
+
+	// Create the parent directory of the workspace path.
+	// jj workspace add will create the leaf directory (session-id),
+	// but the repo-slug directory must already exist.
+	mkdirSync(dirname(wsPath), { recursive: true });
+
+	const result = await exec(
+		"jj",
+		[
+			"workspace",
+			"add",
+			"--name",
+			wsName,
+			"--revision",
+			`sillajje/${sessionId}`,
+			wsPath,
+		],
+		{ cwd: repoRoot },
+	);
+
+	if (result.code !== 0) {
+		throw new Error(
+			`jj workspace add failed (exit ${result.code}): ${result.stderr}`,
+		);
+	}
+
+	return { workspacePath: wsPath, workspaceName: wsName };
 }

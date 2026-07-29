@@ -100,6 +100,47 @@ describe("SessionState", () => {
 		s.reset();
 		expect(s.hasUserPrompted()).toBe(false);
 	});
+
+	it("clearWorkspacePath unsets the workspace path", () => {
+		const s = new SessionState();
+		s.setDetection(true, "/repo");
+		s.setWorkspacePath("/tmp/ws/repo/sess-001");
+		s.clearWorkspacePath();
+		expect(s.getWorkspacePath()).toBeUndefined();
+	});
+
+	it("archive transition: setArchived + clearWorkspacePath keeps sessionId and repoRoot", () => {
+		const s = new SessionState();
+		s.setDetection(true, "/repo");
+		s.setSessionId("sess-001");
+		s.setWorkspacePath("/tmp/ws/repo/sess-001");
+
+		s.setArchived();
+		s.clearWorkspacePath();
+
+		expect(s.isArchived()).toBe(true);
+		expect(s.isActive()).toBe(false);
+		expect(s.getWorkspacePath()).toBeUndefined();
+		expect(s.getSessionId()).toBe("sess-001");
+		expect(s.getRepoRoot()).toBe("/repo");
+	});
+
+	it("unarchive transition: setActive + setWorkspacePath restores workspace", () => {
+		const s = new SessionState();
+		s.setDetection(true, "/repo");
+		s.setSessionId("sess-001");
+		s.setArchived();
+		s.clearWorkspacePath();
+
+		expect(s.isArchived()).toBe(true);
+
+		s.setActive();
+		s.setWorkspacePath("/tmp/ws/repo/sess-001");
+
+		expect(s.isActive()).toBe(true);
+		expect(s.isArchived()).toBe(false);
+		expect(s.getWorkspacePath()).toBe("/tmp/ws/repo/sess-001");
+	});
 });
 
 // ---------------------------------------------------------------------------

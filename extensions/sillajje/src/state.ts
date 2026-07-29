@@ -110,6 +110,10 @@ export class SessionState {
 		this.workspacePath = path;
 	}
 
+	clearWorkspacePath(): void {
+		this.workspacePath = undefined;
+	}
+
 	setArchived(): void {
 		this.lifecycle = "archived";
 	}
