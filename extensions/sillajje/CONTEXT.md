@@ -24,8 +24,21 @@ The programmatically-generated block in the commit body listing tools used, tool
 _Avoid_: Telemetry, stats
 
 **Commit body**:
-The full jj description: conventional-commit subject line + user prompt + change metadata + AI-generated summary + agent's final response. Everything reviewable in `jj show`.
+The full jj description: dual-prefix subject line (header) + trace narrative + optional sections (user prompt, change metadata, agent response). Everything reviewable in `jj show`. Section visibility is controlled by `message.body.*` in the sillajje config.
 
 **Sub-generator**:
-A headless Pi process invoked by the extension to produce the subject line and summary from: session transcript (sans tool outputs), the diff, and previous change descriptions.
+Two headless Pi processes (`pi -p --no-session --no-tools`) invoked in parallel by the extension — one produces the dual-prefix subject line (header), the other produces the compressed agent-loop narrative (trace). Inputs: session transcript (user messages + extracted assistant text), the diff, and previous change descriptions.
 _Avoid_: Summarizer, sub-agent
+
+**Header**:
+The dual-prefix subject line produced by the header sub-generator. Format: `<interaction-type>/<conventional-commit>: <description>` (e.g., `debug/fix: null pointer in auth`, `answer: middleware chain explained`). When no files changed, the conventional-commit half is omitted. Configurable via `message.header` — can also be set to `"user_prompt"` to use the first line of the user's prompt instead.
+
+**Trace**:
+The compressed narrative of the agent's thinking-and-tool loop, produced by the trace sub-generator. Captures what the agent thought about, what tools it called and why, what it found, and what decisions it made — not just the final outcome. Three configurable detail levels: `high` (2-4 sentences), `step` (numbered actions), `decision` (key insights and trade-offs).
+_Avoid_: Summary, description
+
+**Dual prefix**:
+A two-part prefix taxonomy where the first part describes the agent's mode of operation and the second (optional) describes what changed. Separated by a slash: `<interaction-type>/<conventional-commit>`.
+
+**Interaction types**:
+The taxonomy of agent modes that form the first half of a dual prefix. Seven canonical types: `act` (executed, files changed), `plan` (designed/scoped), `explore` (read and navigated the codebase), `research` (investigated external sources), `ask` (asked the user a question), `answer` (answered the user's question), `debug` (diagnosed a problem). The header sub-generator picks the best type from the transcript. All can combine with a conventional-commit prefix when files changed.
