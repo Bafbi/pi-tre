@@ -1,12 +1,19 @@
 /**
- * Sub-generator: spawns headless pi to produce subject line and summary.
+ * Sub-generator: two focused headless pi processes for dual-prefix header
+ * and compressed trace, running via `pi -p --no-session --no-tools`.
  *
- * Spawns `pi -p --no-session -m <model>` via an injected spawn adapter,
- * pipes a mustache-rendered prompt as stdin, and parses the structured
- * output: line 1 → conventional-commit subject, remaining → summary.
+ * - `generateHeader()`: spawns one pi process to produce a dual-prefix
+ *   subject line (<interaction-type>/<conventional-commit>: <description>).
+ * - `generateTrace()`: spawns one pi process to produce a compressed
+ *   narrative of the agent's thinking-and-tool loop.
+ *
+ * Both share an injected `SpawnFn` adapter (test seam) and a retry wrapper
+ * that retries up to `maxAttempts` times on failure, with fallback values
+ * on total exhaustion.
  */
 
 import { spawn } from "node:child_process";
+import { deriveSubject } from "./metadata.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,26 +36,49 @@ export interface SubGeneratorContext {
 	previousDescriptions: string[];
 }
 
-export interface SubGeneratorResult {
-	subject: string;
-	summary: string;
+export interface HeaderOptions {
+	model: string;
+	maxAttempts: number;
+	timeoutMs: number;
+	/** User prompt used as fallback subject on exhaustion. */
+	prompt: string;
+}
+
+export interface TraceOptions {
+	model: string;
+	maxAttempts: number;
+	timeoutMs: number;
+	/** Detail level for the trace narrative. */
+	detail: "high" | "step" | "decision";
 }
 
 // ---------------------------------------------------------------------------
-// Defaults
+// Prompt templates (mustache-style)
+// ---------------------------------------------------------------------------
+// Prompt templates (mustache-style)
 // ---------------------------------------------------------------------------
 
-const DEFAULT_SUBJECT = "chore: agent interaction";
-const SUB_GENERATOR_TIMEOUT_MS = 30_000;
-const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const HEADER_PROMPT_TEMPLATE = `You classify AI coding agent interactions and produce commit subject lines.
 
-// ---------------------------------------------------------------------------
-// Prompt template (mustache-style)
-// ---------------------------------------------------------------------------
+Given the conversation transcript and file changes below, classify what the agent was doing and produce a single subject line.
 
-const PROMPT_TEMPLATE = `You are a commit message generator for an AI coding agent.
+Format: <interaction-type>/<conventional-commit>: <description>
+When no files changed, omit the conventional-commit half.
 
-Given the conversation transcript, file changes, and context below, produce a conventional-commit subject line and a concise summary of what the agent did.
+Interaction types:
+- act: The agent executed changes (files were modified)
+- plan: The agent designed or scoped something
+- explore: The agent read and navigated the codebase
+- research: The agent investigated external sources (docs, APIs, repos)
+- ask: The agent asked the user a question
+- answer: The agent answered the user's question
+- debug: The agent diagnosed a problem
+
+Examples:
+  debug/fix: null pointer in auth middleware
+  answer: middleware chain explained
+  act/feat: add login form
+  explore/refactor: audit error handling patterns
 
 ## Conversation
 
@@ -62,49 +92,240 @@ Given the conversation transcript, file changes, and context below, produce a co
 
 {{prior_descriptions}}
 
----
+Respond with exactly one line, max 72 characters.`;
 
-Respond with exactly:
-Line 1: A conventional commit subject line (max 72 characters, e.g. "feat: add login form" or "fix: handle null pointer")
-All subsequent lines: A concise plain-text summary of what the agent changed and why.`;
+const TRACE_HIGH_TEMPLATE = `You summarize AI coding agent interactions as a brief narrative.
+
+Given the conversation transcript and file changes below, write a 2-4 sentence plain-English narrative of what the agent did. Capture:
+1. What problem was being solved
+2. What approach or steps the agent took
+3. What the outcome was
+
+Focus on the agent's thinking process — what it read, what tools it called and why, what it found, and what decisions it made — not just the final result.
+
+## Conversation
+
+{{transcript}}
+
+## File changes
+
+{{diff}}
+
+## Previous change descriptions
+
+{{prior_descriptions}}
+
+Respond with only the narrative, no labels or prefixes.`;
+
+const TRACE_STEP_TEMPLATE = `You summarize AI coding agent interactions as numbered steps.
+
+Given the conversation transcript and file changes below, write numbered steps describing what the agent did and why at each step. Each step should say what the agent was thinking and what tool it used.
+
+## Conversation
+
+{{transcript}}
+
+## File changes
+
+{{diff}}
+
+## Previous change descriptions
+
+{{prior_descriptions}}
+
+Respond with only the numbered steps, no labels or prefixes.`;
+
+const TRACE_DECISION_TEMPLATE = `You summarize AI coding agent interactions by focusing on decisions.
+
+Given the conversation transcript and file changes below, identify the key insights, discoveries, and trade-offs the agent considered. Explain what was decided and why, focusing on the reasoning process rather than every tool call.
+
+## Conversation
+
+{{transcript}}
+
+## File changes
+
+{{diff}}
+
+## Previous change descriptions
+
+{{prior_descriptions}}
+
+Respond with only the narrative, no labels or prefixes.`;
 
 // ---------------------------------------------------------------------------
-// Render
+// Render helpers
 // ---------------------------------------------------------------------------
 
 /**
  * Render the mustache-style prompt template with the given context.
  */
-function renderTemplate(ctx: SubGeneratorContext): string {
+function renderTemplate(template: string, ctx: SubGeneratorContext): string {
 	const priorText =
 		ctx.previousDescriptions.length > 0
 			? ctx.previousDescriptions.join("\n")
 			: "(none)";
 
-	return PROMPT_TEMPLATE.replace(/\{\{transcript\}\}/g, ctx.transcript)
+	return template
+		.replace(/\{\{transcript\}\}/g, ctx.transcript)
 		.replace(/\{\{diff\}\}/g, ctx.diff || "(no file changes)")
 		.replace(/\{\{prior_descriptions\}\}/g, priorText);
 }
 
-/**
- * Parse the sub-generator output.
- * First line → subject, remaining lines → summary.
- */
-function parseOutput(output: string): {
-	subject: string;
-	summary: string;
-} {
-	const trimmed = output.trim();
-	if (!trimmed) return { subject: DEFAULT_SUBJECT, summary: "" };
+// ---------------------------------------------------------------------------
+// Retry wrapper
+// ---------------------------------------------------------------------------
 
-	const firstNewline = trimmed.indexOf("\n");
-	if (firstNewline === -1) {
-		return { subject: trimmed, summary: "" };
+/**
+ * Spawn a subprocess via `spawnFn`, with retry logic.
+ *
+ * Retries up to `maxAttempts` times when:
+ * - The process exits with a non-zero code
+ * - The process throws (timeout, spawn error)
+ * - The output is empty or whitespace-only
+ *
+ * @returns The trimmed stdout on success.
+ * @throws The last error when all attempts are exhausted.
+ */
+async function spawnWithRetry(
+	spawnFn: SpawnFn,
+	cmd: string,
+	args: string[],
+	input: string,
+	timeoutMs: number,
+	maxAttempts: number,
+): Promise<string> {
+	let lastError: Error | undefined;
+
+	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+		try {
+			const result = await spawnFn(cmd, args, input, timeoutMs);
+
+			if (result.code !== 0) {
+				throw new Error(
+					`exited with code ${result.code}: ${result.stderr || "(no stderr)"}`,
+				);
+			}
+
+			const trimmed = result.stdout.trim();
+			if (trimmed.length === 0) {
+				throw new Error("empty output");
+			}
+
+			return trimmed;
+		} catch (err) {
+			lastError = err instanceof Error ? err : new Error(String(err));
+			// Continue to next attempt
+		}
 	}
 
-	const subject = trimmed.slice(0, firstNewline).trim();
-	const summary = trimmed.slice(firstNewline + 1).trim();
-	return { subject, summary };
+	throw lastError ?? new Error("spawnWithRetry: exhausted without lastError");
+}
+
+// ---------------------------------------------------------------------------
+// Header sub-generator
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a dual-prefix subject line.
+ *
+ * Spawns `pi -p --no-session --no-tools -m <model>` via the injected
+ * `spawnFn`, with a prompt that classifies the interaction type and
+ * (when applicable) the conventional-commit prefix.
+ *
+ * Output parsing: first line of stdout is the subject, rest discarded.
+ *
+ * On total exhaustion, falls back to `deriveSubject(prompt)`.
+ *
+ * @param ctx - Context with transcript, diff, and prior descriptions.
+ * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
+ * @param options - Model, retry, timeout, and fallback prompt.
+ * @returns The subject line (never empty — always a string).
+ */
+export async function generateHeader(
+	ctx: SubGeneratorContext,
+	spawnFn: SpawnFn,
+	options: HeaderOptions,
+): Promise<string> {
+	const input = renderTemplate(HEADER_PROMPT_TEMPLATE, ctx);
+
+	try {
+		const raw = await spawnWithRetry(
+			spawnFn,
+			"pi",
+			["-p", "--no-session", "--no-tools", "--model", options.model],
+			input,
+			options.timeoutMs,
+			options.maxAttempts,
+		);
+
+		// First line is the subject, rest discarded.
+		const firstNewline = raw.indexOf("\n");
+		const subject =
+			firstNewline === -1 ? raw : raw.slice(0, firstNewline).trim();
+		return subject;
+	} catch {
+		// Fallback to deriveSubject on exhaustion.
+		return deriveSubject(options.prompt);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Trace sub-generator
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a compressed agent-loop narrative (trace).
+ *
+ * Spawns `pi -p --no-session --no-tools -m <model>` via the injected
+ * `spawnFn`, with a prompt tailored to the requested detail level.
+ *
+ * Output: entire stdout is the trace (freeform, trimmed).
+ *
+ * On total exhaustion, returns empty string.
+ *
+ * @param ctx - Context with transcript, diff, and prior descriptions.
+ * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
+ * @param options - Model, retry, timeout, and detail level.
+ * @returns The trace narrative, or empty string on exhaustion.
+ */
+export async function generateTrace(
+	ctx: SubGeneratorContext,
+	spawnFn: SpawnFn,
+	options: TraceOptions,
+): Promise<string> {
+	const template = pickTraceTemplate(options.detail);
+	const input = renderTemplate(template, ctx);
+
+	try {
+		const raw = await spawnWithRetry(
+			spawnFn,
+			"pi",
+			["-p", "--no-session", "--no-tools", "--model", options.model],
+			input,
+			options.timeoutMs,
+			options.maxAttempts,
+		);
+
+		return raw;
+	} catch {
+		// Fallback to empty string on exhaustion.
+		return "";
+	}
+}
+
+/**
+ * Pick the trace prompt template based on the detail level.
+ */
+function pickTraceTemplate(detail: "high" | "step" | "decision"): string {
+	switch (detail) {
+		case "high":
+			return TRACE_HIGH_TEMPLATE;
+		case "step":
+			return TRACE_STEP_TEMPLATE;
+		case "decision":
+			return TRACE_DECISION_TEMPLATE;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -160,45 +381,4 @@ export function createSpawnFn(): SpawnFn {
 			}
 		});
 	};
-}
-
-// ---------------------------------------------------------------------------
-// Generate
-// ---------------------------------------------------------------------------
-
-/**
- * Generate a commit subject and summary by spawning a headless pi process.
- *
- * @param ctx - Context with transcript, diff, and prior descriptions.
- * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
- * @param model - Model identifier (defaults to config default).
- * @returns Subject and summary. On failure, falls back to placeholder values.
- */
-export async function generate(
-	ctx: SubGeneratorContext,
-	spawnFn: SpawnFn,
-	model: string = DEFAULT_MODEL,
-): Promise<SubGeneratorResult> {
-	const input = renderTemplate(ctx);
-
-	try {
-		const result = await spawnFn(
-			"pi",
-			["-p", "--no-session", "--model", model],
-			input,
-			SUB_GENERATOR_TIMEOUT_MS,
-		);
-
-		if (result.code !== 0) {
-			throw new Error(
-				`pi -p exited with code ${result.code}: ${result.stderr}`,
-			);
-		}
-
-		return parseOutput(result.stdout);
-	} catch (err) {
-		throw new Error(
-			`sub-generator failed: ${err instanceof Error ? err.message : String(err)}`,
-		);
-	}
 }

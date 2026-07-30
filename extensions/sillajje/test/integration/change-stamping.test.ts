@@ -1,7 +1,9 @@
 import { execSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { setTestSpawnFn } from "../../src/index.js";
+import type { SpawnFn } from "../../src/sub-generator.js";
 import { createRunner, describeJj, makeRunnerCwd, tempDirs } from "./_helpers";
 
 // ---------------------------------------------------------------------------
@@ -62,6 +64,39 @@ async function simulateInteraction(
 		messages: [assistantMsg(response)] as any[],
 	});
 	await runner.emit({ type: "agent_settled" });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for config-gated tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Write a sillajje config file at `cwd/.pi/configs/sillajje.json`.
+ * Creates the directory if needed.
+ */
+function writeSillajjeConfig(
+	cwd: string,
+	config: Record<string, unknown>,
+): void {
+	const dir = join(cwd, ".pi/configs");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, "sillajje.json"), JSON.stringify(config));
+}
+
+/** Create a fresh jj repo for testing, returning the repo path. */
+function initRepo(): string {
+	const cwd = makeRunnerCwd();
+	tempDirs.push(cwd);
+
+	execSync("jj git init --config signing.backend=none", {
+		cwd,
+		stdio: "pipe",
+	});
+	writeFileSync(join(cwd, "README.md"), "# Test\n");
+	execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+	execSync("jj new -m 'work'", { cwd, stdio: "pipe" });
+
+	return cwd;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,5 +356,257 @@ describeJj("sillajje change stamping", () => {
 		);
 		expect(log).toContain("First task");
 		expect(log).toContain("Follow-up task");
+	}, 30_000);
+
+	// -------------------------------------------------------------------
+	// Config-gated body sections
+	// -------------------------------------------------------------------
+
+	it("omits Prompt section when message.body.user_prompt is false", async () => {
+		const cwd = initRepo();
+
+		// Prompt section disabled via config.
+		writeSillajjeConfig(cwd, {
+			message: {
+				body: { user_prompt: false, trace: { enabled: false } },
+			},
+		});
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		await simulateInteraction(
+			runner,
+			"Hide the prompt from the body",
+			"The prompt is hidden.",
+		);
+
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		expect(show).not.toContain("Prompt:");
+		// Other sections still present.
+		expect(show).toContain("Response:");
+		expect(show).toContain("Meta:");
+	}, 30_000);
+
+	it("omits Response section when message.body.response is false", async () => {
+		const cwd = initRepo();
+
+		writeSillajjeConfig(cwd, {
+			message: { body: { response: false, trace: { enabled: false } } },
+		});
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		await simulateInteraction(
+			runner,
+			"Hide the response from the body",
+			"The response is hidden.",
+		);
+
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		expect(show).not.toContain("Response:");
+		expect(show).toContain("Prompt:");
+		expect(show).toContain("Meta:");
+	}, 30_000);
+
+	it("omits entire Meta block when message.body.meta.enabled is false", async () => {
+		const cwd = initRepo();
+
+		writeSillajjeConfig(cwd, {
+			message: {
+				body: { meta: { enabled: false }, trace: { enabled: false } },
+			},
+		});
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		await simulateInteraction(
+			runner,
+			"Hide the meta block",
+			"Meta hidden.",
+		);
+
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		expect(show).not.toContain("Meta:");
+		expect(show).toContain("Response:");
+		expect(show).toContain("Prompt:");
+	}, 30_000);
+
+	it("toggles individual meta fields in the Meta block", async () => {
+		const cwd = initRepo();
+
+		// Disable tools and elapsed, keep call_count and thinking_blocks.
+		writeSillajjeConfig(cwd, {
+			message: {
+				body: {
+					meta: { tools: false, elapsed: true },
+					trace: { enabled: false },
+				},
+			},
+		});
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+
+		// Use a tool so the Meta block has tool data to toggle.
+		await runner.emitInput(
+			"Use tools to demonstrate meta toggles",
+			undefined,
+			"interactive",
+		);
+		await runner.emitBeforeAgentStart(
+			"Use tools to demonstrate meta toggles",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+		await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "tc-1",
+			toolName: "bash",
+			input: { command: "echo done" },
+		});
+		await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "tc-2",
+			toolName: "read",
+			input: { path: "test.txt", content: "test" },
+		});
+		await runner.emit({ type: "agent_start" });
+		await runner.emit({
+			type: "agent_end",
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			messages: [assistantMsg("Used tools.")] as any[],
+		});
+		await runner.emit({ type: "agent_settled" });
+
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		// Tools are toggled off → tool names should not appear.
+		expect(show).not.toContain("bash, read");
+		// call_count defaults to true → should appear.
+		expect(show).toMatch(/\d+ calls/);
+		// elapsed defaults to true → should appear.
+		expect(show).toMatch(/\d+\.\ds/);
+		// thinking_blocks defaults to true → should appear.
+		expect(show).toContain("blocks");
+	}, 30_000);
+
+	// -------------------------------------------------------------------
+	// Header mode: user_prompt
+	// -------------------------------------------------------------------
+
+	it("uses prompt as subject when message.header is user_prompt", async () => {
+		const cwd = initRepo();
+
+		writeSillajjeConfig(cwd, {
+			message: {
+				header: "user_prompt",
+				body: { trace: { enabled: false } },
+			},
+		});
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		await simulateInteraction(
+			runner,
+			"Prompt as subject: first line",
+			"Done.",
+		);
+
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		// Subject should be the prompt, not a dual-prefix header.
+		const firstLine = show.split("\n")[0];
+		expect(firstLine).toBe("Prompt as subject: first line");
+	}, 30_000);
+
+	// -------------------------------------------------------------------
+	// Sub-generator fallback
+	// -------------------------------------------------------------------
+
+	it("falls back to deriveSubject and omits trace when sub-generator is unavailable", async () => {
+		const cwd = initRepo();
+
+		// Use default config (no overrides) — sub-generator runs but will fail
+		// because the integration test env has no API access.
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		await simulateInteraction(
+			runner,
+			"Test fallback behavior",
+			"Fallback complete.",
+		);
+
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		// Subject should be the prompt fallback (the first line of the prompt).
+		const firstLine = show.split("\n")[0];
+		expect(firstLine).toBe("Test fallback behavior");
+		// Trace section should be absent (sub-generator fell back to empty string).
+		expect(show).not.toContain("Trace:");
+	}, 60_000);
+
+	// -------------------------------------------------------------------
+	// Sub-generator success path (via test seam)
+	// -------------------------------------------------------------------
+
+	it("uses mocked sub-generator when __testSpawnFn is set", async () => {
+		const cwd = initRepo();
+
+		// Mock SpawnFn that produces canned output on first call (header)
+		// and second call (trace). The parallel calls mean we don't know
+		// which runs first, so we accept both orders.
+		const mockSpawn = vi
+			.fn<SpawnFn>()
+			.mockImplementation(
+				(_cmd: string, _args: string[], input: string) => {
+					// Detect which prompt was used based on content.
+					if (input.includes("Interaction types")) {
+						return Promise.resolve({
+							code: 0,
+							stdout: "act/feat: add mocked login page",
+							stderr: "",
+						});
+					}
+					if (input.includes("narrative")) {
+						return Promise.resolve({
+							code: 0,
+							stdout: "The agent created a mocked login page with validation.",
+							stderr: "",
+						});
+					}
+					return Promise.resolve({
+						code: 0,
+						stdout: "fallback",
+						stderr: "",
+					});
+				},
+			);
+
+		setTestSpawnFn(mockSpawn);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		await simulateInteraction(
+			runner,
+			"Mock this interaction",
+			"Mock complete.",
+		);
+
+		// Reset the seam.
+		setTestSpawnFn(undefined);
+
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		// Dual-prefix subject from mock header sub-generator.
+		expect(show).toContain("act/feat: add mocked login page");
+		// Trace section from mock trace sub-generator.
+		expect(show).toContain("Trace:");
+		expect(show).toContain(
+			"The agent created a mocked login page with validation.",
+		);
 	}, 30_000);
 });

@@ -6,13 +6,23 @@ import {
 	type ExtensionAPI,
 	type UserBashEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { loadSillajjeConfig } from "./config.js";
+import { loadSillajjeConfig, type SillajjeConfig } from "./config.js";
 import { createDebugLogger } from "./debug-log.js";
-import { buildCommitBody, buildMetadata, deriveSubject } from "./metadata.js";
+import {
+	buildCommitBody,
+	buildMetadata,
+	deriveSubject,
+	type MetadataFieldToggles,
+} from "./metadata.js";
 import { redirect } from "./path-redirect.js";
 import { SessionState } from "./state.js";
 import { formatPill } from "./status-pill.js";
-import { createSpawnFn, generate } from "./sub-generator.js";
+import {
+	createSpawnFn,
+	generateHeader,
+	generateTrace,
+	type SpawnFn,
+} from "./sub-generator.js";
 import {
 	cleanupWorkspace,
 	createWorkspace,
@@ -62,9 +72,56 @@ async function isJjOnPath(pi: ExtensionAPI): Promise<boolean> {
  */
 let activeConfig: ReturnType<typeof loadSillajjeConfig> | undefined;
 
+/**
+ * @internal Test seam — override the SpawnFn used by stampChange.
+ * When set, stampChange uses this instead of creating a real spawn.
+ * Reset to undefined after each test.
+ */
+let _testSpawnFn: SpawnFn | undefined;
+export function setTestSpawnFn(fn: SpawnFn | undefined): void {
+	_testSpawnFn = fn;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Config values relevant to stampChange, extracted with explicit defaults.
+ *
+ * The defaults mirror those in `SillajjeConfigSchema` (config.ts).
+ * TypeScript cannot see TypeBox's `Default()`, so we re-state them here
+ * to get non-nullable types. Keep this in sync with the schema defaults.
+ */
+interface StampConfig {
+	headerMode: "one_line" | "user_prompt";
+	traceEnabled: boolean;
+	traceDetail: "high" | "step" | "decision";
+	/** Toggles for individual metadata block fields (tools, call_count, etc.). */
+	metaFields: MetadataFieldToggles;
+	/** Whether the entire metadata block is enabled. */
+	metaEnabled: boolean;
+	showUserPrompt: boolean;
+	showResponse: boolean;
+	maxAttempts: number;
+	timeoutMs: number;
+	model: string;
+}
+
+function getStampConfig(cfg: SillajjeConfig): StampConfig {
+	return {
+		headerMode: cfg.message?.header ?? "one_line",
+		traceEnabled: cfg.message?.body?.trace?.enabled ?? true,
+		traceDetail: cfg.message?.body?.trace?.detail ?? "high",
+		metaFields: cfg.message?.body?.meta ?? {},
+		metaEnabled: cfg.message?.body?.meta?.enabled ?? true,
+		showUserPrompt: cfg.message?.body?.user_prompt ?? true,
+		showResponse: cfg.message?.body?.response ?? true,
+		maxAttempts: cfg.subGenerator?.retry?.maxAttempts ?? 3,
+		timeoutMs: cfg.subGenerator?.timeoutMs ?? 30_000,
+		model: cfg.subGeneratorModel ?? "openai/gpt-4o-mini",
+	};
+}
 
 /**
  * Extract the concatenated text from an AssistantMessage's content blocks.
@@ -107,7 +164,9 @@ export default function (pi: ExtensionAPI) {
 
 	const runPostInit = async (ctx: {
 		hasUI: boolean;
-		ui: { notify: (msg: string, type: "info" | "warning" | "error") => void };
+		ui: {
+			notify: (msg: string, type: "info" | "warning" | "error") => void;
+		};
 	}) => {
 		const commands = activeConfig?.postInit;
 		if (!commands || commands.length === 0) return;
@@ -343,7 +402,6 @@ export default function (pi: ExtensionAPI) {
 
 		const prompt = state.getInteractionPrompt() ?? "";
 		const response = state.getInteractionResponse() ?? "";
-		const metadata = buildMetadata(snapshot);
 
 		// Build transcript and get diff for the sub-generator.
 		const transcript = [
@@ -385,39 +443,95 @@ export default function (pi: ExtensionAPI) {
 			// Non-fatal — prior descriptions are optional context.
 		}
 
-		let subject: string;
-		let summary: string;
-		try {
-			const spawnFn = createSpawnFn();
-			const subResult = await generate(
-				{ transcript, diff, previousDescriptions: priorDescriptions },
-				spawnFn,
-				activeConfig?.subGeneratorModel,
+		// Derive config values with defaults for the new message/subGenerator trees.
+		const cfg = activeConfig ?? loadSillajjeConfig();
+		const {
+			headerMode,
+			traceEnabled,
+			traceDetail,
+			metaFields,
+			metaEnabled,
+			showUserPrompt,
+			showResponse,
+			maxAttempts,
+			timeoutMs,
+			model,
+		} = getStampConfig(cfg);
+
+		// Build sub-generator context.
+		const subCtx = {
+			transcript,
+			diff,
+			previousDescriptions: priorDescriptions,
+		};
+		const spawnFn = _testSpawnFn ?? createSpawnFn();
+
+		// Run header and trace sub-generators in parallel when both are enabled.
+		const headerCall =
+			headerMode !== "user_prompt"
+				? generateHeader(subCtx, spawnFn, {
+						model,
+						maxAttempts,
+						timeoutMs,
+						prompt,
+					})
+				: Promise.resolve(deriveSubject(prompt));
+
+		const traceCall = traceEnabled
+			? generateTrace(subCtx, spawnFn, {
+					model,
+					maxAttempts,
+					timeoutMs,
+					detail: traceDetail,
+				})
+			: Promise.resolve("");
+
+		// Use Promise.all for parallel execution.
+		const [subject, trace] = await Promise.all([headerCall, traceCall]);
+
+		debug.event("sub_generator_result", {
+			subject,
+			traceLen: trace.length,
+		});
+
+		// Detect sub-generator fallback and notify.
+		// Header: fell back when mode is "one_line" but result equals deriveSubject(prompt).
+		// Trace: fell back when enabled but result is empty.
+		if (headerMode !== "user_prompt" && subject === deriveSubject(prompt)) {
+			debug.error(
+				"sub_generator_failed",
+				new Error("header exhausted retries"),
 			);
-			subject = subResult.subject;
-			summary = subResult.summary;
-			debug.event("sub_generator_result", {
-				subject,
-				summaryLen: summary.length,
-			});
-		} catch (err) {
-			debug.error("sub_generator_failed", err);
 			if (ctx.hasUI) {
 				ctx.ui.notify(
-					`[sillajje] commit subject generation failed: ${err instanceof Error ? err.message : String(err)}`,
+					"[sillajje] commit subject generation failed — sub-generator exhausted retries",
 					"warning",
 				);
 			}
-			subject = deriveSubject(prompt);
-			summary = "";
+		}
+		if (traceEnabled && trace === "") {
+			debug.error(
+				"sub_generator_failed",
+				new Error("trace exhausted retries"),
+			);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] commit trace generation failed — sub-generator exhausted retries",
+					"warning",
+				);
+			}
 		}
 
+		// Build metadata string with optional field toggles.
+		const metaStr = metaEnabled ? buildMetadata(snapshot, metaFields) : "";
+
+		// Assemble body with config-gated sections.
 		const body = buildCommitBody({
 			subject,
-			prompt,
-			metadata,
-			response,
-			summary,
+			trace: traceEnabled ? trace : "",
+			prompt: showUserPrompt ? prompt : "",
+			metadata: metaEnabled ? metaStr : "",
+			response: showResponse ? response : "",
 		});
 
 		try {
@@ -493,6 +607,18 @@ export default function (pi: ExtensionAPI) {
 		const assistantMsgs = event.messages.filter(
 			(m) => (m as { role: string }).role === "assistant",
 		);
+
+		// Count thinking blocks across all assistant messages (ticket 06).
+		for (const msg of assistantMsgs) {
+			const content =
+				(msg as { content?: Array<{ type: string }> }).content ?? [];
+			for (const block of content) {
+				if (block.type === "thinking") {
+					state.recordThinkingBlock();
+				}
+			}
+		}
+
 		const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
 		if (lastAssistant) {
 			state.recordAgentResponse(

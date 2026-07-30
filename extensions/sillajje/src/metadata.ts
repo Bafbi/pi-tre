@@ -15,13 +15,24 @@ export interface InteractionMeta {
 	sessionId: string;
 }
 
+/** Optional field toggles for the metadata block. All default to `true`. */
+export interface MetadataFieldToggles {
+	tools?: boolean;
+	call_count?: boolean;
+	elapsed?: boolean;
+	thinking_blocks?: boolean;
+}
+
 export interface CommitBodyData {
 	subject: string;
+	/**
+	 * Trace narrative from the trace sub-generator.
+	 * Optional — empty string omits the section.
+	 */
+	trace: string;
 	prompt: string;
 	metadata: string;
 	response: string;
-	/** AI-generated summary from the sub-generator. Optional — empty string omits the section. */
-	summary: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -51,14 +62,38 @@ export function deriveSubject(prompt: string): string {
 /**
  * Build the programmatic metadata block for the commit body.
  * Returns a compact two-line block.
+ *
+ * @param meta - Interaction metadata.
+ * @param fields - Optional field toggles. When a field is `false`, it is
+ *   omitted from the output. Defaults to all enabled.
  */
-export function buildMetadata(meta: InteractionMeta): string {
-	const elapsed = (meta.elapsedMs / 1000).toFixed(1);
+export function buildMetadata(
+	meta: InteractionMeta,
+	fields?: MetadataFieldToggles,
+): string {
+	const f = {
+		tools: true,
+		call_count: true,
+		elapsed: true,
+		thinking_blocks: true,
+		...fields,
+	};
 
-	return [
-		`Meta: ${meta.toolNames.join(", ")} | ${meta.toolCallCount} calls | ${elapsed}s`,
-		`  ${meta.thinkingBlocks} blocks | sillajje/${meta.sessionId}`,
-	].join("\n");
+	const fieldStrings: string[] = [];
+	if (f.tools) fieldStrings.push(meta.toolNames.join(", "));
+	if (f.call_count) fieldStrings.push(`${meta.toolCallCount} calls`);
+	if (f.elapsed) fieldStrings.push(`${(meta.elapsedMs / 1000).toFixed(1)}s`);
+
+	const line1 =
+		fieldStrings.length > 0 ? `Meta: ${fieldStrings.join(" | ")}` : "Meta:";
+
+	let line2 = "  ";
+	if (f.thinking_blocks) {
+		line2 += `${meta.thinkingBlocks} blocks | `;
+	}
+	line2 += `sillajje/${meta.sessionId}`;
+
+	return `${line1}\n${line2}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,26 +103,26 @@ export function buildMetadata(meta: InteractionMeta): string {
 /**
  * Build the full commit body with labeled sections.
  *
- * Each narrative section (Prompt, Summary, Response) is prefixed with `Label:\n`
+ * Each narrative section (Trace, Prompt, Response) is prefixed with `Label:\n`
  * so the boundary is unambiguous even if the content contains markdown.
  * Metadata is a compact block. Empty sections are omitted.
  *
  * Section order:
- *   subject blank-line Prompt blank-line Meta blank-line Summary blank-line Response
+ *   subject blank-line Trace blank-line Meta blank-line Prompt blank-line Response
  */
 export function buildCommitBody(data: CommitBodyData): string {
 	const parts: string[] = [data.subject, ""];
 
-	if (data.prompt) {
-		parts.push("Prompt:", data.prompt, "");
+	if (data.trace) {
+		parts.push("Trace:", data.trace, "");
 	}
 
 	if (data.metadata) {
 		parts.push(data.metadata, "");
 	}
 
-	if (data.summary) {
-		parts.push("Summary:", data.summary, "");
+	if (data.prompt) {
+		parts.push("Prompt:", data.prompt, "");
 	}
 
 	if (data.response) {

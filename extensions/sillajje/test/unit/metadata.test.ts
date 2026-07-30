@@ -95,6 +95,96 @@ describe("buildMetadata", () => {
 
 		expect(buildMetadata(meta)).toContain("0.5s");
 	});
+
+	// -------------------------------------------------------------------
+	// Field toggles
+	// -------------------------------------------------------------------
+
+	it("omits tools when tools field is false", () => {
+		const result = buildMetadata(
+			{
+				toolNames: ["read", "write", "bash"],
+				toolCallCount: 14,
+				elapsedMs: 45200,
+				thinkingBlocks: 3,
+				sessionId: "abc123",
+			},
+			{ tools: false },
+		);
+
+		expect(result).not.toContain("read, write, bash");
+		expect(result).toContain("14 calls");
+		expect(result).toContain("45.2s");
+	});
+
+	it("omits call_count when call_count field is false", () => {
+		const result = buildMetadata(
+			{
+				toolNames: ["bash"],
+				toolCallCount: 5,
+				elapsedMs: 10000,
+				thinkingBlocks: 1,
+				sessionId: "s1",
+			},
+			{ call_count: false },
+		);
+
+		expect(result).toContain("bash");
+		expect(result).not.toContain("5 calls");
+		expect(result).toContain("10.0s");
+	});
+
+	it("omits elapsed when elapsed field is false", () => {
+		const result = buildMetadata(
+			{
+				toolNames: ["bash"],
+				toolCallCount: 3,
+				elapsedMs: 5000,
+				thinkingBlocks: 0,
+				sessionId: "s1",
+			},
+			{ elapsed: false },
+		);
+
+		expect(result).toContain("bash");
+		expect(result).toContain("3 calls");
+		expect(result).not.toContain("5.0s");
+	});
+
+	it("omits thinking_blocks when thinking_blocks field is false", () => {
+		const result = buildMetadata(
+			{
+				toolNames: ["bash"],
+				toolCallCount: 1,
+				elapsedMs: 1000,
+				thinkingBlocks: 3,
+				sessionId: "s1",
+			},
+			{ thinking_blocks: false },
+		);
+
+		expect(result).toContain("bash");
+		expect(result).not.toContain("3 blocks");
+		expect(result).toContain("sillajje/s1");
+	});
+
+	it("omits multiple fields when multiple toggles are off", () => {
+		const result = buildMetadata(
+			{
+				toolNames: ["bash", "read"],
+				toolCallCount: 7,
+				elapsedMs: 25000,
+				thinkingBlocks: 2,
+				sessionId: "s1",
+			},
+			{ tools: false, elapsed: false },
+		);
+
+		expect(result).not.toContain("bash, read");
+		expect(result).toContain("7 calls");
+		expect(result).not.toContain("25.0s");
+		expect(result).toContain("2 blocks");
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -102,29 +192,28 @@ describe("buildMetadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildCommitBody", () => {
-	it("builds the full body with Prompt, Meta, Summary, Response sections", () => {
+	it("builds the full body with Trace, Meta, Prompt, Response sections", () => {
 		const body = buildCommitBody({
 			subject: "feat: add login page",
 			prompt: "Add a login page with email and password fields",
 			metadata:
 				"Meta: write, edit | 5 calls | 12.3s\n  0 blocks | sillajje/s1",
 			response: "I created the login page with form validation.",
-			summary:
-				"Created the login page with email/password fields and validation.",
+			trace: "Created the login page with email/password fields and validation.",
 		});
 
 		expect(body).toBe(
 			[
 				"feat: add login page",
 				"",
-				"Prompt:",
-				"Add a login page with email and password fields",
+				"Trace:",
+				"Created the login page with email/password fields and validation.",
 				"",
 				"Meta: write, edit | 5 calls | 12.3s",
 				"  0 blocks | sillajje/s1",
 				"",
-				"Summary:",
-				"Created the login page with email/password fields and validation.",
+				"Prompt:",
+				"Add a login page with email and password fields",
 				"",
 				"Response:",
 				"I created the login page with form validation.",
@@ -132,29 +221,30 @@ describe("buildCommitBody", () => {
 		);
 	});
 
-	it("omits Summary section when summary is empty", () => {
+	it("omits Trace section when trace is empty", () => {
 		const body = buildCommitBody({
 			subject: "fix: bug",
 			prompt: "Fix the bug",
 			metadata: "Meta: write | 1 calls | 0.5s\n  0 blocks | sillajje/s1",
 			response: "Fixed.",
-			summary: "",
+			trace: "",
 		});
 
 		expect(body).toBe(
 			[
 				"fix: bug",
 				"",
-				"Prompt:",
-				"Fix the bug",
-				"",
 				"Meta: write | 1 calls | 0.5s",
 				"  0 blocks | sillajje/s1",
+				"",
+				"Prompt:",
+				"Fix the bug",
 				"",
 				"Response:",
 				"Fixed.",
 			].join("\n"),
 		);
+		expect(body).not.toContain("Trace:");
 		expect(body).not.toContain("undefined");
 	});
 
@@ -164,7 +254,7 @@ describe("buildCommitBody", () => {
 			prompt: "hello",
 			metadata: "Meta:  | 0 calls | 0.2s\n  0 blocks | sillajje/s1",
 			response: "",
-			summary: "",
+			trace: "",
 		});
 
 		expect(body).toContain("Prompt:");
@@ -180,7 +270,7 @@ describe("buildCommitBody", () => {
 			prompt: "",
 			metadata: "Meta: bash | 3 calls | 2.1s\n  0 blocks | sillajje/s1",
 			response: "Fixed the crash.",
-			summary: "",
+			trace: "",
 		});
 
 		expect(body).toContain("fix: crash");
@@ -194,7 +284,7 @@ describe("buildCommitBody", () => {
 			prompt: "update deps",
 			metadata: "",
 			response: "",
-			summary: "",
+			trace: "",
 		});
 
 		expect(body).toContain("chore: update");

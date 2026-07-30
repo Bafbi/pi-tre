@@ -24,6 +24,112 @@
 			"items": {
 				"type": "string"
 			}
+		},
+		"message": {
+			"default": {},
+			"type": "object",
+			"properties": {
+				"header": {
+					"default": "one_line",
+					"anyOf": [
+						{
+							"const": "one_line",
+							"type": "string"
+						},
+						{
+							"const": "user_prompt",
+							"type": "string"
+						}
+					]
+				},
+				"body": {
+					"default": {},
+					"type": "object",
+					"properties": {
+						"trace": {
+							"default": {},
+							"type": "object",
+							"properties": {
+								"enabled": {
+									"default": true,
+									"type": "boolean"
+								},
+								"detail": {
+									"default": "high",
+									"anyOf": [
+										{
+											"const": "high",
+											"type": "string"
+										},
+										{
+											"const": "step",
+											"type": "string"
+										},
+										{
+											"const": "decision",
+											"type": "string"
+										}
+									]
+								}
+							}
+						},
+						"meta": {
+							"default": {},
+							"type": "object",
+							"properties": {
+								"enabled": {
+									"default": true,
+									"type": "boolean"
+								},
+								"tools": {
+									"default": true,
+									"type": "boolean"
+								},
+								"call_count": {
+									"default": true,
+									"type": "boolean"
+								},
+								"elapsed": {
+									"default": true,
+									"type": "boolean"
+								},
+								"thinking_blocks": {
+									"default": true,
+									"type": "boolean"
+								}
+							}
+						},
+						"user_prompt": {
+							"default": true,
+							"type": "boolean"
+						},
+						"response": {
+							"default": true,
+							"type": "boolean"
+						}
+					}
+				}
+			}
+		},
+		"subGenerator": {
+			"default": {},
+			"type": "object",
+			"properties": {
+				"retry": {
+					"default": {},
+					"type": "object",
+					"properties": {
+						"maxAttempts": {
+							"default": 3,
+							"type": "integer"
+						}
+					}
+				},
+				"timeoutMs": {
+					"default": 30000,
+					"type": "integer"
+				}
+			}
 		}
 	}
 }

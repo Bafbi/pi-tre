@@ -27,10 +27,83 @@ import { type Static, Type } from "@sinclair/typebox";
 import { Check, Clean, Default } from "@sinclair/typebox/value";
 
 // ---------------------------------------------------------------------------
-// Schema
+// Sub-schemas
 // ---------------------------------------------------------------------------
 
 const workspacesRootDefault = `${homedir()}/.pi/sillajje`;
+
+/** Detail level for the trace narrative. */
+const TraceDetailSchema = Type.Union(
+	[Type.Literal("high"), Type.Literal("step"), Type.Literal("decision")],
+	{ default: "high" },
+);
+
+/** `message.body.trace` — controls the trace section. */
+const MessageBodyTraceSchema = Type.Object(
+	{
+		enabled: Type.Optional(Type.Boolean({ default: true })),
+		detail: Type.Optional(TraceDetailSchema),
+	},
+	{ default: {} },
+);
+
+/** `message.body.meta` — controls the metadata block fields. */
+const MessageBodyMetaSchema = Type.Object(
+	{
+		enabled: Type.Optional(Type.Boolean({ default: true })),
+		tools: Type.Optional(Type.Boolean({ default: true })),
+		call_count: Type.Optional(Type.Boolean({ default: true })),
+		elapsed: Type.Optional(Type.Boolean({ default: true })),
+		thinking_blocks: Type.Optional(Type.Boolean({ default: true })),
+	},
+	{ default: {} },
+);
+
+/** `message.body` — which sections appear in the commit body. */
+const MessageBodySchema = Type.Object(
+	{
+		trace: Type.Optional(MessageBodyTraceSchema),
+		meta: Type.Optional(MessageBodyMetaSchema),
+		user_prompt: Type.Optional(Type.Boolean({ default: true })),
+		response: Type.Optional(Type.Boolean({ default: true })),
+	},
+	{ default: {} },
+);
+
+/** `message` — commit message structure control. */
+const MessageSchema = Type.Object(
+	{
+		header: Type.Optional(
+			Type.Union(
+				[Type.Literal("one_line"), Type.Literal("user_prompt")],
+				{ default: "one_line" },
+			),
+		),
+		body: Type.Optional(MessageBodySchema),
+	},
+	{ default: {} },
+);
+
+/** `subGenerator.retry` — retry configuration. */
+const SubGeneratorRetrySchema = Type.Object(
+	{
+		maxAttempts: Type.Optional(Type.Integer({ default: 3 })),
+	},
+	{ default: {} },
+);
+
+/** `subGenerator` — sub-generator behaviour control. */
+const SubGeneratorSchema = Type.Object(
+	{
+		retry: Type.Optional(SubGeneratorRetrySchema),
+		timeoutMs: Type.Optional(Type.Integer({ default: 30_000 })),
+	},
+	{ default: {} },
+);
+
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
 
 /**
  * JSON Schema for sillajje configuration files.
@@ -64,6 +137,16 @@ export const SillajjeConfigSchema = Type.Object(
 		 * Override via `SILLAJJE_POST_INIT` environment variable (semicolon-separated).
 		 */
 		postInit: Type.Optional(Type.Array(Type.String(), { default: [] })),
+		/**
+		 * Commit message structure control.
+		 * Controls how the header is generated and which body sections appear.
+		 */
+		message: Type.Optional(MessageSchema),
+		/**
+		 * Sub-generator behaviour control.
+		 * Controls retry count, timeout, and other behavioural knobs.
+		 */
+		subGenerator: Type.Optional(SubGeneratorSchema),
 	},
 	{ additionalProperties: false },
 );
