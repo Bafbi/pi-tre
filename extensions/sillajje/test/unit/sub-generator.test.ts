@@ -293,7 +293,7 @@ describe("generateTrace", () => {
 		});
 
 		const [, , input] = spawnFn.mock.calls[0];
-		expect(input).toContain("key insights, discoveries");
+		expect(input).toContain("key decisions");
 		expect(input).not.toContain("2-4 sentence");
 	});
 

@@ -31,7 +31,7 @@ Two headless Pi processes (`pi -p --no-session --no-tools`) invoked in parallel 
 _Avoid_: Summarizer, sub-agent
 
 **Header**:
-The dual-prefix subject line produced by the header sub-generator. Format: `<interaction-type>/<conventional-commit>: <description>` (e.g., `debug/fix: null pointer in auth`, `answer: middleware chain explained`). When no files changed, the conventional-commit half is omitted. Configurable via `message.header` — can also be set to `"user_prompt"` to use the first line of the user's prompt instead.
+The dual-prefix subject line produced by the header sub-generator. Format: `<interaction-type>[/<conventional-commit>][(<optional-scope>)]: <description>` (e.g., `act/feat(auth): add login form`, `explore(sillajje): audit error handling`, `answer: middleware chain explained`). The conventional-commit and scope are optional. When no files changed, omit the conventional-commit. The scope signals which area of the codebase the interaction touched. Configurable via `message.header` — can also be set to `"user_prompt"` to use the first line of the user's prompt instead.
 
 **Trace**:
 The compressed narrative of the agent's thinking-and-tool loop, produced by the trace sub-generator. Captures what the agent thought about, what tools it called and why, what it found, and what decisions it made — not just the final outcome. Three configurable detail levels: `high` (2-4 sentences), `step` (numbered actions), `decision` (key insights and trade-offs).

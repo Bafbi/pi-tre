@@ -54,7 +54,9 @@ describeJj("sillajje post-init commands", () => {
 		expect(sessionId).toBeDefined();
 		const repoSlug = cwd.split("/").pop()!;
 		const wsPath = `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
-		expect(existsSync(join(wsPath, ".sillajje-post-init-marker"))).toBe(true);
+		expect(existsSync(join(wsPath, ".sillajje-post-init-marker"))).toBe(
+			true,
+		);
 
 		// Notifications should include progress and completion.
 		expect(notify).toHaveBeenCalledWith(

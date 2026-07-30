@@ -23,6 +23,12 @@ export interface MetadataFieldToggles {
 	thinking_blocks?: boolean;
 }
 
+/** Default max line width for smart wrapping. */
+const DEFAULT_WRAP_WIDTH = 72;
+
+/** Minimum width to attempt wrapping (avoid pathological tiny lines). */
+const MIN_WRAP_WIDTH = 40;
+
 export interface CommitBodyData {
 	subject: string;
 	/**
@@ -94,6 +100,97 @@ export function buildMetadata(
 	line2 += `sillajje/${meta.sessionId}`;
 
 	return `${line1}\n${line2}`;
+}
+
+// ---------------------------------------------------------------------------
+// smartWrap
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap text at word boundaries to a max line width, preserving paragraph
+ * and list structure.
+ *
+ * Heuristic:
+ * - Blank lines separate paragraphs.
+ * - If a paragraph looks like a numbered list (lines start with ``\d+.``),
+ *   wrap each list item independently.
+ * - Otherwise, treat the paragraph as prose: join its lines, then reflow
+ *   at word boundaries.
+ *
+ * @param text - The text to wrap.
+ * @param maxWidth - Maximum line width (default 72, minimum 40).
+ * @returns Wrapped text.
+ */
+export function smartWrap(text: string, maxWidth = DEFAULT_WRAP_WIDTH): string {
+	if (maxWidth < MIN_WRAP_WIDTH) maxWidth = MIN_WRAP_WIDTH;
+	if (text.length === 0) return text;
+
+	const paragraphs = text.split(/\n\s*\n/);
+
+	return paragraphs
+		.map((para) => {
+			let trimmed = para;
+			// Trim trailing whitespace only — preserve leading indent.
+			// But if the paragraph is all whitespace, skip it.
+			if (/^\s*$/.test(para)) return "";
+			// Strip trailing whitespace per line.
+			trimmed = para.replace(/\s+$/gm, "");
+
+			const lines = trimmed.split("\n");
+			const isNumberedList = lines.some((l) => /^\d+\.\s/.test(l.trim()));
+
+			if (isNumberedList) {
+				// Wrap each list item independently.
+				return lines
+					.map((line) => wordWrapLine(line, maxWidth))
+					.join("\n");
+			}
+
+			// Prose: join all lines in the paragraph, then reflow.
+			// Preserve leading whitespace (indent) separately so we don't
+			// collapse it during the whitespace normalization.
+			const indentMatch = trimmed.match(/^(\s+)/);
+			const indent = indentMatch ? indentMatch[1] : "";
+			const body = trimmed.slice(indent.length);
+			const joined = indent + body.replace(/\n/g, " ").replace(/\s+/g, " ");
+			return wordWrapLine(joined, maxWidth);
+		})
+		.join("\n\n");
+}
+
+/**
+ * Word-wrap a single line at word boundaries.
+ * Preserves leading whitespace (indentation) on every wrapped line.
+ */
+function wordWrapLine(line: string, maxWidth: number): string {
+	const indentMatch = line.match(/^(\s+)/);
+	const indent = indentMatch ? indentMatch[1] : "";
+	const content = line.trimStart();
+
+	if (content.length <= maxWidth) return line;
+
+	const words = content.split(/\s+/);
+	if (words.length <= 1) return line;
+
+	const result: string[] = [];
+	let currentLine = indent;
+
+	for (const word of words) {
+		const candidate =
+			currentLine === indent ? `${indent}${word}` : `${currentLine} ${word}`;
+		if (candidate.length <= maxWidth) {
+			currentLine = candidate;
+		} else {
+			result.push(currentLine);
+			currentLine = `${indent}${word}`;
+		}
+	}
+
+	if (currentLine.length > 0) {
+		result.push(currentLine);
+	}
+
+	return result.join("\n");
 }
 
 // ---------------------------------------------------------------------------

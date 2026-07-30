@@ -12,6 +12,7 @@ import {
 	buildCommitBody,
 	buildMetadata,
 	deriveSubject,
+	smartWrap,
 	type MetadataFieldToggles,
 } from "./metadata.js";
 import { redirect } from "./path-redirect.js";
@@ -528,7 +529,7 @@ export default function (pi: ExtensionAPI) {
 		// Assemble body with config-gated sections.
 		const body = buildCommitBody({
 			subject,
-			trace: traceEnabled ? trace : "",
+			trace: traceEnabled ? smartWrap(trace, 72) : "",
 			prompt: showUserPrompt ? prompt : "",
 			metadata: metaEnabled ? metaStr : "",
 			response: showResponse ? response : "",

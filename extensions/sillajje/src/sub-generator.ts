@@ -58,12 +58,23 @@ export interface TraceOptions {
 // Prompt templates (mustache-style)
 // ---------------------------------------------------------------------------
 
-const HEADER_PROMPT_TEMPLATE = `You classify AI coding agent interactions and produce commit subject lines.
+const HEADER_PROMPT_TEMPLATE = `## Previous change descriptions
 
-Given the conversation transcript and file changes below, classify what the agent was doing and produce a single subject line.
+{{prior_descriptions}}
 
-Format: <interaction-type>/<conventional-commit>: <description>
-When no files changed, omit the conventional-commit half.
+## Conversation
+
+{{transcript}}
+
+## File changes
+
+{{diff}}
+
+---
+
+Produce a single subject line for this interaction.
+
+Format: <interaction-type>[/<conventional-commit>][(<optional-scope>)]: <description>
 
 Interaction types:
 - act: The agent executed changes (files were modified)
@@ -74,34 +85,25 @@ Interaction types:
 - answer: The agent answered the user's question
 - debug: The agent diagnosed a problem
 
+Rules:
+- The description is a quick overview of the interaction — what the conversation was about — so the user can recognize it at a glance in jj log.
+- When files changed, choose a conventional-commit prefix that describes the nature of the changes.
+- The optional scope signals which area of the codebase the interaction touched. Infer it from file paths.
+- When no files changed, omit the conventional-commit (e.g. "answer: middleware chain explained").
+
 Examples:
-  debug/fix: null pointer in auth middleware
+  act/feat(auth): add login form
+  explore(refactor): audit error handling patterns
   answer: middleware chain explained
-  act/feat: add login form
-  explore/refactor: audit error handling patterns
-
-## Conversation
-
-{{transcript}}
-
-## File changes
-
-{{diff}}
-
-## Previous change descriptions
-
-{{prior_descriptions}}
+  debug(fix): null pointer in auth middleware
+  research(docs): REST API pagination patterns
+  ask: should we use typebox for this?
 
 Respond with exactly one line, max 72 characters.`;
 
-const TRACE_HIGH_TEMPLATE = `You summarize AI coding agent interactions as a brief narrative.
+const TRACE_HIGH_TEMPLATE = `## Previous change descriptions
 
-Given the conversation transcript and file changes below, write a 2-4 sentence plain-English narrative of what the agent did. Capture:
-1. What problem was being solved
-2. What approach or steps the agent took
-3. What the outcome was
-
-Focus on the agent's thinking process — what it read, what tools it called and why, what it found, and what decisions it made — not just the final result.
+{{prior_descriptions}}
 
 ## Conversation
 
@@ -111,15 +113,20 @@ Focus on the agent's thinking process — what it read, what tools it called and
 
 {{diff}}
 
-## Previous change descriptions
+---
 
-{{prior_descriptions}}
+Write a 2-4 sentence plain-English narrative of what happened in this interaction.
+
+Rules:
+- Capture: what the user asked, what the agent did and why, and the outcome.
+- Ground the narrative in the transcript — what the user said and what the agent thought/did — not in the file diff.
+- The purpose is to help the user remember the conversation at a glance without re-reading the transcript.
 
 Respond with only the narrative, no labels or prefixes.`;
 
-const TRACE_STEP_TEMPLATE = `You summarize AI coding agent interactions as numbered steps.
+const TRACE_STEP_TEMPLATE = `## Previous change descriptions
 
-Given the conversation transcript and file changes below, write numbered steps describing what the agent did and why at each step. Each step should say what the agent was thinking and what tool it used.
+{{prior_descriptions}}
 
 ## Conversation
 
@@ -129,15 +136,19 @@ Given the conversation transcript and file changes below, write numbered steps d
 
 {{diff}}
 
-## Previous change descriptions
+---
 
-{{prior_descriptions}}
+Write numbered steps describing this interaction.
+
+Rules:
+- Each step says what the agent did, what it was thinking, and what tool it used — grounded in the transcript, not in the file diff.
+- The purpose is to help the user retrace the agent's process without re-reading the transcript.
 
 Respond with only the numbered steps, no labels or prefixes.`;
 
-const TRACE_DECISION_TEMPLATE = `You summarize AI coding agent interactions by focusing on decisions.
+const TRACE_DECISION_TEMPLATE = `## Previous change descriptions
 
-Given the conversation transcript and file changes below, identify the key insights, discoveries, and trade-offs the agent considered. Explain what was decided and why, focusing on the reasoning process rather than every tool call.
+{{prior_descriptions}}
 
 ## Conversation
 
@@ -147,9 +158,14 @@ Given the conversation transcript and file changes below, identify the key insig
 
 {{diff}}
 
-## Previous change descriptions
+---
 
-{{prior_descriptions}}
+Identify the key decisions made during this interaction.
+
+Rules:
+- Focus on what the agent considered, discovered, and decided — grounded in the transcript, not in the file diff.
+- Explain why each decision was made and what trade-offs were weighed.
+- The purpose is to help the user understand the reasoning behind each choice.
 
 Respond with only the narrative, no labels or prefixes.`;
 

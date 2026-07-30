@@ -3,6 +3,7 @@ import {
 	buildCommitBody,
 	buildMetadata,
 	deriveSubject,
+	smartWrap,
 } from "../../src/metadata";
 
 // ---------------------------------------------------------------------------
@@ -184,6 +185,84 @@ describe("buildMetadata", () => {
 		expect(result).toContain("7 calls");
 		expect(result).not.toContain("25.0s");
 		expect(result).toContain("2 blocks");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// smartWrap
+// ---------------------------------------------------------------------------
+
+describe("smartWrap", () => {
+	it("wraps long prose lines at word boundaries", () => {
+		const long =
+			"The agent was tasked with adding a manual stamp command but first used the domain-modeling skill to thoroughly understand the existing auto-stamping flow.";
+		const result = smartWrap(long, 40);
+		const lines = result.split("\n");
+		for (const line of lines) {
+			expect(line.length).toBeLessThanOrEqual(40);
+		}
+		expect(lines.length).toBeGreaterThan(1);
+		expect(lines[0]).toContain("The agent was tasked");
+		expect(result).not.toContain("\n ");
+	});
+
+	it("preserves paragraph breaks in prose", () => {
+		const text = [
+			"The agent read the auth middleware and identified the null pointer. It added a null check before the user lookup.",
+			"",
+			"The fix was applied and tests pass. The agent also updated the related test file to cover the edge case.",
+		].join("\n");
+		const result = smartWrap(text, 50);
+		const paragraphs = result.split("\n\n");
+		expect(paragraphs).toHaveLength(2);
+		for (const para of paragraphs) {
+			for (const line of para.split("\n")) {
+				expect(line.length).toBeLessThanOrEqual(50);
+			}
+		}
+	});
+
+	it("wraps numbered list items independently", () => {
+		const steps = [
+			"1. Read the auth middleware file to understand the authentication flow and identify the root cause of the null pointer exception.",
+			"2. Added a null check before the user lookup in the authentication chain to prevent the crash.",
+			"3. Ran tests to verify the fix works correctly across all edge cases.",
+		].join("\n");
+		const result = smartWrap(steps, 40);
+		const lines = result.split("\n");
+		expect(lines[0]).toMatch(/^1\./);
+		expect(lines).toContain("3. Ran tests to verify the fix works");
+		for (const line of lines) {
+			expect(line.length).toBeLessThanOrEqual(40);
+		}
+	});
+
+	it("returns short text unchanged", () => {
+		const short = "Short text.";
+		expect(smartWrap(short, 72)).toBe(short);
+	});
+
+	it("returns empty string unchanged", () => {
+		expect(smartWrap("", 72)).toBe("");
+	});
+
+	it("enforces minimum width of 40", () => {
+		const long = "The agent was tasked with adding a manual stamp command.";
+		const result = smartWrap(long, 10);
+		// Should have used MIN_WRAP_WIDTH (40) instead of 10
+		for (const line of result.split("\n")) {
+			expect(line.length).toBeGreaterThan(10);
+		}
+	});
+
+	it("preserves indentation on continuation lines", () => {
+		const indented = "    The agent was tasked with adding a manual stamp command but first used the domain-modeling skill.";
+		const result = smartWrap(indented, 40);
+		const lines = result.split("\n");
+		for (const line of lines) {
+			// All lines should have at least 4 spaces of indent
+			expect(line.startsWith("    ")).toBe(true);
+		}
 	});
 });
 
