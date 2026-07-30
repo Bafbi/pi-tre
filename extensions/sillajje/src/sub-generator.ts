@@ -345,6 +345,80 @@ function pickTraceTemplate(detail: "high" | "step" | "decision"): string {
 }
 
 // ---------------------------------------------------------------------------
+// Manual-stamp header sub-generator (classic conventional commit, diff-only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Prompt template for the manual-stamp header sub-generator.
+ * Produces a classic conventional commit from a file diff, without the
+ * dual-prefix taxonomy used by the auto-stamp header.
+ */
+const MANUAL_HEADER_PROMPT_TEMPLATE = `You produce conventional commit messages from file diffs.
+
+Given the file changes below, produce a single commit subject line in conventional commits format.
+
+Format: <type>: <description>
+
+Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+
+Examples:
+  feat: add user login form
+  fix: handle null pointer in auth middleware
+  docs: update API reference
+  refactor: extract validation logic
+
+Only look at the diff to determine the type and description. Do not ask for clarification.
+
+## File changes
+
+{{diff}}
+
+Respond with exactly one line, max 72 characters.`;
+
+/**
+ * Generate a classic conventional commit subject line from the diff alone.
+ *
+ * Used by the manual stamp command (/sillajje stamp). Spawns a headless
+ * pi process to classify the diff and produce a single-line conventional
+ * commit subject (e.g. "feat: add user login form").
+ *
+ * On total exhaustion, falls back to "chore: manual checkpoint".
+ *
+ * @param diff - The file diff from the workspace working copy.
+ * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
+ * @param options - Model, retry, and timeout configuration.
+ * @returns The subject line (never empty).
+ */
+export async function generateManualHeader(
+	diff: string,
+	spawnFn: SpawnFn,
+	options: { model: string; maxAttempts: number; timeoutMs: number },
+): Promise<string> {
+	const input = MANUAL_HEADER_PROMPT_TEMPLATE.replace(
+		/\{\{diff\}\}/g,
+		diff || "(no file changes)",
+	);
+
+	try {
+		const raw = await spawnWithRetry(
+			spawnFn,
+			"pi",
+			["-p", "--no-session", "--no-tools", "--model", options.model],
+			input,
+			options.timeoutMs,
+			options.maxAttempts,
+		);
+
+		const firstNewline = raw.indexOf("\n");
+		const subject =
+			firstNewline === -1 ? raw : raw.slice(0, firstNewline).trim();
+		return subject;
+	} catch {
+		return "chore: manual checkpoint";
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Spawn factory
 // ---------------------------------------------------------------------------
 

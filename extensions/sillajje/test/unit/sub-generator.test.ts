@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	generateHeader,
+	generateManualHeader,
 	generateTrace,
 	type HeaderOptions,
 	type SpawnFn,
@@ -212,6 +213,177 @@ describe("generateHeader", () => {
 
 		expect(result).toBe("act/feat: add login");
 		expect(spawnFn).toHaveBeenCalledTimes(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// generateManualHeader
+// ---------------------------------------------------------------------------
+
+describe("generateManualHeader", () => {
+	it("spawns pi -p --no-session --no-tools --model and returns subject", async () => {
+		const spawnFn = vi
+			.fn<SpawnFn>()
+			.mockResolvedValue(ok("feat: add user login form"));
+
+		const result = await generateManualHeader(
+			"diff --git a/login.ts b/login.ts\n+export default function Login()",
+			spawnFn,
+			{ model: "openai/gpt-4o-mini", maxAttempts: 3, timeoutMs: 30_000 },
+		);
+
+		expect(result).toBe("feat: add user login form");
+
+		expect(spawnFn).toHaveBeenCalledTimes(1);
+		const [cmd, args, input, timeoutMs] = spawnFn.mock.calls[0];
+		expect(cmd).toBe("pi");
+		expect(args).toEqual([
+			"-p",
+			"--no-session",
+			"--no-tools",
+			"--model",
+			"openai/gpt-4o-mini",
+		]);
+		expect(timeoutMs).toBe(30_000);
+		expect(input).toContain("login.ts");
+		expect(input).toContain("conventional commit");
+		expect(input).toContain("Types: feat, fix");
+		expect(input).not.toContain("Interaction types");
+		expect(input).not.toContain("dual-prefix");
+	});
+
+	it("extracts first line from multi-line output", async () => {
+		const spawnFn = vi
+			.fn<SpawnFn>()
+			.mockResolvedValue(
+				ok("fix: handle null pointer\nSome extra output\nAnd more"),
+			);
+
+		const result = await generateManualHeader(
+			"diff --git a/auth.ts",
+			spawnFn,
+			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
+		);
+
+		expect(result).toBe("fix: handle null pointer");
+	});
+
+	it("uses full output when only one line", async () => {
+		const spawnFn = vi
+			.fn<SpawnFn>()
+			.mockResolvedValue(ok("refactor: extract validation"));
+
+		const result = await generateManualHeader(
+			"diff --git a/validate.ts",
+			spawnFn,
+			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
+		);
+
+		expect(result).toBe("refactor: extract validation");
+	});
+
+	it("renders diff into stdin input", async () => {
+		const spawnFn = vi
+			.fn<SpawnFn>()
+			.mockResolvedValue(ok("feat: add dashboard"));
+
+		await generateManualHeader(
+			"diff --git a/dashboard.tsx b/dashboard.tsx\n+export default function Dashboard()",
+			spawnFn,
+			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
+		);
+
+		const [, , input] = spawnFn.mock.calls[0];
+		expect(input).toContain("dashboard.tsx");
+		expect(input).toContain("conventional commit");
+		expect(input).not.toContain("Interaction types");
+		expect(input).not.toContain("dual-prefix");
+	});
+
+	it("retries on empty output, then falls back to chore: manual checkpoint", async () => {
+		const spawnFn = vi.fn<SpawnFn>().mockResolvedValue(ok("   "));
+
+		const result = await generateManualHeader(
+			"diff --git a/x.ts",
+			spawnFn,
+			{ model: "x", maxAttempts: 2, timeoutMs: 1000 },
+		);
+
+		expect(result).toBe("chore: manual checkpoint");
+		expect(spawnFn).toHaveBeenCalledTimes(2);
+	});
+
+	it("retries on non-zero exit code, then falls back", async () => {
+		const spawnFn = vi.fn<SpawnFn>().mockResolvedValue(fail("model error"));
+
+		const result = await generateManualHeader(
+			"diff --git a/y.ts",
+			spawnFn,
+			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
+		);
+
+		expect(result).toBe("chore: manual checkpoint");
+		expect(spawnFn).toHaveBeenCalledTimes(3);
+	});
+
+	it("retries on throw (timeout), then falls back", async () => {
+		const spawnFn = vi
+			.fn<SpawnFn>()
+			.mockRejectedValue(new Error("timeout: 30000ms"));
+
+		const result = await generateManualHeader(
+			"diff --git a/z.ts",
+			spawnFn,
+			{ model: "x", maxAttempts: 2, timeoutMs: 1000 },
+		);
+
+		expect(result).toBe("chore: manual checkpoint");
+		expect(spawnFn).toHaveBeenCalledTimes(2);
+	});
+
+	it("succeeds on second attempt after first failure", async () => {
+		const spawnFn = vi
+			.fn<SpawnFn>()
+			.mockResolvedValueOnce(fail("transient"))
+			.mockResolvedValueOnce(ok("docs: update readme"));
+
+		const result = await generateManualHeader(
+			"diff --git a/README.md",
+			spawnFn,
+			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
+		);
+
+		expect(result).toBe("docs: update readme");
+		expect(spawnFn).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not retry on first success", async () => {
+		const spawnFn = vi
+			.fn<SpawnFn>()
+			.mockResolvedValue(ok("chore: bump version"));
+
+		const result = await generateManualHeader(
+			"diff --git a/package.json",
+			spawnFn,
+			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
+		);
+
+		expect(result).toBe("chore: bump version");
+		expect(spawnFn).toHaveBeenCalledTimes(1);
+	});
+
+	it("includes fallback text when diff is empty string", async () => {
+		const spawnFn = vi.fn<SpawnFn>().mockResolvedValue(ok("docs: initial"));
+
+		const result = await generateManualHeader("", spawnFn, {
+			model: "x",
+			maxAttempts: 3,
+			timeoutMs: 1000,
+		});
+
+		expect(result).toBe("docs: initial");
+		const [, , input] = spawnFn.mock.calls[0];
+		expect(input).toContain("(no file changes)");
 	});
 });
 

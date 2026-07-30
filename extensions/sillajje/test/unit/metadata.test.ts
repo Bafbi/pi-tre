@@ -256,7 +256,8 @@ describe("smartWrap", () => {
 	});
 
 	it("preserves indentation on continuation lines", () => {
-		const indented = "    The agent was tasked with adding a manual stamp command but first used the domain-modeling skill.";
+		const indented =
+			"    The agent was tasked with adding a manual stamp command but first used the domain-modeling skill.";
 		const result = smartWrap(indented, 40);
 		const lines = result.split("\n");
 		for (const line of lines) {

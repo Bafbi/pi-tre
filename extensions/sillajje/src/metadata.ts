@@ -152,7 +152,8 @@ export function smartWrap(text: string, maxWidth = DEFAULT_WRAP_WIDTH): string {
 			const indentMatch = trimmed.match(/^(\s+)/);
 			const indent = indentMatch ? indentMatch[1] : "";
 			const body = trimmed.slice(indent.length);
-			const joined = indent + body.replace(/\n/g, " ").replace(/\s+/g, " ");
+			const joined =
+				indent + body.replace(/\n/g, " ").replace(/\s+/g, " ");
 			return wordWrapLine(joined, maxWidth);
 		})
 		.join("\n\n");
@@ -177,7 +178,9 @@ function wordWrapLine(line: string, maxWidth: number): string {
 
 	for (const word of words) {
 		const candidate =
-			currentLine === indent ? `${indent}${word}` : `${currentLine} ${word}`;
+			currentLine === indent
+				? `${indent}${word}`
+				: `${currentLine} ${word}`;
 		if (candidate.length <= maxWidth) {
 			currentLine = candidate;
 		} else {

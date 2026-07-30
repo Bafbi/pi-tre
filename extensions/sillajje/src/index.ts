@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import {
@@ -12,8 +13,8 @@ import {
 	buildCommitBody,
 	buildMetadata,
 	deriveSubject,
-	smartWrap,
 	type MetadataFieldToggles,
+	smartWrap,
 } from "./metadata.js";
 import { redirect } from "./path-redirect.js";
 import { SessionState } from "./state.js";
@@ -21,6 +22,7 @@ import { formatPill } from "./status-pill.js";
 import {
 	createSpawnFn,
 	generateHeader,
+	generateManualHeader,
 	generateTrace,
 	type SpawnFn,
 } from "./sub-generator.js";
@@ -29,7 +31,6 @@ import {
 	createWorkspace,
 	type ExecFn,
 	getWorkspacePathByName,
-	resolveWorkspacePath,
 	unarchiveWorkspace,
 	workspaceName as wsName,
 } from "./workspace.js";
@@ -261,7 +262,7 @@ export default function (pi: ExtensionAPI) {
 		// or global `~/.pi/configs/sillajje.json`). Used for debug logging,
 		// workspace root, and sub-generator model.
 		activeConfig = loadSillajjeConfig(repoRoot);
-		debug = createDebugLogger({ enabled: activeConfig.debug });
+		debug = createDebugLogger({ enabled: activeConfig.debug ?? false });
 
 		const sessionId = ctx.sessionManager.getSessionId();
 		if (sessionId !== undefined) {
@@ -275,7 +276,7 @@ export default function (pi: ExtensionAPI) {
 					exec,
 					repoRoot,
 					sessionId,
-					activeConfig.workspacesRoot,
+					activeConfig.workspacesRoot ?? `${homedir()}/.pi/sillajje`,
 				);
 				state.setWorkspacePath(info.workspacePath);
 
@@ -595,6 +596,143 @@ export default function (pi: ExtensionAPI) {
 		state.resetInteraction();
 	};
 
+	// -----------------------------------------------------------------------
+	// stampManual — /sillajje stamp command
+	// -----------------------------------------------------------------------
+
+	const stampManual = async (ctx: {
+		hasUI: boolean;
+		ui: {
+			notify: (msg: string, type: "info" | "warning" | "error") => void;
+		};
+	}) => {
+		const sessionId = state.getSessionId();
+		const wsPath = state.getWorkspacePath();
+		if (!sessionId || !wsPath) {
+			debug.event("stamp_manual_skip", { reason: "no_session_or_ws" });
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot stamp: no active session or workspace",
+					"error",
+				);
+			}
+			return;
+		}
+
+		debug.event("stamp_manual_start");
+
+		// Get the diff for the sub-generator.
+		const diffResult = await pi.exec("jj", ["diff", "-r", "@-"], {
+			cwd: wsPath,
+		});
+		const diff = diffResult.code === 0 ? diffResult.stdout : "";
+
+		// Skip if there's nothing to stamp.
+		if (!diff || diff.trim().length === 0) {
+			debug.event("stamp_manual_skip", { reason: "no_diff" });
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] nothing to stamp — working copy has no changes",
+					"info",
+				);
+			}
+			return;
+		}
+
+		// Get config values.
+		const cfg = activeConfig ?? loadSillajjeConfig();
+		const { maxAttempts, timeoutMs, model } = getStampConfig(cfg);
+		const spawnFn = _testSpawnFn ?? createSpawnFn();
+
+		// Generate a classic conventional commit header from the diff alone.
+		const subject = await generateManualHeader(diff, spawnFn, {
+			model,
+			maxAttempts,
+			timeoutMs,
+		});
+
+		debug.event("stamp_manual_header", { subject });
+
+		// Handle sub-generator fallback.
+		if (subject === "chore: manual checkpoint") {
+			debug.error(
+				"stamp_manual_header_failed",
+				new Error("sub-generator exhausted retries"),
+			);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] commit subject generation failed — using fallback",
+					"warning",
+				);
+			}
+		}
+
+		// Build body: subject + metadata (session ID only).
+		const metaLine = `Meta: sillajje/${sessionId}`;
+		const body = `${subject}\n\n${metaLine}`;
+
+		try {
+			// 1. Ensure the workspace working copy isn't stale.
+			await pi.exec("jj", ["workspace", "update-stale"], {
+				cwd: wsPath,
+			});
+
+			// 2. Describe the working copy with the commit body.
+			const descResult = await pi.exec("jj", ["describe", "-m", body], {
+				cwd: wsPath,
+			});
+			debug.event("jj_describe", {
+				code: descResult.code,
+				stderr: descResult.stderr?.slice(0, 200),
+			});
+			if (descResult.code !== 0 && ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] jj describe failed (exit ${descResult.code}): ${descResult.stderr}`,
+					"error",
+				);
+			}
+
+			// 3. Set the bookmark to point to the current working copy.
+			const bookmarkResult = await pi.exec(
+				"jj",
+				["bookmark", "set", `sillajje/${sessionId}`, "-r", "@"],
+				{ cwd: wsPath },
+			);
+			debug.event("jj_bookmark_set", { code: bookmarkResult.code });
+			if (bookmarkResult.code !== 0 && ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] jj bookmark set failed (exit ${bookmarkResult.code}): ${bookmarkResult.stderr}`,
+					"error",
+				);
+			}
+
+			// 4. Seal the current change and start a fresh one on top.
+			const newResult = await pi.exec("jj", ["new"], { cwd: wsPath });
+			debug.event("jj_new", { code: newResult.code });
+			if (newResult.code !== 0 && ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] jj new failed (exit ${newResult.code}): ${newResult.stderr}`,
+					"error",
+				);
+			}
+
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] workspace stamped: ${subject}`,
+					"info",
+				);
+			}
+		} catch (err) {
+			debug.error("stamp_manual_error", err);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] manual stamp failed: ${String(err)}`,
+					"error",
+				);
+			}
+		}
+	};
+
 	pi.on("agent_end", async (event, ctx) => {
 		debug.event("agent_end", { messageCount: event.messages.length });
 		if (state.isInactive()) return undefined;
@@ -866,6 +1004,12 @@ export default function (pi: ExtensionAPI) {
 					break;
 				}
 
+				case "stamp": {
+					await stampManual(ctx);
+					syncPill(ctx);
+					break;
+				}
+
 				case "unarchive": {
 					const parts = args.trim().split(/\s+/);
 					const targetSessionId = parts[1];
@@ -927,7 +1071,7 @@ export default function (pi: ExtensionAPI) {
 				default: {
 					if (ctx.hasUI) {
 						ctx.ui.notify(
-							"Usage: /sillajje [status|archive|unarchive]",
+							"Usage: /sillajje [status|stamp|archive|unarchive]",
 							"warning",
 						);
 					}
