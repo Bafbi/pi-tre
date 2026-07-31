@@ -1010,6 +1010,201 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// -----------------------------------------------------------------------
+	// rebaseFoldPreamble — shared preamble for /sillajje rebase|fold
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Shared preamble for the `/sillajje rebase|fold <rev>` subcommands (PRD):
+	 * parse the args, resolve the target session's workspace, detect session
+	 * state, rebase the session working copy onto `<rev>` as a merge commit,
+	 * detect file-level conflicts, and sync the working copy.
+	 *
+	 * Returns the resolved target context when the preamble succeeded, or
+	 * `undefined` when the caller should abort (an error was already notified).
+	 */
+	const rebaseFoldPreamble = async (
+		ctx: {
+			hasUI: boolean;
+			ui: {
+				notify: (
+					msg: string,
+					type: "info" | "warning" | "error",
+				) => void;
+			};
+		},
+		subcommand: "rebase" | "fold",
+		args: string,
+	): Promise<
+		{ rev: string; sessionKey: string; wsPath: string } | undefined
+	> => {
+		// `args` includes the subcommand token itself (matching the other cases) —
+		// hand the parser only what follows `/sillajje <subcommand>`.
+		const { rev, sessionId } = parseRebaseFoldArgs(
+			args.split(/\s+/).slice(1).join(" "),
+		);
+		if (!rev) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] usage: /sillajje ${subcommand} <rev> [--session <id>]`,
+					"warning",
+				);
+			}
+			return undefined;
+		}
+
+		const repoRoot = state.getRepoRoot();
+		if (!repoRoot) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] cannot ${subcommand}: no jj repo detected`,
+					"error",
+				);
+			}
+			return undefined;
+		}
+
+		// Target session: the current one by default, or the one named by
+		// `--session <id>`. `sessionKey` is the bookmark key (`sillajje/<key>`),
+		// which may carry a `-N` collision suffix for the current session.
+		const sessionKey = sessionId ?? state.getSessionKey();
+		if (!sessionKey) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] no session ID available to ${subcommand}`,
+					"error",
+				);
+			}
+			return undefined;
+		}
+
+		// Resolve the workspace path: stored for the current session, looked up
+		// from `jj workspace list` for any other session.
+		let wsPath: string | undefined;
+		if (sessionKey === state.getSessionKey() && state.getWorkspacePath()) {
+			wsPath = state.getWorkspacePath();
+		} else {
+			try {
+				wsPath = await getWorkspacePathByName(exec, wsName(sessionKey));
+			} catch {
+				// getWorkspacePathByName catches errors internally
+			}
+		}
+
+		// Three-state session detection (PRD): no bookmark → not a sillajje
+		// session; bookmark without a workspace → archived; both → active, proceed.
+		if (!wsPath) {
+			const hasBookmark = await bookmarkExists(
+				exec,
+				`sillajje/${sessionKey}`,
+				repoRoot,
+			);
+			if (!hasBookmark) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] session ${sessionKey} is not a sillajje session — no bookmark sillajje/${sessionKey}`,
+						"error",
+					);
+				}
+				return undefined;
+			}
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] session ${sessionKey} is archived — unarchive it first`,
+					"error",
+				);
+			}
+			return undefined;
+		}
+
+		debug.event(`${subcommand}_preamble`, { rev, sessionKey, wsPath });
+
+		try {
+			// Rebase the session working copy onto `<rev>` and the session
+			// bookmark. Two `--onto` flags create a merge commit that brings
+			// `<rev>` into the session's ancestry while keeping the session
+			// history attached via its bookmark.
+			const rebaseResult = await pi.exec(
+				"jj",
+				[
+					"rebase",
+					"-s",
+					"@",
+					"-o",
+					rev,
+					"-o",
+					`sillajje/${sessionKey}`,
+				],
+				{ cwd: wsPath },
+			);
+			debug.event("jj_rebase", {
+				code: rebaseResult.code,
+				stderr: rebaseResult.stderr?.slice(0, 200),
+			});
+			if (rebaseResult.code !== 0) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] ${subcommand} failed (exit ${rebaseResult.code}): ${rebaseResult.stderr}`,
+						"error",
+					);
+				}
+				return undefined;
+			}
+
+			// Detect file-level conflicts. `jj resolve --list` exits 0 with
+			// non-empty stdout when conflicts exist; without conflicts it exits
+			// non-zero (2) and reports "No conflicts found" on stderr — so the
+			// conflict signal is exit 0 AND non-empty stdout, not output alone.
+			const resolveResult = await pi.exec("jj", ["resolve", "--list"], {
+				cwd: wsPath,
+			});
+			debug.event("jj_resolve_list", {
+				code: resolveResult.code,
+				conflicts: resolveResult.stdout,
+			});
+			if (
+				resolveResult.code === 0 &&
+				resolveResult.stdout.trim() !== ""
+			) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] ${subcommand} produced file-level conflicts — resolve them manually:\n${resolveResult.stdout.trim()}`,
+						"warning",
+					);
+				}
+				return undefined;
+			}
+
+			// Sync the target workspace working copy (no-op when already current).
+			const staleResult = await pi.exec(
+				"jj",
+				["workspace", "update-stale"],
+				{ cwd: wsPath },
+			);
+			debug.event("jj_update_stale", {
+				code: staleResult.code,
+				stderr: staleResult.stderr?.slice(0, 200),
+			});
+			if (staleResult.code !== 0 && ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] jj workspace update-stale failed (exit ${staleResult.code}): ${staleResult.stderr}`,
+					"error",
+				);
+			}
+		} catch (err) {
+			debug.error(`${subcommand}_preamble_error`, err);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] ${subcommand} failed: ${String(err)}`,
+					"error",
+				);
+			}
+			return undefined;
+		}
+
+		return { rev, sessionKey, wsPath };
+	};
+
+	// -----------------------------------------------------------------------
 	// /sillajje command — status subcommand
 	// -----------------------------------------------------------------------
 
@@ -1190,185 +1385,145 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				case "rebase": {
-					// `args` includes the subcommand token itself (matching the other
-					// cases) — hand the parser only what follows `/sillajje rebase`.
-					const { rev, sessionId } = parseRebaseFoldArgs(
-						args.split(/\s+/).slice(1).join(" "),
+					const target = await rebaseFoldPreamble(
+						ctx,
+						"rebase",
+						args,
 					);
-					if (!rev) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								"[sillajje] usage: /sillajje rebase <rev> [--session <id>]",
-								"warning",
-							);
-						}
-						break;
-					}
+					if (!target) break;
 
-					const repoRoot = state.getRepoRoot();
-					if (!repoRoot) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								"[sillajje] cannot rebase: no jj repo detected",
-								"error",
-							);
-						}
-						break;
-					}
-
-					// Target session: the current one by default, or the one named
-					// by `--session <id>`. `sessionKey` is the bookmark key
-					// (`sillajje/<key>`), which may carry a `-N` collision suffix
-					// for the current session.
-					const sessionKey = sessionId ?? state.getSessionKey();
-					if (!sessionKey) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								"[sillajje] no session ID available to rebase",
-								"error",
-							);
-						}
-						break;
-					}
-
-					// Resolve the workspace path: stored for the current session,
-					// looked up from `jj workspace list` for any other session.
-					let wsPath: string | undefined;
-					if (
-						sessionKey === state.getSessionKey() &&
-						state.getWorkspacePath()
-					) {
-						wsPath = state.getWorkspacePath();
-					} else {
-						try {
-							wsPath = await getWorkspacePathByName(
-								exec,
-								wsName(sessionKey),
-							);
-						} catch {
-							// getWorkspacePathByName catches errors internally
-						}
-					}
-
-					// Three-state session detection (PRD): no bookmark → not a
-					// sillajje session; bookmark without a workspace → archived;
-					// both → active, proceed.
-					if (!wsPath) {
-						const hasBookmark = await bookmarkExists(
-							exec,
-							`sillajje/${sessionKey}`,
-							repoRoot,
+					// No state transition — the session stays active after a
+					// successful rebase so the user can keep working.
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] session ${target.sessionKey} rebased onto ${target.rev}`,
+							"info",
 						);
-						if (!hasBookmark) {
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									`[sillajje] session ${sessionKey} is not a sillajje session — no bookmark sillajje/${sessionKey}`,
-									"error",
-								);
-							}
-							break;
-						}
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] session ${sessionKey} is archived — unarchive it before rebasing`,
-								"error",
-							);
-						}
-						break;
 					}
+					break;
+				}
 
-					debug.event("rebase_start", { rev, sessionKey, wsPath });
+				case "fold": {
+					const target = await rebaseFoldPreamble(ctx, "fold", args);
+					if (!target) break;
+
+					const { rev, sessionKey, wsPath } = target;
+					debug.event("fold_start", { rev, sessionKey, wsPath });
 
 					try {
-						// Rebase the session working copy onto `<rev>` and the session
-						// bookmark. Two `--onto` flags create a merge commit that
-						// brings `<rev>` into the session's ancestry while keeping
-						// the session history attached via its bookmark.
-						const rebaseResult = await pi.exec(
+						// 1. Create an empty change on `<rev>` (`<rev>+`) without moving
+						//    the working copy — the fold source stays at `@` (the merge
+						//    commit from the preamble).
+						const newResult = await pi.exec(
 							"jj",
-							[
-								"rebase",
-								"-s",
-								"@",
-								"-o",
-								rev,
-								"-o",
-								`sillajje/${sessionKey}`,
-							],
+							["new", rev, "--no-edit"],
 							{ cwd: wsPath },
 						);
-						debug.event("jj_rebase", {
-							code: rebaseResult.code,
-							stderr: rebaseResult.stderr?.slice(0, 200),
+						debug.event("jj_new_fold", {
+							code: newResult.code,
+							stderr: newResult.stderr?.slice(0, 120),
 						});
-						if (rebaseResult.code !== 0) {
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									`[sillajje] rebase failed (exit ${rebaseResult.code}): ${rebaseResult.stderr}`,
-									"error",
-								);
-							}
-							break;
-						}
-
-						// Detect file-level conflicts. `jj resolve --list` exits 0 with
-						// non-empty stdout when conflicts exist; without conflicts it
-						// exits non-zero (2) and reports "No conflicts found" on
-						// stderr — so the conflict signal is exit 0 AND non-empty
-						// stdout, not output alone.
-						const resolveResult = await pi.exec(
-							"jj",
-							["resolve", "--list"],
-							{ cwd: wsPath },
-						);
-						debug.event("jj_resolve_list", {
-							code: resolveResult.code,
-							conflicts: resolveResult.stdout,
-						});
-						if (
-							resolveResult.code === 0 &&
-							resolveResult.stdout.trim() !== ""
-						) {
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									`[sillajje] rebase produced file-level conflicts — resolve them manually:\n${resolveResult.stdout.trim()}`,
-									"warning",
-								);
-							}
-							break;
-						}
-
-						// Sync the target workspace working copy (no-op when already
-						// current).
-						const staleResult = await pi.exec(
-							"jj",
-							["workspace", "update-stale"],
-							{ cwd: wsPath },
-						);
-						debug.event("jj_update_stale", {
-							code: staleResult.code,
-							stderr: staleResult.stderr?.slice(0, 200),
-						});
-						if (staleResult.code !== 0 && ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] jj workspace update-stale failed (exit ${staleResult.code}): ${staleResult.stderr}`,
-								"error",
+						if (newResult.code !== 0) {
+							throw new Error(
+								`jj new failed (exit ${newResult.code}): ${newResult.stderr}`,
 							);
 						}
 
-						// No state transition — the session stays active after a
-						// successful rebase so the user can keep working.
+						// The folded change id, parsed from `jj new` output ("Created
+						// new commit <change_id> ..." — jj prints status messages to
+						// stderr). Referencing it by id avoids the `<rev>+` revset,
+						// which is ambiguous once the preamble's merge commit also
+						// descends from `<rev>`.
+						const foldId = /Created new commit (\S+)/.exec(
+							newResult.stderr ?? "",
+						)?.[1];
+						if (!foldId) {
+							throw new Error(
+								`could not parse folded commit id from jj new output: ${newResult.stderr}`,
+							);
+						}
+
+						// 2. Copy the merged session content into the folded change.
+						//    The source is `@` (the preamble's merge commit) — the
+						//    session bookmark alone would lack the upstream content
+						//    brought in by the rebase.
+						const restoreResult = await pi.exec(
+							"jj",
+							["restore", "--from", "@", "--to", foldId],
+							{ cwd: wsPath },
+						);
+						debug.event("jj_restore_fold", {
+							code: restoreResult.code,
+						});
+						if (restoreResult.code !== 0) {
+							throw new Error(
+								`jj restore failed (exit ${restoreResult.code}): ${restoreResult.stderr}`,
+							);
+						}
+
+						// 3. Generate a conventional-commit subject from the folded diff,
+						//    via the same sub-generator used by `/sillajje stamp`.
+						const diffResult = await pi.exec(
+							"jj",
+							["diff", "-r", foldId],
+							{
+								cwd: wsPath,
+							},
+						);
+						const diff =
+							diffResult.code === 0 ? diffResult.stdout : "";
+						const cfg = activeConfig ?? loadSillajjeConfig();
+						const { maxAttempts, timeoutMs, model } =
+							getStampConfig(cfg);
+						const subject = await generateManualHeader(
+							diff,
+							resolveSpawnFn(),
+							{ model, maxAttempts, timeoutMs },
+						);
+						debug.event("fold_header", { subject });
+
+						// 4. Describe the folded change with the generated subject.
+						const descResult = await pi.exec(
+							"jj",
+							["describe", "-r", foldId, "-m", subject],
+							{ cwd: wsPath },
+						);
+						debug.event("jj_describe_fold", {
+							code: descResult.code,
+						});
+						if (descResult.code !== 0) {
+							throw new Error(
+								`jj describe failed (exit ${descResult.code}): ${descResult.stderr}`,
+							);
+						}
+
+						// 5. Archive the session as a practical convenience: forget the
+						//    workspace and delete its directory. The
+						//    `sillajje/<sessionKey>` bookmark intentionally survives as
+						//    sillage.
+						await cleanupWorkspace(
+							exec,
+							wsName(sessionKey),
+							wsPath,
+						);
+						if (sessionKey === state.getSessionKey()) {
+							state.setArchived();
+							state.clearWorkspacePath();
+							state.resetInteraction();
+						}
+						syncPill(ctx);
+
 						if (ctx.hasUI) {
 							ctx.ui.notify(
-								`[sillajje] session ${sessionKey} rebased onto ${rev}`,
+								`[sillajje] session ${sessionKey} folded — commit at ${rev}+ (switch to it in your main checkout)`,
 								"info",
 							);
 						}
 					} catch (err) {
-						debug.error("rebase_error", err);
+						debug.error("fold_error", err);
 						if (ctx.hasUI) {
 							ctx.ui.notify(
-								`[sillajje] rebase failed: ${String(err)}`,
+								`[sillajje] fold failed: ${String(err)}`,
 								"error",
 							);
 						}
@@ -1379,7 +1534,7 @@ export default function (pi: ExtensionAPI) {
 				default: {
 					if (ctx.hasUI) {
 						ctx.ui.notify(
-							"Usage: /sillajje [status|stamp|archive|unarchive|rebase]",
+							"Usage: /sillajje [status|stamp|archive|unarchive|rebase|fold]",
 							"warning",
 						);
 					}
