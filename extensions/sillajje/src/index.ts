@@ -415,7 +415,7 @@ export default function (pi: ExtensionAPI) {
 			response,
 		].join("\n");
 
-		const diffResult = await pi.exec("jj", ["diff", "-r", "@-"], {
+		const diffResult = await pi.exec("jj", ["diff", "-r", "@"], {
 			cwd: wsPath,
 		});
 		const diff = diffResult.code === 0 ? diffResult.stdout : "";
@@ -622,7 +622,7 @@ export default function (pi: ExtensionAPI) {
 		debug.event("stamp_manual_start");
 
 		// Get the diff for the sub-generator.
-		const diffResult = await pi.exec("jj", ["diff", "-r", "@-"], {
+		const diffResult = await pi.exec("jj", ["diff", "-r", "@"], {
 			cwd: wsPath,
 		});
 		const diff = diffResult.code === 0 ? diffResult.stdout : "";
