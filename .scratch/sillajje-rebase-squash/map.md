@@ -13,6 +13,8 @@ Two new `/sillajje` subcommands — `rebase` and `squash` — that integrate a s
 
 <!-- populated as tickets resolve -->
 
+- **Ticket 02 — argument parser helper (resolved).** `parseRebaseFoldArgs(args: string): RebaseFoldArgs` in `extensions/sillajje/src/rebase-fold.ts`. `rev` = first non-flag token; `--session <id>` = separate tokens, last occurrence wins; unknown flags ignored; empty/flag-only input → `{ rev: "" }`. 13 unit tests in `test/unit/rebase-fold.test.ts`; `mise //extensions/sillajje:check` green. See issue 02.
+
 ## Not yet specified
 
 <!-- nothing — the way is clear -->

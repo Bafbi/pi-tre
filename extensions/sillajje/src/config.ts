@@ -12,7 +12,7 @@
  * - Unknown-property stripping via `Clean()`
  * - JSON Schema generation for IDE intellisense and tooling
  *
- * Interface: `loadSillajjeConfig(repoRoot?) → SillajjeConfig`
+ * Interface: `loadSillajjeConfig(repoRoot?, configDir?) → SillajjeConfig`
  *
  * This is a deep module: a large amount of config-resolving behaviour
  * (file walking, priority rules, default application, typed parsing) behind
@@ -171,7 +171,7 @@ const DEFAULTS: SillajjeConfig = Default(
 // Config file paths
 // ---------------------------------------------------------------------------
 
-const GLOBAL_CONFIG_PATH = join(homedir(), ".pi/configs/sillajje.json");
+const DEFAULT_GLOBAL_CONFIG_DIR = join(homedir(), ".pi/configs");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -232,13 +232,25 @@ function parsePostInitEnv(): string[] | undefined {
  * 1. Project-local `.pi/configs/sillajje.json` (relative to `repoRoot`).
  *    If this file exists, its values are authoritative — the global config
  *    is not consulted.
- * 2. Global `~/.pi/configs/sillajje.json`.
+ * 2. Global `<configDir>/sillajje.json` (defaults to `~/.pi/configs`).
  * 3. Hardcoded defaults (if neither config file exists).
  * 4. `SILLAJJE_POST_INIT` environment variable overrides `postInit` (only).
  *
+ * @param repoRoot - Project root; a project-local config here takes precedence.
+ * @param configDir - Override for the global config directory (defaults to
+ *   `~/.pi/configs`). Tests pass a temp directory so the real user config is
+ *   never read or written.
+ *
  * Returns a fully-populated `SillajjeConfig` with all fields set.
  */
-export function loadSillajjeConfig(repoRoot?: string): SillajjeConfig {
+export function loadSillajjeConfig(
+	repoRoot?: string,
+	configDir?: string,
+): SillajjeConfig {
+	const globalConfigPath = join(
+		configDir ?? DEFAULT_GLOBAL_CONFIG_DIR,
+		"sillajje.json",
+	);
 	let config: SillajjeConfig;
 
 	// Project-local config takes precedence.
@@ -249,12 +261,12 @@ export function loadSillajjeConfig(repoRoot?: string): SillajjeConfig {
 			config = local;
 		} else {
 			// No project config — fall back to global.
-			const global = readConfigFile(GLOBAL_CONFIG_PATH);
+			const global = readConfigFile(globalConfigPath);
 			config = global ?? { ...DEFAULTS };
 		}
 	} else {
 		// Fall back to global config.
-		const global = readConfigFile(GLOBAL_CONFIG_PATH);
+		const global = readConfigFile(globalConfigPath);
 		config = global ?? { ...DEFAULTS };
 	}
 

@@ -32,6 +32,7 @@ import {
 	type ExecFn,
 	getWorkspacePathByName,
 	unarchiveWorkspace,
+	workspaceDirExists,
 	workspaceName as wsName,
 } from "./workspace.js";
 
@@ -78,10 +79,35 @@ let activeConfig: ReturnType<typeof loadSillajjeConfig> | undefined;
  * @internal Test seam — override the SpawnFn used by stampChange.
  * When set, stampChange uses this instead of creating a real spawn.
  * Reset to undefined after each test.
+ *
+ * The seam is mirrored on `globalThis` because the extension may be loaded
+ * through a different module instance than the test's imports — the jiti-based
+ * extension loader imports with `moduleCache: false`, creating a separate
+ * module graph. Writing the seam to `globalThis` lets tests set it from their
+ * own module instance and have the loaded instance pick it up.
  */
+const SEAM_KEY = "__sillajje_test_spawn_fn__";
+
 let _testSpawnFn: SpawnFn | undefined;
 export function setTestSpawnFn(fn: SpawnFn | undefined): void {
 	_testSpawnFn = fn;
+	const g = globalThis as Record<string, unknown>;
+	if (fn === undefined) {
+		delete g[SEAM_KEY];
+	} else {
+		g[SEAM_KEY] = fn;
+	}
+}
+
+/**
+ * Resolve the SpawnFn used for change stamping: the test seam (module
+ * variable or globalThis mirror) or the real spawn factory.
+ */
+function resolveSpawnFn(): SpawnFn {
+	const g = globalThis as Record<string, unknown>;
+	return (
+		_testSpawnFn ?? (g[SEAM_KEY] as SpawnFn | undefined) ?? createSpawnFn()
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -128,10 +154,12 @@ function getStampConfig(cfg: SillajjeConfig): StampConfig {
 /**
  * Extract the concatenated text from an AssistantMessage's content blocks.
  * Filters to only `text` blocks and joins with newlines.
+ *
+ * Pure function — exported for unit testing (see `test/unit/extract-assistant-text.test.ts`).
  */
-function extractAssistantText(msg: {
+export function extractAssistantText(msg: {
 	role: string;
-	content: Array<{ type: string; text?: string }>;
+	content?: Array<{ type: string; text?: string }> | null;
 }): string {
 	if (msg.role !== "assistant") return "";
 	return (msg.content ?? [])
@@ -231,6 +259,49 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// -----------------------------------------------------------------------
+	// Stale detection — workspace deleted or jj disappeared mid-session
+	// -----------------------------------------------------------------------
+
+	/** Whether an active session's workspace directory no longer exists on disk. */
+	const isWorkspaceGone = (): boolean => {
+		const wsPath = state.getWorkspacePath();
+		return state.isActive() && !!wsPath && !workspaceDirExists(wsPath);
+	};
+
+	/**
+	 * Mark the session stale and notify the user once (deduped by isStale).
+	 * A stale session cannot stamp or redirect tools safely — the user must
+	 * unarchive or start a new session.
+	 */
+	const markStaleAndNotify = (
+		ctx: {
+			hasUI: boolean;
+			ui: {
+				notify: (
+					msg: string,
+					type: "info" | "warning" | "error",
+				) => void;
+			};
+		},
+		reason: string,
+	): void => {
+		if (state.isStale()) return;
+		state.markStale();
+		debug.error("session_stale", new Error(reason));
+		if (ctx.hasUI) {
+			ctx.ui.notify(
+				`[sillajje] ${reason} — session marked stale. Use /sillajje unarchive or start a new session.`,
+				"error",
+			);
+		}
+	};
+
+	/** Block reason shown to the agent when the session is stale. */
+	const staleBlockReason =
+		"The sillajje workspace for this session is no longer usable (stale). " +
+		"Tell the user to run /sillajje unarchive or start a new session.";
+
+	// -----------------------------------------------------------------------
 	// session_start — detect jj, determine state
 	// -----------------------------------------------------------------------
 
@@ -279,6 +350,7 @@ export default function (pi: ExtensionAPI) {
 					activeConfig.workspacesRoot ?? `${homedir()}/.pi/sillajje`,
 				);
 				state.setWorkspacePath(info.workspacePath);
+				state.setSessionKey(info.sessionKey);
 
 				// Run post-init commands (non-fatal — session activates regardless).
 				await runPostInit(ctx);
@@ -313,12 +385,19 @@ export default function (pi: ExtensionAPI) {
 	// before_agent_start — inject workspace path + capture prompt
 	// -----------------------------------------------------------------------
 
-	pi.on("before_agent_start", async (event, _ctx) => {
+	pi.on("before_agent_start", async (event, ctx) => {
 		debug.event("before_agent_start", { promptLen: event.prompt.length });
 		if (state.isInactive() || state.isArchived()) {
 			debug.event("before_agent_start_skip", {
 				reason: state.isInactive() ? "inactive" : "archived",
 			});
+			return undefined;
+		}
+
+		// Workspace deleted externally — no point injecting a dead path.
+		if (state.isStale()) return undefined;
+		if (isWorkspaceGone()) {
+			markStaleAndNotify(ctx, "workspace directory no longer exists");
 			return undefined;
 		}
 
@@ -382,12 +461,14 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
+		const sessionKey = state.getSessionKey() ?? sessionId;
+
 		if (!state.hasNewInteraction()) {
 			debug.event("stamp_skip", { reason: "no_new_interaction" });
 			return;
 		}
 
-		const snapshot = state.getInteractionData(sessionId);
+		const snapshot = state.getInteractionData(sessionKey);
 		if (!snapshot) {
 			debug.event("stamp_skip", {
 				reason: "no_snapshot",
@@ -415,7 +496,7 @@ export default function (pi: ExtensionAPI) {
 			response,
 		].join("\n");
 
-		const diffResult = await pi.exec("jj", ["diff", "-r", "@-"], {
+		const diffResult = await pi.exec("jj", ["diff", "-r", "@"], {
 			cwd: wsPath,
 		});
 		const diff = diffResult.code === 0 ? diffResult.stdout : "";
@@ -428,7 +509,7 @@ export default function (pi: ExtensionAPI) {
 				[
 					"log",
 					"-r",
-					`ancestors(sillajje/${sessionId})`,
+					`ancestors(sillajje/${sessionKey})`,
 					"--no-graph",
 					"-T",
 					"description.first_line()",
@@ -466,7 +547,7 @@ export default function (pi: ExtensionAPI) {
 			diff,
 			previousDescriptions: priorDescriptions,
 		};
-		const spawnFn = _testSpawnFn ?? createSpawnFn();
+		const spawnFn = resolveSpawnFn();
 
 		// Run header and trace sub-generators in parallel when both are enabled.
 		const headerCall =
@@ -560,7 +641,7 @@ export default function (pi: ExtensionAPI) {
 			// 2. Set the bookmark to point to the current working copy.
 			const bookmarkResult = await pi.exec(
 				"jj",
-				["bookmark", "set", `sillajje/${sessionId}`, "-r", "@"],
+				["bookmark", "set", `sillajje/${sessionKey}`, "-r", "@"],
 				{ cwd: wsPath },
 			);
 			debug.event("jj_bookmark_set", { code: bookmarkResult.code });
@@ -619,10 +700,12 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
+		const sessionKey = state.getSessionKey() ?? sessionId;
+
 		debug.event("stamp_manual_start");
 
 		// Get the diff for the sub-generator.
-		const diffResult = await pi.exec("jj", ["diff", "-r", "@-"], {
+		const diffResult = await pi.exec("jj", ["diff", "-r", "@"], {
 			cwd: wsPath,
 		});
 		const diff = diffResult.code === 0 ? diffResult.stdout : "";
@@ -642,7 +725,7 @@ export default function (pi: ExtensionAPI) {
 		// Get config values.
 		const cfg = activeConfig ?? loadSillajjeConfig();
 		const { maxAttempts, timeoutMs, model } = getStampConfig(cfg);
-		const spawnFn = _testSpawnFn ?? createSpawnFn();
+		const spawnFn = resolveSpawnFn();
 
 		// Generate a classic conventional commit header from the diff alone.
 		const subject = await generateManualHeader(diff, spawnFn, {
@@ -667,8 +750,8 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		// Build body: subject + metadata (session ID only).
-		const metaLine = `Meta: sillajje/${sessionId}`;
+		// Build body: subject + metadata (session key only).
+		const metaLine = `Meta: sillajje/${sessionKey}`;
 		const body = `${subject}\n\n${metaLine}`;
 
 		try {
@@ -737,6 +820,17 @@ export default function (pi: ExtensionAPI) {
 		debug.event("agent_end", { messageCount: event.messages.length });
 		if (state.isInactive()) return undefined;
 
+		// Stale session (workspace deleted or jj disappeared): don't stamp.
+		if (state.isStale()) return undefined;
+		if (isWorkspaceGone()) {
+			markStaleAndNotify(ctx, "workspace directory no longer exists");
+			return undefined;
+		}
+		if (!(await isJjOnPath(pi))) {
+			markStaleAndNotify(ctx, "jj is no longer on PATH");
+			return undefined;
+		}
+
 		// Accumulate this agent run segment into the cumulative elapsed timer.
 		// This handles retry/compact scenarios where `agent_start` fires again
 		// mid-interaction — each segment adds to the total rather than resetting.
@@ -790,9 +884,18 @@ export default function (pi: ExtensionAPI) {
 	// tool_call — redirect paths + record tool usage
 	// -----------------------------------------------------------------------
 
-	pi.on("tool_call", async (event, _ctx) => {
+	pi.on("tool_call", async (event, ctx) => {
 		debug.event("tool_call", { toolName: event.toolName });
 		if (state.isInactive()) return undefined;
+
+		// Stale session — block tools so nothing writes to the real repo.
+		if (state.isStale()) {
+			return { block: true, reason: staleBlockReason };
+		}
+		if (isWorkspaceGone()) {
+			markStaleAndNotify(ctx, "workspace directory no longer exists");
+			return { block: true, reason: staleBlockReason };
+		}
 
 		const info = redirect(
 			event,
@@ -837,6 +940,11 @@ export default function (pi: ExtensionAPI) {
 		state.startInteraction(event.streamingBehavior);
 
 		if (state.isInactive()) return undefined;
+		if (state.isStale()) {
+			// Already notified when staleness was detected — prompts pass
+			// through so the user can still run /sillajje commands.
+			return undefined;
+		}
 		if (state.isArchived()) {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
@@ -853,13 +961,19 @@ export default function (pi: ExtensionAPI) {
 	// user_bash — redirect !/!! commands to workspace directory
 	// -----------------------------------------------------------------------
 
-	pi.on("user_bash", async (event, _ctx) => {
+	pi.on("user_bash", async (event, ctx) => {
 		debug.event("user_bash", { command: event.command });
 
 		if (state.isInactive()) return undefined;
 
 		const wsPath = state.getWorkspacePath();
 		if (!wsPath) return undefined;
+
+		if (state.isStale()) return undefined;
+		if (isWorkspaceGone()) {
+			markStaleAndNotify(ctx, "workspace directory no longer exists");
+			return undefined;
+		}
 
 		const ops = createLocalBashOperations();
 		const result: UserBashEventResult = {
@@ -877,14 +991,18 @@ export default function (pi: ExtensionAPI) {
 	// -----------------------------------------------------------------------
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		if (state.isInactive() || state.isArchived()) return;
+		if (state.isInactive() || state.isArchived() || state.isStale()) return;
 
 		const wsPath = state.getWorkspacePath();
 		const sessionId = state.getSessionId();
 		if (!wsPath || !sessionId) return;
 
 		if (!state.hasUserPrompted()) {
-			await cleanupWorkspace(exec, wsName(sessionId), wsPath);
+			await cleanupWorkspace(
+				exec,
+				wsName(state.getSessionKey() ?? sessionId),
+				wsPath,
+			);
 			syncPill(ctx);
 		}
 	});
@@ -925,7 +1043,7 @@ export default function (pi: ExtensionAPI) {
 
 				case "archive": {
 					const parts = args.trim().split(/\s+/);
-					const targetSessionId = parts[1] || state.getSessionId();
+					const targetSessionId = parts[1] || state.getSessionKey();
 
 					if (!targetSessionId) {
 						if (ctx.hasUI) {
@@ -943,7 +1061,7 @@ export default function (pi: ExtensionAPI) {
 					// If archiving the current session, use the stored workspace path.
 					// Otherwise, look it up from jj workspace list.
 					if (
-						targetSessionId === state.getSessionId() &&
+						targetSessionId === state.getSessionKey() &&
 						state.getWorkspacePath()
 					) {
 						wsPath = state.getWorkspacePath();
@@ -961,7 +1079,7 @@ export default function (pi: ExtensionAPI) {
 					if (!wsPath) {
 						// Workspace already gone — just update state if it's the current session.
 						if (
-							targetSessionId === state.getSessionId() &&
+							targetSessionId === state.getSessionKey() &&
 							state.isActive()
 						) {
 							state.setArchived();
@@ -987,7 +1105,7 @@ export default function (pi: ExtensionAPI) {
 					await cleanupWorkspace(exec, wsNameInternal, wsPath);
 
 					// Update state if this is the current session.
-					if (targetSessionId === state.getSessionId()) {
+					if (targetSessionId === state.getSessionKey()) {
 						state.setArchived();
 						state.clearWorkspacePath();
 						state.resetInteraction();
@@ -1046,6 +1164,7 @@ export default function (pi: ExtensionAPI) {
 
 						// Restore state for the unarchived session.
 						state.setSessionId(targetSessionId);
+						state.setSessionKey(info.sessionKey);
 						state.setActive();
 						state.setWorkspacePath(info.workspacePath);
 						syncPill(ctx);

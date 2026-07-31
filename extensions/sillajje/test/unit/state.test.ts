@@ -1,6 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { SessionState } from "../../src/state";
+
+/**
+ * Run a test body with deterministic fake timers, restoring real timers
+ * afterwards. `SessionState` reads `Date.now()`, which fake timers intercept,
+ * so elapsed-time assertions are exact instead of tolerance-based.
+ */
+function withFakeTimers(fn: () => void): void {
+	vi.useFakeTimers();
+	try {
+		fn();
+	} finally {
+		vi.useRealTimers();
+	}
+}
 
 describe("SessionState", () => {
 	it("defaults to inactive with no repo root", () => {
@@ -141,6 +155,31 @@ describe("SessionState", () => {
 		expect(s.isArchived()).toBe(false);
 		expect(s.getWorkspacePath()).toBe("/tmp/ws/repo/sess-001");
 	});
+
+	it("markStale marks the session stale and reset clears it", () => {
+		const s = new SessionState();
+		s.setDetection(true, "/repo");
+		expect(s.isStale()).toBe(false);
+
+		s.markStale();
+		expect(s.isStale()).toBe(true);
+
+		s.reset();
+		expect(s.isStale()).toBe(false);
+	});
+
+	it("getSessionKey falls back to sessionId and honors setSessionKey", () => {
+		const s = new SessionState();
+		s.setSessionId("abc123");
+		expect(s.getSessionKey()).toBe("abc123");
+
+		// Collision guard: effective key gets a suffix.
+		s.setSessionKey("abc123-2");
+		expect(s.getSessionKey()).toBe("abc123-2");
+
+		s.reset();
+		expect(s.getSessionKey()).toBeUndefined();
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -173,62 +212,74 @@ describe("SessionState interaction tracking", () => {
 	});
 
 	it("markAgentStart records a timestamp (running segment)", () => {
-		const before = Date.now();
-		const s = new SessionState();
-		s.markAgentStart();
-		const after = Date.now();
-		const elapsed = s.getInteractionElapsedMs();
-		expect(elapsed).toBeGreaterThanOrEqual(0);
-		expect(elapsed).toBeLessThanOrEqual(after - before + 50);
+		withFakeTimers(() => {
+			const s = new SessionState();
+			s.markAgentStart();
+			vi.advanceTimersByTime(10);
+			expect(s.getInteractionElapsedMs()).toBe(10);
+		});
 	});
 
 	it("markAgentEnd adds one segment to cumulative", () => {
-		const s = new SessionState();
-		s.markAgentStart();
-		const elapsed = s.getInteractionElapsedMs();
-		s.markAgentEnd();
-		// After end, getter should return at least as much as before end
-		const afterEnd = s.getInteractionElapsedMs();
-		expect(afterEnd).toBeGreaterThanOrEqual(elapsed - 5); // slight timing tolerance
+		withFakeTimers(() => {
+			const s = new SessionState();
+			s.markAgentStart();
+			vi.advanceTimersByTime(15);
+			expect(s.getInteractionElapsedMs()).toBe(15);
+
+			// Ending the segment freezes the elapsed value.
+			s.markAgentEnd();
+			expect(s.getInteractionElapsedMs()).toBe(15);
+		});
 	});
 
-	it("markAgentEnd accumulates multiple segments", async () => {
-		const s = new SessionState();
+	it("markAgentEnd accumulates multiple segments", () => {
+		withFakeTimers(() => {
+			const s = new SessionState();
 
-		s.markAgentStart();
-		await new Promise((r) => setTimeout(r, 10));
-		s.markAgentEnd();
-		const afterSeg1 = s.getInteractionElapsedMs();
+			s.markAgentStart();
+			vi.advanceTimersByTime(10);
+			s.markAgentEnd();
+			expect(s.getInteractionElapsedMs()).toBe(10);
 
-		s.markAgentStart();
-		await new Promise((r) => setTimeout(r, 10));
-		s.markAgentEnd();
-		const afterSeg2 = s.getInteractionElapsedMs();
+			s.markAgentStart();
+			vi.advanceTimersByTime(25);
+			s.markAgentEnd();
+			expect(s.getInteractionElapsedMs()).toBe(35);
 
-		// Each segment adds to the cumulative total
-		expect(afterSeg1).toBeGreaterThanOrEqual(5);
-		expect(afterSeg2).toBeGreaterThan(afterSeg1);
+			// A running third segment is added on top of the cumulative total.
+			s.markAgentStart();
+			vi.advanceTimersByTime(5);
+			expect(s.getInteractionElapsedMs()).toBe(40);
+		});
 	});
 
 	it("getInteractionElapsedMs returns cumulative when no running segment", () => {
-		const s = new SessionState();
-		s.markAgentStart();
-		s.markAgentEnd();
-		const frozen = s.getInteractionElapsedMs();
-		// After a small delay, the value should not increase because no segment is running
-		const later = s.getInteractionElapsedMs();
-		expect(later).toBe(frozen);
+		withFakeTimers(() => {
+			const s = new SessionState();
+			s.markAgentStart();
+			vi.advanceTimersByTime(20);
+			s.markAgentEnd();
+			expect(s.getInteractionElapsedMs()).toBe(20);
+
+			// No running segment — advancing time does not change the value.
+			const frozen = s.getInteractionElapsedMs();
+			vi.advanceTimersByTime(50);
+			expect(s.getInteractionElapsedMs()).toBe(frozen);
+		});
 	});
 
-	it("resetInteraction clears cumulative elapsed", async () => {
-		const s = new SessionState();
-		s.markAgentStart();
-		await new Promise((r) => setTimeout(r, 10));
-		s.markAgentEnd();
-		expect(s.getInteractionElapsedMs()).toBeGreaterThan(0);
+	it("resetInteraction clears cumulative elapsed", () => {
+		withFakeTimers(() => {
+			const s = new SessionState();
+			s.markAgentStart();
+			vi.advanceTimersByTime(10);
+			s.markAgentEnd();
+			expect(s.getInteractionElapsedMs()).toBe(10);
 
-		s.resetInteraction();
-		expect(s.getInteractionElapsedMs()).toBe(0);
+			s.resetInteraction();
+			expect(s.getInteractionElapsedMs()).toBe(0);
+		});
 	});
 
 	it("recordToolCall increments count and tracks unique names", () => {

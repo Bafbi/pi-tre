@@ -25,6 +25,20 @@ export class SessionState {
 	/** The session ID derived from the Pi session manager. */
 	private sessionId: string | undefined;
 
+	/**
+	 * Effective session key used for workspace names and bookmarks.
+	 * Equals `sessionId` normally; gets a numeric suffix when another session
+	 * already holds `sillajje-<sessionId>` (session-ID collision guard).
+	 */
+	private sessionKey: string | undefined;
+
+	/**
+	 * Whether the session was marked stale: the workspace directory was
+	 * deleted externally or `jj` disappeared from PATH mid-session. Stale
+	 * sessions no-op like inactive ones but keep prompting notifications.
+	 */
+	private stale = false;
+
 	/** Whether the user has sent at least one prompt in this session. */
 	private hasPrompted = false;
 
@@ -75,6 +89,15 @@ export class SessionState {
 		return this.sessionId;
 	}
 
+	/** Effective session key (falls back to the raw session ID). */
+	getSessionKey(): string | undefined {
+		return this.sessionKey ?? this.sessionId;
+	}
+
+	isStale(): boolean {
+		return this.stale;
+	}
+
 	isJjAvailable(): boolean {
 		return this.jjAvailable;
 	}
@@ -104,6 +127,15 @@ export class SessionState {
 
 	setSessionId(id: string): void {
 		this.sessionId = id;
+	}
+
+	setSessionKey(key: string | undefined): void {
+		this.sessionKey = key;
+	}
+
+	/** Mark the session stale (workspace deleted or jj disappeared). */
+	markStale(): void {
+		this.stale = true;
 	}
 
 	setWorkspacePath(path: string): void {
@@ -136,6 +168,8 @@ export class SessionState {
 		this.jjAvailable = false;
 		this.workspacePath = undefined;
 		this.sessionId = undefined;
+		this.sessionKey = undefined;
+		this.stale = false;
 		this.hasPrompted = false;
 		this.resetInteraction();
 	}

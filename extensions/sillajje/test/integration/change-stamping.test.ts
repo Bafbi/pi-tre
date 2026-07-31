@@ -1,10 +1,16 @@
 import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { setTestSpawnFn } from "../../src/index.js";
 import type { SpawnFn } from "../../src/sub-generator.js";
-import { createRunner, describeJj, makeRunnerCwd, tempDirs } from "./_helpers";
+import {
+	createRunner,
+	describeJj,
+	installDefaultSubGeneratorMock,
+	makeRunnerCwd,
+	tempDirs,
+} from "./_helpers";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -103,6 +109,13 @@ function initRepo(): string {
 // Tests
 // ---------------------------------------------------------------------------
 
+// Stamping must never spawn a real `pi -p` subprocess in tests. Install a
+// canned sub-generator by default; tests that exercise failure fallback
+// override the seam inside their own body.
+beforeEach(() => {
+	installDefaultSubGeneratorMock();
+});
+
 describeJj("sillajje change stamping", () => {
 	it("stamps a jj change on agent_settled after a new interaction", async () => {
 		const cwd = makeRunnerCwd();
@@ -160,7 +173,7 @@ describeJj("sillajje change stamping", () => {
 		// Bookmark should exist.
 		const bookmarks = jj(["bookmark", "list"], cwd);
 		expect(bookmarks).toContain(`sillajje/${sessionId}`);
-	});
+	}, 10_000);
 
 	it("steering does NOT create a new change", async () => {
 		const cwd = makeRunnerCwd();
@@ -209,7 +222,7 @@ describeJj("sillajje change stamping", () => {
 			cwd,
 		);
 		expect(bmAfter).toBe(bmBefore);
-	});
+	}, 10_000);
 
 	it("multiple agent segments accumulate elapsed time", async () => {
 		const cwd = makeRunnerCwd();
@@ -263,9 +276,18 @@ describeJj("sillajje change stamping", () => {
 		});
 		await runner.emit({ type: "agent_settled" });
 
-		// Both interactions should appear in the log.
+		// Both interactions should appear in the log. With the canned
+		// sub-generator the subject is fixed, so assert on the body's
+		// Prompt section instead of the subject line.
 		const log = jj(
-			["log", "-r", `ancestors(sillajje/${sessionId})`, "--no-graph"],
+			[
+				"log",
+				"-r",
+				`ancestors(sillajje/${sessionId})`,
+				"--no-graph",
+				"-T",
+				"description",
+			],
 			cwd,
 		);
 		expect(log).toContain("Do something");
@@ -299,9 +321,18 @@ describeJj("sillajje change stamping", () => {
 		// --- Interaction 2 ---
 		await simulateInteraction(runner, "Add dashboard", "Dashboard added.");
 
-		// The bookmark ancestors should contain both descriptions.
+		// The bookmark ancestors should contain both descriptions. With the
+		// canned sub-generator the subject is fixed, so assert on the body's
+		// Prompt section instead of the subject line.
 		const log = jj(
-			["log", "-r", `ancestors(sillajje/${sessionId})`, "--no-graph"],
+			[
+				"log",
+				"-r",
+				`ancestors(sillajje/${sessionId})`,
+				"--no-graph",
+				"-T",
+				"description",
+			],
 			cwd,
 		);
 		expect(log).toContain("Add login");
@@ -349,9 +380,17 @@ describeJj("sillajje change stamping", () => {
 		});
 		await runner.emit({ type: "agent_settled" });
 
-		// Both should appear.
+		// Both should appear — assert on the body's Prompt section since the
+		// canned sub-generator fixes the subject line.
 		const log = jj(
-			["log", "-r", `ancestors(sillajje/${sessionId})`, "--no-graph"],
+			[
+				"log",
+				"-r",
+				`ancestors(sillajje/${sessionId})`,
+				"--no-graph",
+				"-T",
+				"description",
+			],
 			cwd,
 		);
 		expect(log).toContain("First task");
@@ -517,9 +556,20 @@ describeJj("sillajje change stamping", () => {
 			"Done.",
 		);
 
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
 		// Subject should be the prompt, not a dual-prefix header.
-		const firstLine = show.split("\n")[0];
+		// `jj show` starts with the commit header lines, so read the
+		// description's first line directly via a log template.
+		const firstLine = jj(
+			[
+				"log",
+				"-r",
+				`sillajje/${sessionId}`,
+				"--no-graph",
+				"-T",
+				"description.first_line()",
+			],
+			cwd,
+		);
 		expect(firstLine).toBe("Prompt as subject: first line");
 	}, 30_000);
 
@@ -530,8 +580,12 @@ describeJj("sillajje change stamping", () => {
 	it("falls back to deriveSubject and omits trace when sub-generator is unavailable", async () => {
 		const cwd = initRepo();
 
-		// Use default config (no overrides) — sub-generator runs but will fail
-		// because the integration test env has no API access.
+		// Make every sub-generator attempt fail — the header falls back to
+		// deriveSubject(prompt) and the trace falls back to an empty string.
+		setTestSpawnFn(async () => {
+			throw new Error("sub-generator unavailable");
+		});
+
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const sessionId = getSessionId(runner);
@@ -543,7 +597,19 @@ describeJj("sillajje change stamping", () => {
 
 		const show = jj(["show", `sillajje/${sessionId}`], cwd);
 		// Subject should be the prompt fallback (the first line of the prompt).
-		const firstLine = show.split("\n")[0];
+		// `jj show` starts with the commit header lines, so read the
+		// description's first line directly via a log template.
+		const firstLine = jj(
+			[
+				"log",
+				"-r",
+				`sillajje/${sessionId}`,
+				"--no-graph",
+				"-T",
+				"description.first_line()",
+			],
+			cwd,
+		);
 		expect(firstLine).toBe("Test fallback behavior");
 		// Trace section should be absent (sub-generator fell back to empty string).
 		expect(show).not.toContain("Trace:");

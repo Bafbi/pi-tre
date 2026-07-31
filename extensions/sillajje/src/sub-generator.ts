@@ -30,7 +30,7 @@ export type SpawnFn = (
 export interface SubGeneratorContext {
 	/** Session transcript: user messages + assistant messages (sans tool results). */
 	transcript: string;
-	/** File diff from `jj diff -r @-`, or empty string. */
+	/** File diff from `jj diff -r @`, or empty string. */
 	diff: string;
 	/** Descriptions of previous sillajje changes for context. */
 	previousDescriptions: string[];

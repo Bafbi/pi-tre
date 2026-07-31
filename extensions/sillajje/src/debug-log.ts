@@ -38,7 +38,7 @@ export interface DebugLoggerOptions {
 // Log path
 // ---------------------------------------------------------------------------
 
-const LOG_PATH = join(homedir(), ".pi/logs/sillajje.log");
+const DEFAULT_LOG_PATH = join(homedir(), ".pi/logs/sillajje.log");
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -49,18 +49,26 @@ const LOG_PATH = join(homedir(), ".pi/logs/sillajje.log");
  *
  * @param options - `{ enabled: boolean }`. When `false` (the default),
  *   returns a no-op logger. Pass `{ enabled: true }` to activate file logging.
+ * @param logPath - Override for the log file path (defaults to
+ *   `~/.pi/logs/sillajje.log`). Tests pass a temp path so the real user log
+ *   is never written.
  */
-export function createDebugLogger(options: DebugLoggerOptions): DebugLogger {
+export function createDebugLogger(
+	options: DebugLoggerOptions,
+	logPath?: string,
+): DebugLogger {
 	if (!options.enabled) {
 		return noopLogger;
 	}
 
+	const resolvedLogPath = logPath ?? DEFAULT_LOG_PATH;
+
 	// Ensure the log directory exists.
-	mkdirSync(dirname(LOG_PATH), { recursive: true });
+	mkdirSync(dirname(resolvedLogPath), { recursive: true });
 
 	const write = (entry: Record<string, unknown>) => {
 		try {
-			appendFileSync(LOG_PATH, `${JSON.stringify(entry)}\n`);
+			appendFileSync(resolvedLogPath, `${JSON.stringify(entry)}\n`);
 		} catch {
 			// Log write failure is silent — don't break the extension.
 		}
