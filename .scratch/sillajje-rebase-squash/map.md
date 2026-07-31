@@ -15,6 +15,8 @@ Two new `/sillajje` subcommands — `rebase` and `squash` — that integrate a s
 
 - **Ticket 02 — argument parser helper (resolved).** `parseRebaseFoldArgs(args: string): RebaseFoldArgs` in `extensions/sillajje/src/rebase-fold.ts`. `rev` = first non-flag token; `--session <id>` = separate tokens, last occurrence wins; unknown flags ignored; empty/flag-only input → `{ rev: "" }`. 13 unit tests in `test/unit/rebase-fold.test.ts`; `mise //extensions/sillajje:check` green. See issue 02.
 
+- **Ticket 03 — `/sillajje rebase <rev>` subcommand (resolved).** `rebase` case in the handler switch (`src/index.ts`), shared preamble inline per PRD. Workspace resolution: stored path for current session, `getWorkspacePathByName` for `--session` targets. Three-state session detection (bookmark/workspace). Rebase via `jj rebase -s @ -o <rev> -o sillajje/<key>`; conflict detection via `jj resolve --list` (exit 0 AND non-empty stdout — `jj` prints "No conflicts" to stderr with exit 2 when clean); `jj workspace update-stale` on success; session state untouched. Fixed `getWorkspacePathByName` for jj 0.43 (`jj workspace list` no longer prints paths — renders `name:root` via the WorkspaceRef template). 6 integration tests in `test/integration/rebase.test.ts`. See issue 03.
+
 ## Not yet specified
 
 <!-- nothing — the way is clear -->

@@ -233,15 +233,25 @@ export async function cleanupWorkspace(
  * Get the workspace directory path from `jj workspace list` for a given
  * workspace name.
  *
- * Parses the output format `<name>: <path>` and returns the path when the
- * named workspace is found. Returns `undefined` when no match is found or
- * the command fails.
+ * Recent jj versions (0.43+) dropped the path from the default
+ * `jj workspace list` output — it now renders `name: change_id commit_id
+ * (description)`. The path is available on the `WorkspaceRef` template type
+ * as `root`, so this renders `name:root` pairs explicitly.
+ *
+ * Parses the rendered output (`<name>:<path>` per line) and returns the path
+ * when the named workspace is found. Returns `undefined` when no match is
+ * found or the command fails.
  */
 export async function getWorkspacePathByName(
 	exec: ExecFn,
 	name: string,
 ): Promise<string | undefined> {
-	const result = await exec("jj", ["workspace", "list"]);
+	const result = await exec("jj", [
+		"workspace",
+		"list",
+		"-T",
+		'name ++ ":" ++ root ++ "\\n"',
+	]);
 	if (result.code !== 0) return undefined;
 
 	for (const line of result.stdout.split("\n")) {

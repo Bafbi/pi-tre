@@ -17,6 +17,7 @@ import {
 	smartWrap,
 } from "./metadata.js";
 import { redirect } from "./path-redirect.js";
+import { parseRebaseFoldArgs } from "./rebase-fold.js";
 import { SessionState } from "./state.js";
 import { formatPill } from "./status-pill.js";
 import {
@@ -27,6 +28,7 @@ import {
 	type SpawnFn,
 } from "./sub-generator.js";
 import {
+	bookmarkExists,
 	cleanupWorkspace,
 	createWorkspace,
 	type ExecFn,
@@ -1187,10 +1189,197 @@ export default function (pi: ExtensionAPI) {
 					break;
 				}
 
+				case "rebase": {
+					// `args` includes the subcommand token itself (matching the other
+					// cases) — hand the parser only what follows `/sillajje rebase`.
+					const { rev, sessionId } = parseRebaseFoldArgs(
+						args.split(/\s+/).slice(1).join(" "),
+					);
+					if (!rev) {
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								"[sillajje] usage: /sillajje rebase <rev> [--session <id>]",
+								"warning",
+							);
+						}
+						break;
+					}
+
+					const repoRoot = state.getRepoRoot();
+					if (!repoRoot) {
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								"[sillajje] cannot rebase: no jj repo detected",
+								"error",
+							);
+						}
+						break;
+					}
+
+					// Target session: the current one by default, or the one named
+					// by `--session <id>`. `sessionKey` is the bookmark key
+					// (`sillajje/<key>`), which may carry a `-N` collision suffix
+					// for the current session.
+					const sessionKey = sessionId ?? state.getSessionKey();
+					if (!sessionKey) {
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								"[sillajje] no session ID available to rebase",
+								"error",
+							);
+						}
+						break;
+					}
+
+					// Resolve the workspace path: stored for the current session,
+					// looked up from `jj workspace list` for any other session.
+					let wsPath: string | undefined;
+					if (
+						sessionKey === state.getSessionKey() &&
+						state.getWorkspacePath()
+					) {
+						wsPath = state.getWorkspacePath();
+					} else {
+						try {
+							wsPath = await getWorkspacePathByName(
+								exec,
+								wsName(sessionKey),
+							);
+						} catch {
+							// getWorkspacePathByName catches errors internally
+						}
+					}
+
+					// Three-state session detection (PRD): no bookmark → not a
+					// sillajje session; bookmark without a workspace → archived;
+					// both → active, proceed.
+					if (!wsPath) {
+						const hasBookmark = await bookmarkExists(
+							exec,
+							`sillajje/${sessionKey}`,
+							repoRoot,
+						);
+						if (!hasBookmark) {
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									`[sillajje] session ${sessionKey} is not a sillajje session — no bookmark sillajje/${sessionKey}`,
+									"error",
+								);
+							}
+							break;
+						}
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								`[sillajje] session ${sessionKey} is archived — unarchive it before rebasing`,
+								"error",
+							);
+						}
+						break;
+					}
+
+					debug.event("rebase_start", { rev, sessionKey, wsPath });
+
+					try {
+						// Rebase the session working copy onto `<rev>` and the session
+						// bookmark. Two `--onto` flags create a merge commit that
+						// brings `<rev>` into the session's ancestry while keeping
+						// the session history attached via its bookmark.
+						const rebaseResult = await pi.exec(
+							"jj",
+							[
+								"rebase",
+								"-s",
+								"@",
+								"-o",
+								rev,
+								"-o",
+								`sillajje/${sessionKey}`,
+							],
+							{ cwd: wsPath },
+						);
+						debug.event("jj_rebase", {
+							code: rebaseResult.code,
+							stderr: rebaseResult.stderr?.slice(0, 200),
+						});
+						if (rebaseResult.code !== 0) {
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									`[sillajje] rebase failed (exit ${rebaseResult.code}): ${rebaseResult.stderr}`,
+									"error",
+								);
+							}
+							break;
+						}
+
+						// Detect file-level conflicts. `jj resolve --list` exits 0 with
+						// non-empty stdout when conflicts exist; without conflicts it
+						// exits non-zero (2) and reports "No conflicts found" on
+						// stderr — so the conflict signal is exit 0 AND non-empty
+						// stdout, not output alone.
+						const resolveResult = await pi.exec(
+							"jj",
+							["resolve", "--list"],
+							{ cwd: wsPath },
+						);
+						debug.event("jj_resolve_list", {
+							code: resolveResult.code,
+							conflicts: resolveResult.stdout,
+						});
+						if (
+							resolveResult.code === 0 &&
+							resolveResult.stdout.trim() !== ""
+						) {
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									`[sillajje] rebase produced file-level conflicts — resolve them manually:\n${resolveResult.stdout.trim()}`,
+									"warning",
+								);
+							}
+							break;
+						}
+
+						// Sync the target workspace working copy (no-op when already
+						// current).
+						const staleResult = await pi.exec(
+							"jj",
+							["workspace", "update-stale"],
+							{ cwd: wsPath },
+						);
+						debug.event("jj_update_stale", {
+							code: staleResult.code,
+							stderr: staleResult.stderr?.slice(0, 200),
+						});
+						if (staleResult.code !== 0 && ctx.hasUI) {
+							ctx.ui.notify(
+								`[sillajje] jj workspace update-stale failed (exit ${staleResult.code}): ${staleResult.stderr}`,
+								"error",
+							);
+						}
+
+						// No state transition — the session stays active after a
+						// successful rebase so the user can keep working.
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								`[sillajje] session ${sessionKey} rebased onto ${rev}`,
+								"info",
+							);
+						}
+					} catch (err) {
+						debug.error("rebase_error", err);
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								`[sillajje] rebase failed: ${String(err)}`,
+								"error",
+							);
+						}
+					}
+					break;
+				}
+
 				default: {
 					if (ctx.hasUI) {
 						ctx.ui.notify(
-							"Usage: /sillajje [status|stamp|archive|unarchive]",
+							"Usage: /sillajje [status|stamp|archive|unarchive|rebase]",
 							"warning",
 						);
 					}

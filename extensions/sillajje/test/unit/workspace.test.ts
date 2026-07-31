@@ -79,7 +79,7 @@ describe("listWorkspaceNames", () => {
 		const exec = vi
 			.fn<ExecFn>()
 			.mockResolvedValue(
-				ok("default: /repo\nsillajje-abc123: /tmp/ws/repo/abc123\n"),
+				ok("default:/repo\nsillajje-abc123:/tmp/ws/repo/abc123\n"),
 			);
 
 		await expect(listWorkspaceNames(exec)).resolves.toEqual([
@@ -117,7 +117,7 @@ describe("createWorkspace", () => {
 		const exec = vi
 			.fn<ExecFn>()
 			.mockResolvedValueOnce(ok())
-			.mockResolvedValueOnce(ok("default: /repo\n"))
+			.mockResolvedValueOnce(ok("default:/repo\n"))
 			.mockResolvedValueOnce(ok());
 
 		const info = await createWorkspace(exec, repo, "abc123", wsRoot);
@@ -147,7 +147,7 @@ describe("createWorkspace", () => {
 		const exec = vi
 			.fn<ExecFn>()
 			.mockResolvedValueOnce(fail("revset @- not found"))
-			.mockResolvedValueOnce(ok("default: /repo\n"))
+			.mockResolvedValueOnce(ok("default:/repo\n"))
 			.mockResolvedValueOnce(ok());
 
 		const info = await createWorkspace(exec, repo, "abc123", wsRoot);
@@ -231,7 +231,7 @@ describe("createWorkspace", () => {
 		const exec = vi
 			.fn<ExecFn>()
 			.mockResolvedValueOnce(ok())
-			.mockResolvedValueOnce(ok("default: /repo\n"))
+			.mockResolvedValueOnce(ok("default:/repo\n"))
 			.mockResolvedValueOnce(fail("no such revision"));
 
 		await expect(
@@ -251,7 +251,7 @@ describe("workspaceExists", () => {
 		const exec = vi
 			.fn<ExecFn>()
 			.mockResolvedValue(
-				ok("default: /repo\nsillajje-abc123: /tmp/ws/repo/abc123\n"),
+				ok("default:/repo\nsillajje-abc123:/tmp/ws/repo/abc123\n"),
 			);
 
 		await expect(workspaceExists(exec, "sillajje-abc123")).resolves.toBe(
@@ -260,7 +260,7 @@ describe("workspaceExists", () => {
 	});
 
 	it("returns false when workspace not in list", async () => {
-		const exec = vi.fn<ExecFn>().mockResolvedValue(ok("default: /repo\n"));
+		const exec = vi.fn<ExecFn>().mockResolvedValue(ok("default:/repo\n"));
 
 		await expect(workspaceExists(exec, "sillajje-abc123")).resolves.toBe(
 			false,
@@ -361,7 +361,7 @@ describe("getWorkspacePathByName", () => {
 		const exec = vi
 			.fn<ExecFn>()
 			.mockResolvedValue(
-				ok("default: /repo\nsillajje-abc123: /tmp/ws/repo/abc123\n"),
+				ok("default:/repo\nsillajje-abc123:/tmp/ws/repo/abc123\n"),
 			);
 
 		const path = await getWorkspacePathByName(exec, "sillajje-abc123");
@@ -369,7 +369,7 @@ describe("getWorkspacePathByName", () => {
 	});
 
 	it("returns undefined when workspace name not in list", async () => {
-		const exec = vi.fn<ExecFn>().mockResolvedValue(ok("default: /repo\n"));
+		const exec = vi.fn<ExecFn>().mockResolvedValue(ok("default:/repo\n"));
 
 		await expect(
 			getWorkspacePathByName(exec, "sillajje-unknown"),
@@ -391,7 +391,7 @@ describe("getWorkspacePathByName", () => {
 			.fn<ExecFn>()
 			.mockResolvedValue(
 				ok(
-					"default: /main\nsillajje-aaa: /ws/aaa\nsillajje-bbb: /ws/bbb\n",
+					"default:/main\nsillajje-aaa:/ws/aaa\nsillajje-bbb:/ws/bbb\n",
 				),
 			);
 
