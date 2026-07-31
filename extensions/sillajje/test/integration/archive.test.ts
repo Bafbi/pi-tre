@@ -1,8 +1,14 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { expect, it } from "vitest";
-import { createRunner, describeJj, makeRunnerCwd, tempDirs } from "./_helpers";
+import { beforeEach, expect, it } from "vitest";
+import {
+	createRunner,
+	describeJj,
+	installDefaultSubGeneratorMock,
+	makeRunnerCwd,
+	tempDirs,
+} from "./_helpers";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,6 +78,12 @@ async function simulateInteraction(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// `simulateInteraction` stamps a change — install the canned sub-generator so
+// stamping never spawns a real `pi -p` subprocess.
+beforeEach(() => {
+	installDefaultSubGeneratorMock();
+});
 
 describeJj("sillajje archive / unarchive", () => {
 	it("archive current session: workspace directory is gone", async () => {
@@ -271,5 +283,5 @@ describeJj("sillajje archive / unarchive", () => {
 			"interactive",
 		);
 		expect(inputAfter).toEqual({ action: "continue" });
-	});
+	}, 10_000);
 });

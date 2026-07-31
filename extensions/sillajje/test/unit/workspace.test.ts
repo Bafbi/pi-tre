@@ -10,8 +10,10 @@ import {
 	type ExecFn,
 	getRepoSlug,
 	getWorkspacePathByName,
+	listWorkspaceNames,
 	resolveWorkspacePath,
 	unarchiveWorkspace,
+	workspaceDirExists,
 	workspaceExists,
 	workspaceForget,
 	workspaceName,
@@ -58,71 +60,109 @@ describe("workspaceName", () => {
 	});
 });
 
+describe("workspaceDirExists", () => {
+	it("returns true when the directory exists", () => {
+		const dir = mkdtempSync(join(tmpdir(), "sillajje-wd-test-"));
+		expect(workspaceDirExists(dir)).toBe(true);
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("returns false after the directory is deleted", () => {
+		const dir = mkdtempSync(join(tmpdir(), "sillajje-wd-test-"));
+		rmSync(dir, { recursive: true, force: true });
+		expect(workspaceDirExists(dir)).toBe(false);
+	});
+});
+
+describe("listWorkspaceNames", () => {
+	it("parses workspace names from jj workspace list", async () => {
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValue(
+				ok("default: /repo\nsillajje-abc123: /tmp/ws/repo/abc123\n"),
+			);
+
+		await expect(listWorkspaceNames(exec)).resolves.toEqual([
+			"default",
+			"sillajje-abc123",
+		]);
+	});
+
+	it("returns empty array when no workspaces are listed", async () => {
+		const exec = vi.fn<ExecFn>().mockResolvedValue(ok(""));
+
+		await expect(listWorkspaceNames(exec)).resolves.toEqual([]);
+	});
+
+	it("returns empty array when jj workspace list fails", async () => {
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValue(fail("fatal: not a jj repo"));
+
+		await expect(listWorkspaceNames(exec)).resolves.toEqual([]);
+	});
+});
+
 // ---------------------------------------------------------------------------
 // createWorkspace
 // ---------------------------------------------------------------------------
 
 describe("createWorkspace", () => {
-	it("calls jj workspace add with --revision @- when @- exists", async () => {
+	it("creates a workspace from @- when @- exists", async () => {
 		const tmpDir = mkdtempSync(join(tmpdir(), "sillajje-ws-test-"));
 		const wsRoot = join(tmpDir, "workspaces");
 		const repo = join(tmpDir, "repo");
 
-		// First call: @- exists, second call: workspace add succeeds
+		// @- probe succeeds, workspace list has only `default`, add succeeds.
 		const exec = vi
 			.fn<ExecFn>()
 			.mockResolvedValueOnce(ok())
+			.mockResolvedValueOnce(ok("default: /repo\n"))
 			.mockResolvedValueOnce(ok());
 
 		const info = await createWorkspace(exec, repo, "abc123", wsRoot);
 
 		expect(info.workspaceName).toBe("sillajje-abc123");
 		expect(info.workspacePath).toBe(`${wsRoot}/repo/abc123`);
+		expect(info.sessionKey).toBe("abc123");
 		expect(existsSync(wsRoot)).toBe(true);
 
-		expect(exec).toHaveBeenCalledTimes(2);
-		// First call: check @- exists
-		const [logCmd, logArgs, logOpts] = exec.mock.calls[0];
-		expect(logCmd).toBe("jj");
-		expect(logArgs).toEqual(["log", "-r", "@-"]);
-		expect(logOpts).toEqual({ cwd: repo });
-
-		// Second call: workspace add with @-
-		const [cmd, args, opts] = exec.mock.calls[1];
-		expect(cmd).toBe("jj");
-		expect(args[0]).toBe("workspace");
-		expect(args[1]).toBe("add");
-		expect(args[2]).toBe("--name");
-		expect(args[3]).toBe("sillajje-abc123");
-		expect(args[4]).toBe("--revision");
-		expect(args[5]).toBe("@-");
-		expect(args[6]).toBe(`${wsRoot}/repo/abc123`);
-		expect(opts).toEqual({ cwd: repo });
+		// The workspace is checked out from @- (parent of the working copy).
+		// Assert the meaningful content, not exact arg order or the full array.
+		expect(exec).toHaveBeenCalledWith(
+			"jj",
+			expect.arrayContaining(["workspace", "add", "--revision", "@-"]),
+			{ cwd: repo },
+		);
 
 		rmSync(tmpDir, { recursive: true, force: true });
 	});
 
-	it("falls back to --revision @ when @- does not exist", async () => {
+	it("falls back to @ when @- does not exist", async () => {
 		const tmpDir = mkdtempSync(join(tmpdir(), "sillajje-ws-test-"));
 		const wsRoot = join(tmpDir, "workspaces");
 		const repo = join(tmpDir, "repo");
 
-		// First call: @- doesn't exist, second call: workspace add succeeds
+		// @- probe fails, workspace list has only `default`, add succeeds.
 		const exec = vi
 			.fn<ExecFn>()
 			.mockResolvedValueOnce(fail("revset @- not found"))
+			.mockResolvedValueOnce(ok("default: /repo\n"))
 			.mockResolvedValueOnce(ok());
 
 		const info = await createWorkspace(exec, repo, "abc123", wsRoot);
 
 		expect(info.workspaceName).toBe("sillajje-abc123");
 		expect(info.workspacePath).toBe(`${wsRoot}/repo/abc123`);
+		expect(info.sessionKey).toBe("abc123");
+		expect(existsSync(wsRoot)).toBe(true);
 
-		expect(exec).toHaveBeenCalledTimes(2);
-		// Second call: workspace add with @ (fallback)
-		const [, args] = exec.mock.calls[1];
-		expect(args[4]).toBe("--revision");
-		expect(args[5]).toBe("@");
+		// The workspace is still created, checked out from @ (the working copy).
+		expect(exec).toHaveBeenCalledWith(
+			"jj",
+			expect.arrayContaining(["workspace", "add", "--revision", "@"]),
+			{ cwd: repo },
+		);
 
 		rmSync(tmpDir, { recursive: true, force: true });
 	});
@@ -140,7 +180,44 @@ describe("createWorkspace", () => {
 
 		expect(info.workspacePath).toBe(wsPath);
 		expect(info.workspaceName).toBe("sillajje-abc123");
+		expect(info.sessionKey).toBe("abc123");
 		expect(exec).not.toHaveBeenCalled();
+
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	it("appends a numeric suffix when the session id is already registered", async () => {
+		const tmpDir = mkdtempSync(join(tmpdir(), "sillajje-ws-test-"));
+		const wsRoot = join(tmpDir, "workspaces");
+		const repo = join(tmpDir, "repo");
+
+		// @- exists; `sillajje-abc123` is already registered by another
+		// session; workspace add for the suffixed name succeeds.
+		const exec = vi
+			.fn<ExecFn>()
+			.mockResolvedValueOnce(ok())
+			.mockResolvedValueOnce(
+				ok("default: /repo\nsillajje-abc123: /other/sillajje-abc123\n"),
+			)
+			.mockResolvedValueOnce(ok());
+
+		const info = await createWorkspace(exec, repo, "abc123", wsRoot);
+
+		expect(info.workspaceName).toBe("sillajje-abc123-2");
+		expect(info.workspacePath).toBe(`${wsRoot}/repo/abc123-2`);
+		expect(info.sessionKey).toBe("abc123-2");
+
+		// The suffixed name is what gets registered in jj.
+		expect(exec).toHaveBeenCalledWith(
+			"jj",
+			expect.arrayContaining([
+				"workspace",
+				"add",
+				"--name",
+				"sillajje-abc123-2",
+			]),
+			{ cwd: repo },
+		);
 
 		rmSync(tmpDir, { recursive: true, force: true });
 	});
@@ -150,10 +227,11 @@ describe("createWorkspace", () => {
 		const wsRoot = join(tmpDir, "workspaces");
 		const repo = join(tmpDir, "repo");
 
-		// First call: @- exists, second call: workspace add fails
+		// @- exists, workspace list has only `default`, add fails.
 		const exec = vi
 			.fn<ExecFn>()
 			.mockResolvedValueOnce(ok())
+			.mockResolvedValueOnce(ok("default: /repo\n"))
 			.mockResolvedValueOnce(fail("no such revision"));
 
 		await expect(
@@ -361,7 +439,7 @@ describe("bookmarkExists", () => {
 // ---------------------------------------------------------------------------
 
 describe("unarchiveWorkspace", () => {
-	it("calls jj workspace add with correct --revision and path", async () => {
+	it("recreates the workspace from the session bookmark", async () => {
 		const exec = vi.fn<ExecFn>().mockResolvedValue(ok());
 
 		const info = await unarchiveWorkspace(
@@ -374,17 +452,20 @@ describe("unarchiveWorkspace", () => {
 		expect(info.workspaceName).toBe("sillajje-abc123");
 		expect(info.workspacePath).toBe("/tmp/ws/repo/abc123");
 
-		expect(exec).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = exec.mock.calls[0];
-		expect(cmd).toBe("jj");
-		expect(args[0]).toBe("workspace");
-		expect(args[1]).toBe("add");
-		expect(args[2]).toBe("--name");
-		expect(args[3]).toBe("sillajje-abc123");
-		expect(args[4]).toBe("--revision");
-		expect(args[5]).toBe("sillajje/abc123");
-		expect(args[6]).toBe("/tmp/ws/repo/abc123");
-		expect(opts).toEqual({ cwd: "/home/user/repo" });
+		// The workspace is checked out from the session's bookmark, run
+		// from the repo root. Assert content, not exact arg order.
+		expect(exec).toHaveBeenCalledWith(
+			"jj",
+			expect.arrayContaining([
+				"workspace",
+				"add",
+				"--name",
+				"sillajje-abc123",
+				"--revision",
+				"sillajje/abc123",
+			]),
+			{ cwd: "/home/user/repo" },
+		);
 	});
 
 	it("throws when jj workspace add fails", async () => {

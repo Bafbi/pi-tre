@@ -31,6 +31,11 @@ export interface WorkspaceInfo {
 	workspacePath: string;
 	/** jj workspace name, e.g. `sillajje-<sessionId>`. */
 	workspaceName: string;
+	/**
+	 * Effective session key used for the bookmark. Equals `sessionId`,
+	 * or `<sessionId>-N` when the base name was taken (collision guard).
+	 */
+	sessionKey: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +88,12 @@ async function resolveBaseRevision(
  * falling back to `@` when `@-` does not exist.
  *
  * Idempotent: if the workspace directory already exists on disk, skips creation
- * and returns the existing path.
+ * and returns the existing path (session resume).
+ *
+ * Session-ID collision guard: when `sillajje-<sessionId>` is already
+ * registered in this jj repo or its directory exists, appends a numeric suffix
+ * (`-2`, `-3`, ...) to the workspace name, path, and `sessionKey` so two
+ * sessions sharing an ID never overwrite each other's changes or bookmark.
  */
 export async function createWorkspace(
 	exec: ExecFn,
@@ -91,20 +101,36 @@ export async function createWorkspace(
 	sessionId: string,
 	workspacesRoot: string,
 ): Promise<WorkspaceInfo> {
-	const wsName = workspaceName(sessionId);
-	const wsPath = resolveWorkspacePath(repoRoot, sessionId, workspacesRoot);
-
-	// Idempotent: don't recreate if the workspace directory already exists
-	if (existsSync(wsPath)) {
-		return { workspacePath: wsPath, workspaceName: wsName };
+	// Idempotent: don't recreate if the workspace directory already exists.
+	const basePath = resolveWorkspacePath(repoRoot, sessionId, workspacesRoot);
+	if (existsSync(basePath)) {
+		return {
+			workspacePath: basePath,
+			workspaceName: workspaceName(sessionId),
+			sessionKey: sessionId,
+		};
 	}
 
 	// Create the parent directory of the workspace path.
 	// jj workspace add will create the leaf directory (session-id),
 	// but the repo-slug directory must already exist.
-	mkdirSync(dirname(wsPath), { recursive: true });
+	mkdirSync(dirname(basePath), { recursive: true });
 
 	const baseRevision = await resolveBaseRevision(exec, repoRoot);
+
+	// Collision guard: pick the first free `sillajje-<key>` name.
+	const registeredNames = await listWorkspaceNames(exec);
+	let sessionKey = sessionId;
+	let suffix = 2;
+	while (
+		registeredNames.includes(workspaceName(sessionKey)) ||
+		existsSync(resolveWorkspacePath(repoRoot, sessionKey, workspacesRoot))
+	) {
+		sessionKey = `${sessionId}-${suffix++}`;
+	}
+
+	const wsName = workspaceName(sessionKey);
+	const wsPath = resolveWorkspacePath(repoRoot, sessionKey, workspacesRoot);
 
 	const result = await exec(
 		"jj",
@@ -126,7 +152,33 @@ export async function createWorkspace(
 		);
 	}
 
-	return { workspacePath: wsPath, workspaceName: wsName };
+	return { workspacePath: wsPath, workspaceName: wsName, sessionKey };
+}
+
+/**
+ * Whether a workspace directory exists on disk. Used for stale detection
+ * when the directory is deleted externally mid-session.
+ */
+export function workspaceDirExists(path: string): boolean {
+	return existsSync(path);
+}
+
+/**
+ * List the workspace names registered in `jj workspace list`.
+ * Returns an empty array when the command fails.
+ */
+export async function listWorkspaceNames(exec: ExecFn): Promise<string[]> {
+	const result = await exec("jj", ["workspace", "list"]);
+	if (result.code !== 0) return [];
+
+	const names: string[] = [];
+	for (const line of result.stdout.split("\n")) {
+		const colonIdx = line.indexOf(":");
+		if (colonIdx === -1) continue;
+		const name = line.slice(0, colonIdx).trim();
+		if (name.length > 0) names.push(name);
+	}
+	return names;
 }
 
 /**
@@ -262,5 +314,9 @@ export async function unarchiveWorkspace(
 		);
 	}
 
-	return { workspacePath: wsPath, workspaceName: wsName };
+	return {
+		workspacePath: wsPath,
+		workspaceName: wsName,
+		sessionKey: sessionId,
+	};
 }

@@ -1,21 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Check, Default } from "@sinclair/typebox/value";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadSillajjeConfig, SillajjeConfigSchema } from "../../src/config";
 
-const GLOBAL_CONFIG_DIR = join(homedir(), ".pi/configs");
-const GLOBAL_CONFIG_PATH = join(GLOBAL_CONFIG_DIR, "sillajje.json");
 const tempDirs: string[] = [];
 const ENV_VAR = "SILLAJJE_POST_INIT";
 
 function cleanUp() {
-	try {
-		rmSync(GLOBAL_CONFIG_PATH);
-	} catch {
-		/* ok */
-	}
 	for (const d of tempDirs.splice(0)) {
 		try {
 			rmSync(d, { recursive: true, force: true });
@@ -26,9 +19,23 @@ function cleanUp() {
 	delete process.env[ENV_VAR];
 }
 
-function writeGlobalConfig(config: Record<string, unknown>) {
-	mkdirSync(GLOBAL_CONFIG_DIR, { recursive: true });
-	writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(config));
+/** Create a fresh temp dir to serve as the global config dir. */
+function makeConfigDir(): string {
+	const configDir = mkdtempSync(join(tmpdir(), "sillajje-config-test-"));
+	tempDirs.push(configDir);
+	return configDir;
+}
+
+/** Create a fresh temp dir to serve as a jj repo root. */
+function makeRepoRoot(): string {
+	const repoRoot = mkdtempSync(join(tmpdir(), "sillajje-repo-test-"));
+	tempDirs.push(repoRoot);
+	return repoRoot;
+}
+
+/** Write a config file into the given global config dir. */
+function writeGlobalConfig(configDir: string, config: Record<string, unknown>) {
+	writeFileSync(join(configDir, "sillajje.json"), JSON.stringify(config));
 }
 
 function writeProjectConfig(repoRoot: string, config: Record<string, unknown>) {
@@ -45,19 +52,17 @@ describe("loadSillajjeConfig", () => {
 	// -------------------------------------------------------------------
 
 	it("returns defaults when no config files exist", () => {
-		cleanUp();
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.debug).toBe(false);
 		expect(config.workspacesRoot).toBe(`${homedir()}/.pi/sillajje`);
 		expect(config.subGeneratorModel).toBe("openai/gpt-4o-mini");
 	});
 
 	it("returns defaults when no config files exist with repoRoot", () => {
-		const repoRoot = mkdtempSync(
-			join(homedir(), ".pi/sillajje-config-test-"),
-		);
-		tempDirs.push(repoRoot);
-		const config = loadSillajjeConfig(repoRoot);
+		const configDir = makeConfigDir();
+		const repoRoot = makeRepoRoot();
+		const config = loadSillajjeConfig(repoRoot, configDir);
 		expect(config.debug).toBe(false);
 		expect(config.workspacesRoot).toBe(`${homedir()}/.pi/sillajje`);
 		expect(config.subGeneratorModel).toBe("openai/gpt-4o-mini");
@@ -68,70 +73,77 @@ describe("loadSillajjeConfig", () => {
 	// -------------------------------------------------------------------
 
 	it("reads debug from global config", () => {
-		writeGlobalConfig({ debug: true });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { debug: true });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.debug).toBe(true);
 	});
 
 	it("reads workspacesRoot from global config", () => {
-		writeGlobalConfig({ workspacesRoot: "/tmp/sillajje-ws" });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { workspacesRoot: "/tmp/sillajje-ws" });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.workspacesRoot).toBe("/tmp/sillajje-ws");
 	});
 
 	it("reads subGeneratorModel from global config", () => {
-		writeGlobalConfig({ subGeneratorModel: "claude-sonnet" });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { subGeneratorModel: "claude-sonnet" });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.subGeneratorModel).toBe("claude-sonnet");
 	});
 
 	it("reads postInit from global config", () => {
-		writeGlobalConfig({
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {
 			postInit: ["pnpm install", "mise install"],
 		});
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.postInit).toEqual(["pnpm install", "mise install"]);
 	});
 
 	it("parses SILLAJJE_POST_INIT env var into postInit array", () => {
+		const configDir = makeConfigDir();
 		process.env[ENV_VAR] = "pnpm install; mise install";
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.postInit).toEqual(["pnpm install", "mise install"]);
 	});
 
 	it("SILLAJJE_POST_INIT env var overrides global config", () => {
-		writeGlobalConfig({ postInit: ["from-config"] });
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { postInit: ["from-config"] });
 		process.env[ENV_VAR] = "from-env";
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.postInit).toEqual(["from-env"]);
 	});
 
 	it("SILLAJJE_POST_INIT env var overrides project config", () => {
-		const repoRoot = mkdtempSync(
-			join(homedir(), ".pi/sillajje-config-test-"),
-		);
-		tempDirs.push(repoRoot);
+		const configDir = makeConfigDir();
+		const repoRoot = makeRepoRoot();
 		writeProjectConfig(repoRoot, { postInit: ["from-project"] });
 		process.env[ENV_VAR] = "from-env";
-		const config = loadSillajjeConfig(repoRoot);
+		const config = loadSillajjeConfig(repoRoot, configDir);
 		expect(config.postInit).toEqual(["from-env"]);
 	});
 
 	it("empty SILLAJJE_POST_INIT env var yields empty array", () => {
+		const configDir = makeConfigDir();
 		process.env[ENV_VAR] = "";
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.postInit).toEqual([]);
 	});
 
 	it("whitespace-only entries in SILLAJJE_POST_INIT are trimmed", () => {
+		const configDir = makeConfigDir();
 		process.env[ENV_VAR] = "  pnpm install ;  mise install  ";
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.postInit).toEqual(["pnpm install", "mise install"]);
 	});
 
 	it("partial global config merges with defaults", () => {
-		writeGlobalConfig({ debug: true });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { debug: true });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.debug).toBe(true);
 		expect(config.workspacesRoot).toBe(`${homedir()}/.pi/sillajje`);
 		expect(config.subGeneratorModel).toBe("openai/gpt-4o-mini");
@@ -142,17 +154,18 @@ describe("loadSillajjeConfig", () => {
 	// -------------------------------------------------------------------
 
 	it("project-local config overrides global config", () => {
-		writeGlobalConfig({ debug: false, workspacesRoot: "/global" });
-		const repoRoot = mkdtempSync(
-			join(homedir(), ".pi/sillajje-config-test-"),
-		);
-		tempDirs.push(repoRoot);
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {
+			debug: false,
+			workspacesRoot: "/global",
+		});
+		const repoRoot = makeRepoRoot();
 		writeProjectConfig(repoRoot, {
 			debug: true,
 			workspacesRoot: "/project",
 		});
 
-		const config = loadSillajjeConfig(repoRoot);
+		const config = loadSillajjeConfig(repoRoot, configDir);
 		expect(config.debug).toBe(true);
 		expect(config.workspacesRoot).toBe("/project");
 		// subGeneratorModel not in project config, falls to default
@@ -160,14 +173,12 @@ describe("loadSillajjeConfig", () => {
 	});
 
 	it("project-local config is authoritative even when global is also present", () => {
-		writeGlobalConfig({ debug: true });
-		const repoRoot = mkdtempSync(
-			join(homedir(), ".pi/sillajje-config-test-"),
-		);
-		tempDirs.push(repoRoot);
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { debug: true });
+		const repoRoot = makeRepoRoot();
 		writeProjectConfig(repoRoot, { debug: false });
 
-		const config = loadSillajjeConfig(repoRoot);
+		const config = loadSillajjeConfig(repoRoot, configDir);
 		// Project config says false, so false — global is ignored
 		expect(config.debug).toBe(false);
 	});
@@ -177,60 +188,59 @@ describe("loadSillajjeConfig", () => {
 	// -------------------------------------------------------------------
 
 	it("returns defaults for empty config file", () => {
-		writeGlobalConfig({});
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {});
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.debug).toBe(false);
 		expect(config.workspacesRoot).toBe(`${homedir()}/.pi/sillajje`);
 		expect(config.subGeneratorModel).toBe("openai/gpt-4o-mini");
 	});
 
 	it("returns defaults for malformed config file", () => {
+		const configDir = makeConfigDir();
 		// Write something that isn't valid JSON
-		try {
-			writeFileSync(GLOBAL_CONFIG_PATH, "not-json");
-		} catch {
-			// ok
-		}
-		const config = loadSillajjeConfig();
+		writeFileSync(join(configDir, "sillajje.json"), "not-json");
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.debug).toBe(false);
 		expect(config.workspacesRoot).toBe(`${homedir()}/.pi/sillajje`);
 	});
 
 	it("coerces non-boolean debug to false", () => {
-		writeGlobalConfig({ debug: "yes" });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { debug: "yes" });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.debug).toBe(false);
 	});
 
 	it("coerces null debug to false", () => {
-		writeGlobalConfig({ debug: null });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { debug: null });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.debug).toBe(false);
 	});
 
 	it("falls through when project config directory doesn't exist", () => {
-		writeGlobalConfig({ debug: true });
-		const repoRoot = mkdtempSync(
-			join(homedir(), ".pi/sillajje-config-test-"),
-		);
-		tempDirs.push(repoRoot);
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { debug: true });
+		const repoRoot = makeRepoRoot();
 		// No .pi/configs/ in repoRoot
 
-		const config = loadSillajjeConfig(repoRoot);
+		const config = loadSillajjeConfig(repoRoot, configDir);
 		expect(config.debug).toBe(true);
 	});
 
 	it("falls through when project config file is malformed", () => {
-		writeGlobalConfig({ debug: true, workspacesRoot: "/global" });
-		const repoRoot = mkdtempSync(
-			join(homedir(), ".pi/sillajje-config-test-"),
-		);
-		tempDirs.push(repoRoot);
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {
+			debug: true,
+			workspacesRoot: "/global",
+		});
+		const repoRoot = makeRepoRoot();
 		// Create a malformed file
 		mkdirSync(join(repoRoot, ".pi/configs"), { recursive: true });
 		writeFileSync(join(repoRoot, ".pi/configs/sillajje.json"), "broken");
 
-		const config = loadSillajjeConfig(repoRoot);
+		const config = loadSillajjeConfig(repoRoot, configDir);
 		expect(config.debug).toBe(true);
 		expect(config.workspacesRoot).toBe("/global");
 	});
@@ -240,8 +250,9 @@ describe("loadSillajjeConfig", () => {
 	// -------------------------------------------------------------------
 
 	it("missing message key applies all defaults", () => {
-		writeGlobalConfig({ debug: true });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { debug: true });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.message).toBeDefined();
 		expect(config.message?.header).toBe("one_line");
 		expect(config.message?.body?.trace?.enabled).toBe(true);
@@ -256,30 +267,33 @@ describe("loadSillajjeConfig", () => {
 	});
 
 	it("message.header: user_prompt is accepted", () => {
-		writeGlobalConfig({ message: { header: "user_prompt" } });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { message: { header: "user_prompt" } });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.message?.header).toBe("user_prompt");
 	});
 
 	it("message.body.trace.detail: step and decision are accepted", () => {
-		writeGlobalConfig({
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {
 			message: { body: { trace: { detail: "step" } } },
 		});
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.message?.body?.trace?.detail).toBe("step");
 
-		writeGlobalConfig({
+		writeGlobalConfig(configDir, {
 			message: { body: { trace: { detail: "decision" } } },
 		});
-		const config2 = loadSillajjeConfig();
+		const config2 = loadSillajjeConfig(undefined, configDir);
 		expect(config2.message?.body?.trace?.detail).toBe("decision");
 	});
 
 	it("partial message.body fills missing fields with defaults", () => {
-		writeGlobalConfig({
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {
 			message: { body: { user_prompt: false } },
 		});
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.message?.body?.user_prompt).toBe(false);
 		// Other fields default to true
 		expect(config.message?.body?.response).toBe(true);
@@ -288,7 +302,8 @@ describe("loadSillajjeConfig", () => {
 	});
 
 	it("individual meta fields are independently toggleable", () => {
-		writeGlobalConfig({
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {
 			message: {
 				body: {
 					meta: {
@@ -299,7 +314,7 @@ describe("loadSillajjeConfig", () => {
 				},
 			},
 		});
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.message?.body?.meta?.enabled).toBe(true);
 		expect(config.message?.body?.meta?.tools).toBe(false);
 		expect(config.message?.body?.meta?.call_count).toBe(false);
@@ -313,25 +328,28 @@ describe("loadSillajjeConfig", () => {
 	// -------------------------------------------------------------------
 
 	it("missing subGenerator key applies defaults", () => {
-		writeGlobalConfig({});
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {});
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.subGenerator).toBeDefined();
 		expect(config.subGenerator?.retry?.maxAttempts).toBe(3);
 		expect(config.subGenerator?.timeoutMs).toBe(30_000);
 	});
 
 	it("partial subGenerator fills missing fields with defaults", () => {
-		writeGlobalConfig({ subGenerator: { timeoutMs: 10_000 } });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { subGenerator: { timeoutMs: 10_000 } });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.subGenerator?.timeoutMs).toBe(10_000);
 		expect(config.subGenerator?.retry?.maxAttempts).toBe(3);
 	});
 
 	it("subGenerator.retry.maxAttempts is configurable", () => {
-		writeGlobalConfig({
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {
 			subGenerator: { retry: { maxAttempts: 5 } },
 		});
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.subGenerator?.retry?.maxAttempts).toBe(5);
 	});
 
@@ -356,11 +374,12 @@ describe("loadSillajjeConfig", () => {
 		// When an invalid value is stored in the global config, readConfigFile
 		// returns undefined and loadSillajjeConfig falls through to DEFAULTS.
 		// We set a known value in global to verify fallback is happening.
-		writeGlobalConfig({
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {
 			debug: true,
 			message: { body: { trace: { detail: "low" } } },
 		});
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		// Falls back to defaults — trace.detail should be "high"
 		expect(config.message?.body?.trace?.detail).toBe("high");
 		// debug is also default (false) because the global config was invalid
@@ -372,8 +391,9 @@ describe("loadSillajjeConfig", () => {
 	// -------------------------------------------------------------------
 
 	it("config with only debug: true loads with all new defaults", () => {
-		writeGlobalConfig({ debug: true });
-		const config = loadSillajjeConfig();
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { debug: true });
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.debug).toBe(true);
 		// All new fields are populated with defaults
 		expect(config.message?.header).toBe("one_line");
@@ -384,12 +404,13 @@ describe("loadSillajjeConfig", () => {
 	});
 
 	it("legacy config with only old keys still works", () => {
-		writeGlobalConfig({
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, {
 			debug: false,
 			workspacesRoot: "/custom/path",
 			subGeneratorModel: "claude-sonnet",
 		});
-		const config = loadSillajjeConfig();
+		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.debug).toBe(false);
 		expect(config.workspacesRoot).toBe("/custom/path");
 		expect(config.subGeneratorModel).toBe("claude-sonnet");

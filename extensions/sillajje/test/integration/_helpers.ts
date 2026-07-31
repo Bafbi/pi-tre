@@ -12,10 +12,14 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect } from "vitest";
+import { setTestSpawnFn } from "../../src/index.js";
+import type { SpawnFn } from "../../src/sub-generator.js";
 
 export const tempDirs: string[] = [];
 
 afterEach(async () => {
+	// Reset the sub-generator test seam so it never leaks into later tests.
+	setTestSpawnFn(undefined);
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -77,4 +81,26 @@ export function describeJj(name: string, fn: () => void): void {
 		/* jj not on PATH */
 	}
 	(jjAvailable ? describe : describe.skip)(name, fn);
+}
+
+/**
+ * Canned sub-generator output for integration tests.
+ *
+ * The header sub-generator reads the first stdout line as the subject; the
+ * trace sub-generator reads the whole stdout. Installed by default (see
+ * `installDefaultSubGeneratorMock`) so change stamping never spawns a real
+ * `pi -p` subprocess during tests.
+ */
+export const defaultSubGeneratorMock: SpawnFn = async () => ({
+	code: 0,
+	stdout: "test subject\ntest trace narrative",
+	stderr: "",
+});
+
+/**
+ * Install the canned sub-generator for the duration of a test.
+ * The shared `afterEach` in this module resets the seam afterwards.
+ */
+export function installDefaultSubGeneratorMock(): void {
+	setTestSpawnFn(defaultSubGeneratorMock);
 }
