@@ -1,6 +1,8 @@
 ## Question
 
-Implement the `rebase` and `squash` subcommands in the `/sillajje` command handler (`extensions/sillajje/src/index.ts`), plus integration tests.
+Implement the `rebase` and `fold` subcommands in the `/sillajje` command handler (`extensions/sillajje/src/index.ts`), plus integration tests.
+
+*Note: "squash" renamed to "fold" during design grilling — `jj squash` is a different operation and "fold" better describes collapsing session history into a single commit.*
 
 **Shared logic (both commands):**
 - Parse `<rev>` (positional) and `--session <id>` (optional flag) from the args string
@@ -13,7 +15,7 @@ Implement the `rebase` and `squash` subcommands in the `/sillajje` command handl
 **`rebase` subcommand:**
 - Stops after the shared rebase + update-stale. Notifies success.
 
-**`squash` subcommand:**
+**`fold` subcommand (originally "squash"):**
 - After shared rebase: `jj new <rev> --no-edit` to create a new empty change on `<rev>`
 - `jj restore --from sillajje/<session_id> --to <rev>+` to squash session content into the new change
 - Generate a conventional-commit message via `generateManualHeader(diff, spawnFn, options)` (same sub-generator as `/sillajje stamp`), using `jj diff -r <rev>+` as the diff
@@ -23,7 +25,19 @@ Implement the `rebase` and `squash` subcommands in the `/sillajje` command handl
 
 **Integration tests:**
 - `rebase`: verify merge commit is created, workspace is updated
-- `squash`: verify squashed commit exists on `<rev>`, session is archived after
-- Error cases: invalid rev, archived session, conflict scenario
+- `fold`: verify folded commit exists on `<rev>`, session is archived after
+- Error cases: invalid rev, archived session, conflict scenario (via `jj resolve --list`)
+- Non-current session: test `--session <id>` targeting a different active session
 
 Use existing patterns: `debug.event` logging, `ctx.ui.notify` for user feedback, `ctx.hasUI` guard.
+
+## Design decisions (from grilling)
+
+- `jj rebase -s @ -o <rev> -o sillajje/<session_id>` — valid jj syntax (`-o` = `--onto`; repeated creates merge commit)
+- Conflict detection: `jj resolve --list` after rebase (non-zero exit alone doesn't catch file-level conflicts)
+- Session state detection for `--session <id>`: bookmark + workspace = active; bookmark only = archived; no bookmark = not a sillajje session
+- Button after fold: notify user (`<rev>+` exists), user chooses what to do
+- Bookmark survives fold (left as sillage)
+- Argument parser: minimal manual parser, pure helper, unit-testable
+- `--session` defaults to current session
+- See PRD.md for full spec
