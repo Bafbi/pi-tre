@@ -14,7 +14,9 @@ The stamp module — a self-contained, async engine module that seals an Interac
 
 ## Decisions so far
 
-- [Design the stamp module interface](issues/01-design-stamp-module-interface.md) — one entry `stamp(input, deps)`: `interaction: Interaction | null` (Interaction stamp vs Diff stamp) + `workspace` + `rev` (default `@`; full seal vs describe-only); injected seams ExecFn, SpawnFn, config (extracted internally), infallible `onStatus` sink with a three-kind status union; value-based `StampResult` (`no-changes` ≠ `failed`). Terms added to CONTEXT.md; ADR-0003 records it. The extraction is ticket 02.
+- [Design the stamp module interface](issues/01-design-stamp-module-interface.md) — one entry `stamp(input, deps)`: pi `Message[]` | null (refined during ticket 02 grilling — pi's own transcript, no custom interaction type; recorded in [PRD.md](PRD.md)) as the Interaction stamp vs Diff stamp axis + `workspace` + `rev` (default `@`; full seal vs describe-only); injected seams ExecFn, SpawnFn, config (extracted internally), infallible `onStatus` sink with a three-kind status union; value-based `StampResult` (`no-changes` ≠ `failed`). The adapter fetches the transcript from the session at stamp time. Terms added to CONTEXT.md; ADR-0003 records it (updated for the pi-`Message[]` input and session-fetch).
+
+The extract work (ticket 02) is broken into implementation slices 03–06 per [PRD.md](PRD.md).
 
 ## Not yet specified
 

@@ -6,7 +6,7 @@ The stamp flow (Interaction stamp + Diff stamp) moves out of the pi adapter into
 
 **Shape**: one async call + callback sink (chosen) vs async-generator event stream vs class with emitter. The adapter is the only consumer of statuses today, and the push sink is the smallest interface — it matches VS Code's `Progress.report` and listr2's typed event push.
 
-**Source axis**: `interaction: Interaction | null` (chosen) vs a discriminated `{mode: "interaction"|"manual"}` input. The axis is whether the stamp is derived from an Interaction or not — not manual vs auto; the fold flow is a future consumer of the null path.
+**Source axis**: `interaction: Message[] | null` (chosen) vs a discriminated `{mode: "interaction"|"manual"}` input. The axis is whether the stamp is derived from an Interaction or not — not manual vs auto; the fold flow is a future consumer of the null path. `Message[]` is pi's own message type (type-only dependency on the pi ai package) — no custom interaction type is defined.
 
 **Rev targeting**: `rev?: string` default `@` (chosen) — `@` gets the full seal (`update-stale` → `describe` → bookmark → `jj new`), any other rev is describe-only, so fold's stamp step (`diff -r foldId` → header → `describe foldId`) drops in later without an interface change.
 
@@ -16,7 +16,8 @@ The stamp flow (Interaction stamp + Diff stamp) moves out of the pi adapter into
 
 ## Consequences
 
+- The interaction input is pi's own `Message[]`; the adapter fetches the Interaction's transcript from the session at stamp time, sliced from an interaction-start marker — no meta is accumulated from events (the transcript already carries prompt, tool calls, thinking blocks, and timestamps).
 - `extractAssistantText`, the thinking-count loop, and `getStampConfig` move from the adapter into the module.
 - `setSessionBookmark` is exported from the module so `before_agent_start` reuses it.
-- The pi adapter shrinks to: observe events into an Interaction, decide when to stamp, map statuses/results to notifications, reset state.
+- The pi adapter shrinks to: use events to decide when to stamp, fetch the transcript from the session, bind the real seams, map statuses/results to notifications, reset state.
 - The `onStatus` sink is treated as infallible — a throwing sink is caught, never corrupts the stamp.

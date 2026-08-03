@@ -100,3 +100,5 @@ Expected failures (jj non-zero exit, sub-generator exhaustion) → `ok: false`; 
 **Invariants** — the interaction path always stamps the working copy (`rev` belongs to the diff path); `onStatus` is infallible; expected failures are results, defects throw.
 
 **Domain** — terms added to `CONTEXT.md`: Stamping, Interaction stamp, Diff stamp. ADR-0003 records the interface.
+
+*Refinement during ticket 02 grilling (recorded in [PRD.md](../PRD.md)): the interaction input is pi's own `Message[]` (no custom interaction type), and the adapter fetches the transcript from the session at stamp time instead of accumulating it from events. The extract work is sliced into tickets 03–06.*
