@@ -922,10 +922,43 @@ describe("stamp (Interaction path)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: stamp (Diff path — partial, full coverage in issue 04)
+// Tests: stamp (Diff path)
 // ---------------------------------------------------------------------------
 
+/** Build a Diff stamp input. */
+function diffInput(opts?: {
+	sessionKey?: string;
+	wsPath?: string;
+	rev?: string;
+}): StampInput {
+	return {
+		interaction: null,
+		workspace: {
+			sessionKey: opts?.sessionKey ?? "test-session",
+			wsPath: opts?.wsPath ?? "/tmp/ws",
+		},
+		rev: opts?.rev,
+	};
+}
+
+/** Find the body passed to a jj describe call in mock exec call history. */
+function findDescribeBody(exec: ReturnType<typeof vi.fn>): string | undefined {
+	const descCall = exec.mock.calls.find(
+		(c: unknown[]) => c[0] === "jj" && c[1]?.[0] === "describe",
+	);
+	if (!descCall) return undefined;
+	// body is the last element of the args array
+	const args = descCall[1] as string[];
+	return args[args.length - 1] as string | undefined;
+}
+
 describe("stamp (Diff path)", () => {
+	const diffContent = "diff --git a/file b/file\n+added line\n";
+
+	// -------------------------------------------------------------------
+	// no-changes
+	// -------------------------------------------------------------------
+
 	it("returns no-changes when diff is empty", async () => {
 		const exec = mockExec({
 			"jj diff -r @": { code: 0, stdout: "", stderr: "" },
@@ -933,12 +966,7 @@ describe("stamp (Diff path)", () => {
 		const spawn = mockSpawn();
 		const { sink } = collectingSink();
 
-		const input: StampInput = {
-			interaction: null,
-			workspace: { sessionKey: "test", wsPath: "/ws" },
-		};
-
-		const result = await stamp(input, {
+		const result = await stamp(diffInput(), {
 			exec,
 			spawn,
 			config: defaultConfig(),
@@ -946,5 +974,246 @@ describe("stamp (Diff path)", () => {
 		});
 
 		expect(result).toEqual({ ok: false, reason: "no-changes" });
+		// No describe call should have been made.
+		const descBody = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(descBody).toBeUndefined();
+	});
+
+	// -------------------------------------------------------------------
+	// Happy path: full seal at rev "@"
+	// -------------------------------------------------------------------
+
+	it("seals the working copy with diff-based header and Meta line", async () => {
+		const exec = mockExec({
+			"jj diff -r @": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stamp(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			subject: "act/feat: test interaction",
+			rev: "@",
+		});
+
+		// Body contains subject and Meta line.
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(body).toContain("act/feat: test interaction");
+		expect(body).toContain("Meta: sillajje/test-session");
+
+		// Full seal sequence: diff, update-stale, describe, bookmark, new.
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+		expect(
+			calls.some(
+				(c: unknown[]) =>
+					c[0] === "jj" &&
+					c[1][0] === "workspace" &&
+					c[1][1] === "update-stale",
+			),
+		).toBe(true);
+		expect(
+			calls.some(
+				(c: unknown[]) => c[0] === "jj" && c[1][0] === "bookmark",
+			),
+		).toBe(true);
+		expect(
+			calls.some((c: unknown[]) => c[0] === "jj" && c[1][0] === "new"),
+		).toBe(true);
+
+		// Phase statuses.
+		const phases = statuses.filter((s) => s.kind === "phase");
+		expect(phases).toHaveLength(3);
+		expect(phases[0].code).toBe("collecting-diff");
+		expect(phases[1].code).toBe("generating-header");
+		expect(phases[2].code).toBe("sealing-change");
+	});
+
+	// -------------------------------------------------------------------
+	// Non-"@" rev: describe-only
+	// -------------------------------------------------------------------
+
+	it("does describe-only for a non-@ rev (no update-stale, no bookmark, no new)", async () => {
+		const exec = mockExec({
+			"jj diff -r abc123": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		const result = await stamp(diffInput({ rev: "abc123" }), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			subject: "act/feat: test interaction",
+			rev: "abc123",
+		});
+
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+
+		// Should have describe -r abc123 -m <body>
+		const descCall = calls.find(
+			(c: unknown[]) =>
+				c[0] === "jj" && c[1]?.[0] === "describe" && c[1]?.[1] === "-r",
+		);
+		expect(descCall).toBeDefined();
+		expect(descCall?.[1][2]).toBe("abc123");
+
+		// Should NOT have update-stale, bookmark, or new.
+		expect(
+			calls.some(
+				(c: unknown[]) =>
+					c[0] === "jj" &&
+					c[1][0] === "workspace" &&
+					c[1][1] === "update-stale",
+			),
+		).toBe(false);
+		expect(
+			calls.some(
+				(c: unknown[]) => c[0] === "jj" && c[1][0] === "bookmark",
+			),
+		).toBe(false);
+		expect(
+			calls.some((c: unknown[]) => c[0] === "jj" && c[1][0] === "new"),
+		).toBe(false);
+
+		// Body still contains subject and Meta.
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(body).toContain("act/feat: test interaction");
+		expect(body).toContain("Meta: sillajje/test-session");
+	});
+
+	// -------------------------------------------------------------------
+	// Sub-generator fallback
+	// -------------------------------------------------------------------
+
+	it("falls back to conventional-commit default when sub-generator fails", async () => {
+		const exec = mockExec({
+			"jj diff -r @": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+		});
+		const spawn = vi.fn().mockRejectedValue(new Error("unavailable"));
+		const { sink, statuses } = collectingSink();
+
+		const result = await stamp(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			onStatus: sink,
+		});
+
+		// Should succeed with fallback subject.
+		expect(result).toEqual({
+			ok: true,
+			subject: "chore: manual checkpoint",
+			rev: "@",
+		});
+
+		// Warning emitted.
+		const warnings = statuses.filter((s) => s.kind === "warning");
+		expect(warnings.some((w) => w.code === "header-fallback")).toBe(true);
+
+		// Body contains fallback subject.
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(body).toContain("chore: manual checkpoint");
+	});
+
+	// -------------------------------------------------------------------
+	// jj failures
+	// -------------------------------------------------------------------
+
+	it("returns ok: false when jj diff fails", async () => {
+		const exec = mockExec({
+			"jj diff -r @": { code: 1, stdout: "", stderr: "diff error" },
+		});
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		// Diff is treated as empty on failure → no-changes.
+		const result = await stamp(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "no-changes" });
+	});
+
+	it("returns ok: false when jj update-stale fails during diff stamp", async () => {
+		const exec = mockExec({
+			"jj diff -r @": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+			"jj workspace update-stale": {
+				code: 1,
+				stdout: "",
+				stderr: "error",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stamp(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		const errors = statuses.filter((s) => s.kind === "error");
+		expect(errors.some((e) => e.code === "update_stale_failed")).toBe(true);
+	});
+
+	it("returns ok: false when jj describe fails during diff stamp", async () => {
+		const exec = mockExec({
+			"jj diff -r @": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+			"jj describe": {
+				code: 1,
+				stdout: "",
+				stderr: "describe error",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stamp(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		const errors = statuses.filter((s) => s.kind === "error");
+		expect(errors.some((e) => e.code === "describe_failed")).toBe(true);
 	});
 });
