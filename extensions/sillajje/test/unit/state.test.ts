@@ -441,4 +441,24 @@ describe("SessionState interaction tracking", () => {
 		expect(s.hasNewInteraction()).toBe(false);
 		expect(s.getInteractionPrompt()).toBeUndefined();
 	});
+
+	it("pending finalize: mark, clear, and reset semantics", () => {
+		const s = new SessionState();
+
+		// Default: not pending.
+		expect(s.hasPendingFinalize()).toBe(false);
+
+		// Error-terminal agent_end marks the interaction pending.
+		s.markPendingFinalize();
+		expect(s.hasPendingFinalize()).toBe(true);
+
+		// A retry continuation (agent_start) clears it.
+		s.clearPendingFinalize();
+		expect(s.hasPendingFinalize()).toBe(false);
+
+		// resetInteraction (called after a stamp) clears it too.
+		s.markPendingFinalize();
+		s.resetInteraction();
+		expect(s.hasPendingFinalize()).toBe(false);
+	});
 });

@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, expect, it, vi } from "vitest";
 import { setTestSpawnFn } from "../../src/index.js";
@@ -50,6 +51,27 @@ function assistantMsg(text: string) {
 		stopReason: "stop" as const,
 		timestamp: Date.now(),
 	};
+}
+
+/** Assistant message representing a failed LLM run (e.g. provider timeout). */
+function errorMsg(errorText: string) {
+	return {
+		role: "assistant" as const,
+		content: [{ type: "text" as const, text: errorText }],
+		api: "anthropic-messages" as const,
+		provider: "anthropic" as const,
+		model: "test",
+		usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+		stopReason: "error" as const,
+		errorMessage: errorText,
+		timestamp: Date.now(),
+	};
+}
+
+/** Default workspace path for a given session (config workspacesRoot default). */
+function wsPath(repoRoot: string, sessionId: string): string {
+	const repoSlug = repoRoot.split("/").pop();
+	return `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
 }
 
 async function simulateInteraction(
@@ -674,5 +696,212 @@ describeJj("sillajje change stamping", () => {
 		expect(show).toContain(
 			"The agent created a mocked login page with validation.",
 		);
+	}, 30_000);
+
+	it("does not stamp mid-interaction on an error agent_end; stamps at the true end (retry scenario)", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+		writeFileSync(join(cwd, "README.md"), "# Test\n");
+		execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+		execSync("jj new -m 'work'", { cwd, stdio: "pipe" });
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		// The interaction starts normally.
+		await runner.emitInput("Fix the login bug", undefined, "interactive");
+		await runner.emitBeforeAgentStart(
+			"Fix the login bug",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+		await runner.emit({ type: "agent_start" });
+
+		// Segment 1 writes a.ts, then the run ends in a transient error
+		// (e.g. provider timeout). Pi emits agent_end with the error message
+		// and auto-retries: agent_start fires again mid-interaction.
+		await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "tc-1",
+			toolName: "write",
+			input: { path: "a.ts", content: "// a" },
+		});
+		writeFileSync(join(workspace, "a.ts"), "// a\n");
+		await runner.emit({
+			type: "agent_end",
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			messages: [errorMsg("request timed out")] as any[],
+		});
+		await runner.emit({ type: "agent_start" });
+
+		// Segment 2 (the retry continuation) writes b.ts on the same interaction.
+		await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "tc-2",
+			toolName: "write",
+			input: { path: "b.ts", content: "// b" },
+		});
+		writeFileSync(join(workspace, "b.ts"), "// b\n");
+
+		// The interaction truly ends here.
+		await runner.emit({
+			type: "agent_end",
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			messages: [assistantMsg("Fixed the login bug.")] as any[],
+		});
+		await runner.emit({ type: "agent_settled" });
+
+		// The stamp must happen only at the true end: the bookmarked change
+		// contains BOTH files and the final response, and the workspace
+		// working copy is sealed clean by the final `jj new`.
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		expect(show).toContain("a.ts");
+		expect(show).toContain("b.ts");
+		expect(show).toContain("Fixed the login bug.");
+
+		const status = jj(["status"], workspace);
+		expect(status).not.toContain("a.ts");
+		expect(status).not.toContain("b.ts");
+	}, 30_000);
+
+	it("finalizes an error-ended interaction as its own change when the next prompt arrives", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+		writeFileSync(join(cwd, "README.md"), "# Test\n");
+		execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+		execSync("jj new -m 'work'", { cwd, stdio: "pipe" });
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		// Interaction 1 ends in a FINAL error — no retry continuation follows.
+		await runner.emitInput("First task", undefined, "interactive");
+		await runner.emitBeforeAgentStart(
+			"First task",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+		await runner.emit({ type: "agent_start" });
+		await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "tc-1",
+			toolName: "write",
+			input: { path: "a.ts", content: "// a" },
+		});
+		writeFileSync(join(workspace, "a.ts"), "// a\n");
+		await runner.emit({
+			type: "agent_end",
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			messages: [errorMsg("provider unavailable")] as any[],
+		});
+
+		// Interaction 2: the next prompt finalizes interaction 1 as its own
+		// change, then stamps interaction 2 normally.
+		await runner.emitInput("Next task", undefined, "interactive");
+		await runner.emitBeforeAgentStart(
+			"Next task",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+		await runner.emit({ type: "agent_start" });
+		await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "tc-2",
+			toolName: "write",
+			input: { path: "b.ts", content: "// b" },
+		});
+		writeFileSync(join(workspace, "b.ts"), "// b\n");
+		await runner.emit({
+			type: "agent_end",
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			messages: [assistantMsg("Next task done.")] as any[],
+		});
+		await runner.emit({ type: "agent_settled" });
+
+		// Both interactions were stamped as separate changes.
+		const log = jj(
+			[
+				"log",
+				"-r",
+				`ancestors(sillajje/${sessionId})`,
+				"--no-graph",
+				"-T",
+				"description",
+			],
+			cwd,
+		);
+		expect(log).toContain("First task");
+		expect(log).toContain("Next task");
+
+		// The latest (Next task) change contains only b.ts — the error
+		// interaction's a.ts was sealed into its own earlier change.
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		expect(show).toContain("b.ts");
+		expect(show).not.toContain("a.ts");
+	}, 30_000);
+
+	it("finalizes an error-ended interaction at session_shutdown when never retried", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+		writeFileSync(join(cwd, "README.md"), "# Test\n");
+		execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+		execSync("jj new -m 'work'", { cwd, stdio: "pipe" });
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		// Interaction ends in a FINAL error — no retry, no next prompt.
+		await runner.emitInput("Last task", undefined, "interactive");
+		await runner.emitBeforeAgentStart(
+			"Last task",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+		await runner.emit({ type: "agent_start" });
+		await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "tc-1",
+			toolName: "write",
+			input: { path: "a.ts", content: "// a" },
+		});
+		writeFileSync(join(workspace, "a.ts"), "// a\n");
+		await runner.emit({
+			type: "agent_end",
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			messages: [errorMsg("provider unavailable")] as any[],
+		});
+
+		// Session ends — the pending interaction must be stamped anyway.
+		await runner.emit({ type: "session_shutdown" });
+
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		expect(show).toContain("Last task");
+		expect(show).toContain("a.ts");
+		expect(show).toContain("provider unavailable");
 	}, 30_000);
 });

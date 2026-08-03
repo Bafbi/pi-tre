@@ -503,6 +503,10 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_start", async () => {
 		debug.event("agent_start");
 		if (state.isInactive()) return undefined;
+		// An `agent_start` after a deferred error end is a retry/compact
+		// continuation — the interaction is still live, so drop the
+		// pending-finalize flag and keep accumulating elapsed time.
+		state.clearPendingFinalize();
 		state.markAgentStart();
 		return undefined;
 	});
@@ -756,6 +760,10 @@ export default function (pi: ExtensionAPI) {
 
 		debug.event("stamp_manual_start");
 
+		// A manual stamp seals the working copy, which covers any pending
+		// (error-ended) interaction — nothing left to finalize later.
+		state.clearPendingFinalize();
+
 		// Get the diff for the sub-generator.
 		const diffResult = await pi.exec("jj", ["diff", "-r", "@"], {
 			cwd: wsPath,
@@ -907,6 +915,24 @@ export default function (pi: ExtensionAPI) {
 			);
 		}
 
+		// A run that ended in an error (stopReason "error" — timeout, 5xx,
+		// rate limit, network...) is not necessarily the end of the
+		// interaction: Pi auto-retries (or compacts-and-retries on context
+		// overflow), which fires `agent_start` again mid-interaction.
+		// Stamping here would seal a partial interaction and reset the
+		// interaction state, so the true final `agent_end` would skip
+		// stamping entirely. Defer instead: the continuation's `agent_start`
+		// clears the pending flag; otherwise the interaction is finalized
+		// on the next `input` or at `session_shutdown`.
+		if (
+			lastAssistant &&
+			(lastAssistant as { stopReason?: string }).stopReason === "error"
+		) {
+			debug.event("stamp_deferred", { reason: "agent_run_error" });
+			state.markPendingFinalize();
+			return undefined;
+		}
+
 		// Stamp the change. `agent_settled` would be ideal (fires after
 		// retries/compactions), but it does not reliably reach extension
 		// handlers in this Pi version. `agent_end` is the next best point.
@@ -977,6 +1003,18 @@ export default function (pi: ExtensionAPI) {
 			streamingBehavior: event.streamingBehavior,
 			source: event.source,
 		});
+
+		// A previous interaction that ended in an error (and was not retried)
+		// is finalized now, before the new interaction overwrites its prompt
+		// and response. Stamping seals it as its own change and starts fresh.
+		if (
+			state.hasPendingFinalize() &&
+			!state.isInactive() &&
+			!state.isStale()
+		) {
+			await stampChange(ctx);
+		}
+
 		state.markPrompted();
 
 		// Detect new interaction vs steering: `steer` folds into the current one.
@@ -1039,6 +1077,12 @@ export default function (pi: ExtensionAPI) {
 		const wsPath = state.getWorkspacePath();
 		const sessionId = state.getSessionId();
 		if (!wsPath || !sessionId) return;
+
+		// Finalize an interaction that ended in an error and was never
+		// retried — otherwise its work is left un-stamped in the working copy.
+		if (state.hasPendingFinalize()) {
+			await stampChange(ctx);
+		}
 
 		if (!state.hasUserPrompted()) {
 			await cleanupWorkspace(

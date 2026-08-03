@@ -42,6 +42,21 @@ export class SessionState {
 	/** Whether the user has sent at least one prompt in this session. */
 	private hasPrompted = false;
 
+	/**
+	 * Whether the current interaction ended with an error terminal `agent_end`
+	 * and is awaiting finalization.
+	 *
+	 * Pi can emit `agent_end` mid-interaction: when a run ends in an error
+	 * (stopReason "error" — timeout, 5xx, rate limit...), it auto-retries via
+	 * `agent.continue()`, firing `agent_start` again. Stamping on that first
+	 * (error) `agent_end` would seal a partial interaction and reset state, so
+	 * the true final `agent_end` would skip stamping entirely. Instead the
+	 * interaction is marked pending and finalized lazily: the continuation's
+	 * `agent_start` clears it, otherwise the next `input` or `session_shutdown`
+	 * stamps it.
+	 */
+	private pendingFinalize = false;
+
 	// ---------------------------------------------------------------------------
 	// Interaction tracking (per-interaction, reset after each stamp)
 	// ---------------------------------------------------------------------------
@@ -197,6 +212,24 @@ export class SessionState {
 		return this.newInteraction;
 	}
 
+	/** Whether the interaction ended with an error and awaits finalization. */
+	hasPendingFinalize(): boolean {
+		return this.pendingFinalize;
+	}
+
+	/** Mark the current interaction as ended-in-error, awaiting finalization. */
+	markPendingFinalize(): void {
+		this.pendingFinalize = true;
+	}
+
+	/**
+	 * Clear the pending-finalize flag — called when a continuation
+	 * (`agent_start` after a retry/compact) proves the interaction is still live.
+	 */
+	clearPendingFinalize(): void {
+		this.pendingFinalize = false;
+	}
+
 	/**
 	 * Called from `before_agent_start` as a fallback for when the `input` event
 	 * didn't fire (e.g. queued follow-ups). Uses the last known streaming behavior.
@@ -286,5 +319,6 @@ export class SessionState {
 		this.cumulativeElapsedMs = 0;
 		this.response = undefined;
 		this.lastStreamingBehavior = undefined;
+		this.pendingFinalize = false;
 	}
 }
