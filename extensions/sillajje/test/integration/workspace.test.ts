@@ -81,6 +81,63 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		expect(workspaceList).toContain(`sillajje-${sessionId}`);
 	});
 
+	it("before_agent_start creates the session bookmark for jj log visibility", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const sessionId = runner.createContext().sessionManager.getSessionId();
+		expect(sessionId).toBeDefined();
+
+		// No bookmark yet before any interaction.
+		const before = execSync("jj bookmark list", {
+			cwd,
+			encoding: "utf-8",
+		});
+		expect(before).not.toContain(`sillajje/${sessionId}`);
+
+		// The first interaction creates the bookmark on the session working copy.
+		await runner.emitBeforeAgentStart(
+			"do something",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+
+		const after = execSync("jj bookmark list", {
+			cwd,
+			encoding: "utf-8",
+		});
+		expect(after).toContain(`sillajje/${sessionId}`);
+
+		// The bookmark points at the session workspace's working copy (@).
+		// `jj workspace list` and `jj bookmark list` both show the change id
+		// as the first id token, so compare change ids (stable under rewrites).
+		const wsList = execSync("jj workspace list", {
+			cwd,
+			encoding: "utf-8",
+		});
+		const wsLine = wsList
+			.split("\n")
+			.find((l: string) => l.startsWith(`sillajje-${sessionId}:`));
+		if (!wsLine) {
+			throw new Error(`workspace sillajje-${sessionId} not found`);
+		}
+		const wsChangeId = wsLine.split(":")[1].trim().split(" ")[0];
+		const bmList = execSync(
+			`jj bookmark list --revision sillajje/${sessionId}`,
+			{ cwd, encoding: "utf-8" },
+		);
+		expect(bmList).toContain(wsChangeId);
+	});
+
 	it("before_agent_start injects workspace path into system prompt", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);

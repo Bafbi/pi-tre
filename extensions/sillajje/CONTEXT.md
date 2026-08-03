@@ -54,3 +54,17 @@ The taxonomy of agent modes that form the first half of a dual prefix. Seven can
 ## Concurrency
 
 Each Pi session gets its own jj workspace (`sillajje/<session-id>`), so concurrent Pi processes on the same repo never share a working directory. jj handles concurrent operations on one repo natively — bookmarks, working-copy snapshots, and lock files are coordinated by jj itself — so no locking or coordination is needed in the extension. The session-ID collision guard (a numeric `-N` suffix on the workspace name and bookmark) covers the pathological case of two sessions sharing an ID.
+
+## Bookmark lifecycle
+
+The `sillajje/<session-id>` bookmark is created at the start of the first interaction (`before_agent_start`) and updated on every stamp (`agent_end`, `/sillajje stamp`). Creating it early means the session's `sillajje/<id>` ref resolves from the very first interaction (e.g. for `jj show`, `jj diff`, or unarchive).
+
+## Log revsets
+
+The user's `~/.config/jj/config.toml` defines three aliases:
+
+- `session` = `trunk()::bookmarks(sillajje/*)` — the tips of active sessions whose base is over the trunk.
+- `reconciled` = `trunk()..(children(~(trunk()::)) & trunk()::)` — the commits between each reconciliation merge (a trunk-descendant commit with a non-trunk parent) and the trunk: the session work that was merged into the trunk line. Empty when nothing has reconciled yet.
+- `bridge` = `(ancestors(roots(reconciled), 2) & ~reconciled):: & ::trunk()` — the ancestors of trunk linking the parent of the reconciled chain (the branch point where the reconciled work left the trunk's ancestry) up to the trunk itself. Without it those commits hide behind the log's `~` elision.
+
+The log is `immutable_heads()..@ | trunk():: | reconciled | bridge`.

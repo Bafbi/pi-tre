@@ -191,6 +191,53 @@ export default function (pi: ExtensionAPI) {
 		pi.exec(command, args, options);
 
 	// -------------------------------------------------------------------
+	// setSessionBookmark — point the session bookmark at the working copy
+	// -------------------------------------------------------------------
+
+	/**
+	 * Point the `sillajje/<session-key>` bookmark at the workspace's current
+	 * working copy (`@`). The bookmark is the stable handle on session work:
+	 * `jj show`, `jj diff -r 'sillajje/<id>'`, unarchive, and bookmarkExists
+	 * all resolve through it, so it must exist from the first interaction.
+	 *
+	 * Failures are logged (event + error) and surfaced via the UI when
+	 * available, but never thrown — callers treat a failed bookmark set as
+	 * non-fatal (the stamp flow retries on the next interaction).
+	 */
+	const setSessionBookmark = async (
+		sessionKey: string,
+		wsPath: string,
+		ctx: {
+			hasUI: boolean;
+			ui: {
+				notify: (
+					msg: string,
+					type: "info" | "warning" | "error",
+				) => void;
+			};
+		},
+	) => {
+		const bookmarkResult = await pi.exec(
+			"jj",
+			["bookmark", "set", `sillajje/${sessionKey}`, "-r", "@"],
+			{ cwd: wsPath },
+		);
+		debug.event("jj_bookmark_set", { code: bookmarkResult.code });
+		if (bookmarkResult.code !== 0) {
+			debug.error("bookmark_set_failed", {
+				code: bookmarkResult.code,
+				stderr: bookmarkResult.stderr,
+			});
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] jj bookmark set failed (exit ${bookmarkResult.code}): ${bookmarkResult.stderr}`,
+					"error",
+				);
+			}
+		}
+	};
+
+	// -------------------------------------------------------------------
 	// runPostInit — execute post-init commands after workspace creation
 	// -------------------------------------------------------------------
 
@@ -411,6 +458,20 @@ export default function (pi: ExtensionAPI) {
 
 		const wsPath = state.getWorkspacePath();
 		if (!wsPath) return undefined;
+
+		// Ensure the session bookmark exists before the agent works, so
+		// `sillajje/<session-key>` resolves from the very first interaction —
+		// not just after the first stamp. This matters for:
+		//   - `jj show`, `jj diff -r 'sillajje/<id>'`, and ad-hoc revsets
+		//   - the extension's own unarchive (`jj workspace add --revision
+		//     sillajje/<id>`) and bookmarkExists checks, which assume the
+		//     bookmark is a stable handle on session work
+		// Non-fatal: if this fails (jj unavailable, race), the first stamp
+		// will still create the bookmark.
+		const sessionKey = state.getSessionKey();
+		if (sessionKey) {
+			await setSessionBookmark(sessionKey, wsPath, ctx);
+		}
 
 		const workspaceBlock = [
 			"",
@@ -640,19 +701,8 @@ export default function (pi: ExtensionAPI) {
 				);
 			}
 
-			// 2. Set the bookmark to point to the current working copy.
-			const bookmarkResult = await pi.exec(
-				"jj",
-				["bookmark", "set", `sillajje/${sessionKey}`, "-r", "@"],
-				{ cwd: wsPath },
-			);
-			debug.event("jj_bookmark_set", { code: bookmarkResult.code });
-			if (bookmarkResult.code !== 0 && ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] jj bookmark set failed (exit ${bookmarkResult.code}): ${bookmarkResult.stderr}`,
-					"error",
-				);
-			}
+			// 2. Point the session bookmark at the stamped working copy.
+			await setSessionBookmark(sessionKey, wsPath, ctx);
 
 			// 3. Seal the current working copy and start a fresh one on top.
 			//    This ensures each interaction is a separate change in `jj log`.
@@ -777,19 +827,10 @@ export default function (pi: ExtensionAPI) {
 				);
 			}
 
-			// 3. Set the bookmark to point to the current working copy.
-			const bookmarkResult = await pi.exec(
-				"jj",
-				["bookmark", "set", `sillajje/${sessionId}`, "-r", "@"],
-				{ cwd: wsPath },
-			);
-			debug.event("jj_bookmark_set", { code: bookmarkResult.code });
-			if (bookmarkResult.code !== 0 && ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] jj bookmark set failed (exit ${bookmarkResult.code}): ${bookmarkResult.stderr}`,
-					"error",
-				);
-			}
+			// 3. Point the session bookmark at the stamped working copy.
+			//    Uses sessionKey (not sessionId) so collision-suffixed sessions
+			//    keep the bookmark on the same key as the rest of the flow.
+			await setSessionBookmark(sessionKey, wsPath, ctx);
 
 			// 4. Seal the current change and start a fresh one on top.
 			const newResult = await pi.exec("jj", ["new"], { cwd: wsPath });
