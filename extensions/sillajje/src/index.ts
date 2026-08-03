@@ -1040,7 +1040,7 @@ export default function (pi: ExtensionAPI) {
 		// `args` includes the subcommand token itself (matching the other cases) —
 		// hand the parser only what follows `/sillajje <subcommand>`.
 		const { rev, sessionId } = parseRebaseFoldArgs(
-			args.split(/\s+/).slice(1).join(" "),
+			args.trim().split(/\s+/).slice(1).join(" "),
 		);
 		if (!rev) {
 			if (ctx.hasUI) {
@@ -1185,9 +1185,11 @@ export default function (pi: ExtensionAPI) {
 				stderr: staleResult.stderr?.slice(0, 200),
 			});
 			if (staleResult.code !== 0 && ctx.hasUI) {
+				// The rebase succeeded — a failed sync is a non-fatal warning, not an
+				// error that contradicts the success notification below.
 				ctx.ui.notify(
 					`[sillajje] jj workspace update-stale failed (exit ${staleResult.code}): ${staleResult.stderr}`,
-					"error",
+					"warning",
 				);
 			}
 		} catch (err) {
@@ -1411,9 +1413,40 @@ export default function (pi: ExtensionAPI) {
 					debug.event("fold_start", { rev, sessionKey, wsPath });
 
 					try {
-						// 1. Create an empty change on `<rev>` (`<rev>+`) without moving
-						//    the working copy — the fold source stays at `@` (the merge
-						//    commit from the preamble).
+						// Identify the folded change by diffing `children(<rev>)` before and
+						// after `jj new`. An explicit query is immune to jj message format
+						// changes and quiet output (which would break parsing `jj new`'s
+						// stderr), and works alongside other pre-existing descendants of
+						// `<rev>` — which rule out the `<rev>+` revset, since the preamble's
+						// merge commit also descends from `<rev>`.
+						const childTemplate = 'change_id.short() ++ "\\n"';
+						const beforeResult = await pi.exec(
+							"jj",
+							[
+								"log",
+								"-r",
+								`children(${rev})`,
+								"--no-graph",
+								"-T",
+								childTemplate,
+							],
+							{ cwd: wsPath },
+						);
+						if (beforeResult.code !== 0) {
+							throw new Error(
+								`jj log failed (exit ${beforeResult.code}): ${beforeResult.stderr}`,
+							);
+						}
+						const beforeChildren = new Set(
+							beforeResult.stdout
+								.split("\n")
+								.map((l) => l.trim())
+								.filter(Boolean),
+						);
+
+						// Create an empty change on `<rev>` (`<rev>+`) without moving the
+						// working copy — the fold source stays at `@` (the merge commit
+						// from the preamble).
 						const newResult = await pi.exec(
 							"jj",
 							["new", rev, "--no-edit"],
@@ -1429,21 +1462,44 @@ export default function (pi: ExtensionAPI) {
 							);
 						}
 
-						// The folded change id, parsed from `jj new` output ("Created
-						// new commit <change_id> ..." — jj prints status messages to
-						// stderr). Referencing it by id avoids the `<rev>+` revset,
-						// which is ambiguous once the preamble's merge commit also
-						// descends from `<rev>`.
-						const foldId = /Created new commit (\S+)/.exec(
-							newResult.stderr ?? "",
-						)?.[1];
-						if (!foldId) {
+						const afterResult = await pi.exec(
+							"jj",
+							[
+								"log",
+								"-r",
+								`children(${rev})`,
+								"--no-graph",
+								"-T",
+								childTemplate,
+							],
+							{ cwd: wsPath },
+						);
+						if (afterResult.code !== 0) {
 							throw new Error(
-								`could not parse folded commit id from jj new output: ${newResult.stderr}`,
+								`jj log failed (exit ${afterResult.code}): ${afterResult.stderr}`,
 							);
 						}
+						const newChildren = afterResult.stdout
+							.split("\n")
+							.map((l) => l.trim())
+							.filter(Boolean)
+							.filter((id) => !beforeChildren.has(id));
 
-						// 2. Copy the merged session content into the folded change.
+						if (newChildren.length !== 1) {
+							// A failed fold must not leave the empty change on `<rev>` —
+							// abandon whatever appeared between the two queries.
+							for (const id of newChildren) {
+								await pi.exec("jj", ["abandon", id], {
+									cwd: wsPath,
+								});
+							}
+							throw new Error(
+								`could not identify the folded change created on ${rev}`,
+							);
+						}
+						const foldId = newChildren[0];
+
+						// 1. Copy the merged session content into the folded change.
 						//    The source is `@` (the preamble's merge commit) — the
 						//    session bookmark alone would lack the upstream content
 						//    brought in by the rebase.
@@ -1461,7 +1517,7 @@ export default function (pi: ExtensionAPI) {
 							);
 						}
 
-						// 3. Generate a conventional-commit subject from the folded diff,
+						// 2. Generate a conventional-commit subject from the folded diff,
 						//    via the same sub-generator used by `/sillajje stamp`.
 						const diffResult = await pi.exec(
 							"jj",
@@ -1482,7 +1538,7 @@ export default function (pi: ExtensionAPI) {
 						);
 						debug.event("fold_header", { subject });
 
-						// 4. Describe the folded change with the generated subject.
+						// 3. Describe the folded change with the generated subject.
 						const descResult = await pi.exec(
 							"jj",
 							["describe", "-r", foldId, "-m", subject],
@@ -1497,7 +1553,7 @@ export default function (pi: ExtensionAPI) {
 							);
 						}
 
-						// 5. Archive the session as a practical convenience: forget the
+						// 4. Archive the session as a practical convenience: forget the
 						//    workspace and delete its directory. The
 						//    `sillajje/<sessionKey>` bookmark intentionally survives as
 						//    sillage.
