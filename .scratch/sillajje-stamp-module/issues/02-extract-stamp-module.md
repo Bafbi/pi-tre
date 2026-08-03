@@ -1,6 +1,6 @@
 ---
 Type: task
-Status: open
+Status: claimed
 ---
 
 # Extract the stamp module from the pi adapter
