@@ -20,6 +20,8 @@ Resolve:
 
 Constraints already stated by the user: self-contained; testable seams; async; an end result but also stream status during execution.
 
+Assets: research on result/error + streaming patterns — [`research/result-error-patterns.md`](../research/result-error-patterns.md)
+
 Use /codebase-design's design-it-twice pattern for alternative interface shapes. Reference: `/tmp/architecture-review-20260803-135144.html` (card 1 — "Stamp pipeline: one deep module, not six handlers").
 
 ## Blocked by
