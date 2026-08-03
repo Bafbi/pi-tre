@@ -2,6 +2,7 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
+import type { Message } from "@earendil-works/pi-ai";
 import {
 	createLocalBashOperations,
 	type ExtensionAPI,
@@ -9,24 +10,17 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { loadSillajjeConfig, type SillajjeConfig } from "./config.js";
 import { createDebugLogger } from "./debug-log.js";
-import {
-	buildCommitBody,
-	buildMetadata,
-	deriveSubject,
-	type MetadataFieldToggles,
-	smartWrap,
-} from "./metadata.js";
 import { redirect } from "./path-redirect.js";
 import { parseRebaseFoldArgs } from "./rebase-fold.js";
+import type { StampInput, StampResult, StampStatus } from "./stamp/index.js";
+import {
+	stamp,
+	setSessionBookmark as stampSetBookmark,
+} from "./stamp/index.js";
 import { SessionState } from "./state.js";
 import { formatPill } from "./status-pill.js";
-import {
-	createSpawnFn,
-	generateHeader,
-	generateManualHeader,
-	generateTrace,
-	type SpawnFn,
-} from "./sub-generator.js";
+import type { SpawnFn } from "./sub-generator.js";
+import { createSpawnFn, generateManualHeader } from "./sub-generator.js";
 import {
 	bookmarkExists,
 	cleanupWorkspace,
@@ -117,63 +111,6 @@ function resolveSpawnFn(): SpawnFn {
 // ---------------------------------------------------------------------------
 
 /**
- * Config values relevant to stampChange, extracted with explicit defaults.
- *
- * The defaults mirror those in `SillajjeConfigSchema` (config.ts).
- * TypeScript cannot see TypeBox's `Default()`, so we re-state them here
- * to get non-nullable types. Keep this in sync with the schema defaults.
- */
-interface StampConfig {
-	headerMode: "one_line" | "user_prompt";
-	traceEnabled: boolean;
-	traceDetail: "high" | "step" | "decision";
-	/** Toggles for individual metadata block fields (tools, call_count, etc.). */
-	metaFields: MetadataFieldToggles;
-	/** Whether the entire metadata block is enabled. */
-	metaEnabled: boolean;
-	showUserPrompt: boolean;
-	showResponse: boolean;
-	maxAttempts: number;
-	timeoutMs: number;
-	model: string;
-}
-
-function getStampConfig(cfg: SillajjeConfig): StampConfig {
-	return {
-		headerMode: cfg.message?.header ?? "one_line",
-		traceEnabled: cfg.message?.body?.trace?.enabled ?? true,
-		traceDetail: cfg.message?.body?.trace?.detail ?? "high",
-		metaFields: cfg.message?.body?.meta ?? {},
-		metaEnabled: cfg.message?.body?.meta?.enabled ?? true,
-		showUserPrompt: cfg.message?.body?.user_prompt ?? true,
-		showResponse: cfg.message?.body?.response ?? true,
-		maxAttempts: cfg.subGenerator?.retry?.maxAttempts ?? 3,
-		timeoutMs: cfg.subGenerator?.timeoutMs ?? 30_000,
-		model: cfg.subGeneratorModel ?? "openai/gpt-4o-mini",
-	};
-}
-
-/**
- * Extract the concatenated text from an AssistantMessage's content blocks.
- * Filters to only `text` blocks and joins with newlines.
- *
- * Pure function — exported for unit testing (see `test/unit/extract-assistant-text.test.ts`).
- */
-export function extractAssistantText(msg: {
-	role: string;
-	content?: Array<{ type: string; text?: string }> | null;
-}): string {
-	if (msg.role !== "assistant") return "";
-	return (msg.content ?? [])
-		.filter(
-			(block): block is { type: "text"; text: string } =>
-				block.type === "text",
-		)
-		.map((b) => b.text)
-		.join("\n");
-}
-
-/**
  * sillajje — Auto-versioning for Pi agent sessions on jj.
  *
  * Every agent interaction becomes a jj change, leaving a reviewable trail
@@ -204,36 +141,11 @@ export default function (pi: ExtensionAPI) {
 	 * available, but never thrown — callers treat a failed bookmark set as
 	 * non-fatal (the stamp flow retries on the next interaction).
 	 */
-	const setSessionBookmark = async (
-		sessionKey: string,
-		wsPath: string,
-		ctx: {
-			hasUI: boolean;
-			ui: {
-				notify: (
-					msg: string,
-					type: "info" | "warning" | "error",
-				) => void;
-			};
-		},
-	) => {
-		const bookmarkResult = await pi.exec(
-			"jj",
-			["bookmark", "set", `sillajje/${sessionKey}`, "-r", "@"],
-			{ cwd: wsPath },
-		);
-		debug.event("jj_bookmark_set", { code: bookmarkResult.code });
-		if (bookmarkResult.code !== 0) {
-			debug.error("bookmark_set_failed", {
-				code: bookmarkResult.code,
-				stderr: bookmarkResult.stderr,
-			});
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] jj bookmark set failed (exit ${bookmarkResult.code}): ${bookmarkResult.stderr}`,
-					"error",
-				);
-			}
+	const setSessionBookmark = async (sessionKey: string, wsPath: string) => {
+		try {
+			await stampSetBookmark(exec, sessionKey, wsPath);
+		} catch (err) {
+			debug.error("bookmark_set_failed", err);
 		}
 	};
 
@@ -450,8 +362,17 @@ export default function (pi: ExtensionAPI) {
 			return undefined;
 		}
 
-		// Record the prompt for change stamping.
-		state.recordPrompt(event.prompt);
+		// Record the user prompt as a message so the full transcript is
+		// available to the stamp module at agent_end (which only carries
+		// assistant messages).
+		state.recordAgentMessages([
+			{
+				role: "user",
+				content: event.prompt,
+				timestamp: Date.now(),
+			} as Message,
+		]);
+
 		// Ensure interaction flag is set — covers queued follow-ups that
 		// may bypass the `input` event (where `startInteraction` normally runs).
 		state.enableInteractionIfNotSteering();
@@ -470,7 +391,7 @@ export default function (pi: ExtensionAPI) {
 		// will still create the bookmark.
 		const sessionKey = state.getSessionKey();
 		if (sessionKey) {
-			await setSessionBookmark(sessionKey, wsPath, ctx);
+			await setSessionBookmark(sessionKey, wsPath);
 		}
 
 		const workspaceBlock = [
@@ -505,9 +426,8 @@ export default function (pi: ExtensionAPI) {
 		if (state.isInactive()) return undefined;
 		// An `agent_start` after a deferred error end is a retry/compact
 		// continuation — the interaction is still live, so drop the
-		// pending-finalize flag and keep accumulating elapsed time.
+		// pending-finalize flag.
 		state.clearPendingFinalize();
-		state.markAgentStart();
 		return undefined;
 	});
 
@@ -535,197 +455,56 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const snapshot = state.getInteractionData(sessionKey);
-		if (!snapshot) {
-			debug.event("stamp_skip", {
-				reason: "no_snapshot",
-				hasPrompt: !!state.getInteractionPrompt(),
-			});
+		const messages = state.getInteractionMessages();
+		if (!messages) {
+			debug.event("stamp_skip", { reason: "no_messages" });
 			state.resetInteraction();
 			return;
 		}
 
-		debug.event("stamp_change", {
-			toolCount: snapshot.toolCallCount,
-			elapsedMs: snapshot.elapsedMs,
-		});
+		debug.event("stamp_change", { messageCount: messages.length });
 
-		const prompt = state.getInteractionPrompt() ?? "";
-		const response = state.getInteractionResponse() ?? "";
-
-		// Build transcript and get diff for the sub-generator.
-		const transcript = [
-			`User: ${prompt}`,
-			"",
-			`Tools used: ${snapshot.toolNames.join(", ")}`,
-			"",
-			"Assistant:",
-			response,
-		].join("\n");
-
-		const diffResult = await pi.exec("jj", ["diff", "-r", "@"], {
-			cwd: wsPath,
-		});
-		const diff = diffResult.code === 0 ? diffResult.stdout : "";
-
-		// Get prior descriptions from the recent sillajje bookmark history.
-		let priorDescriptions: string[] = [];
-		try {
-			const priorResult = await pi.exec(
-				"jj",
-				[
-					"log",
-					"-r",
-					`ancestors(sillajje/${sessionKey})`,
-					"--no-graph",
-					"-T",
-					"description.first_line()",
-				],
-				{ cwd: wsPath },
-			);
-			if (priorResult.code === 0) {
-				priorDescriptions = priorResult.stdout
-					.split("\n")
-					.filter((l: string) => l.trim().length > 0)
-					.slice(0, 5);
-			}
-		} catch {
-			// Non-fatal — prior descriptions are optional context.
-		}
-
-		// Derive config values with defaults for the new message/subGenerator trees.
-		const cfg = activeConfig ?? loadSillajjeConfig();
-		const {
-			headerMode,
-			traceEnabled,
-			traceDetail,
-			metaFields,
-			metaEnabled,
-			showUserPrompt,
-			showResponse,
-			maxAttempts,
-			timeoutMs,
-			model,
-		} = getStampConfig(cfg);
-
-		// Build sub-generator context.
-		const subCtx = {
-			transcript,
-			diff,
-			previousDescriptions: priorDescriptions,
+		const input: StampInput = {
+			interaction: messages as Message[],
+			workspace: { sessionKey, wsPath },
+			rev: "@",
 		};
-		const spawnFn = resolveSpawnFn();
 
-		// Run header and trace sub-generators in parallel when both are enabled.
-		const headerCall =
-			headerMode !== "user_prompt"
-				? generateHeader(subCtx, spawnFn, {
-						model,
-						maxAttempts,
-						timeoutMs,
-						prompt,
-					})
-				: Promise.resolve(deriveSubject(prompt));
+		const deps = {
+			exec,
+			spawn: resolveSpawnFn(),
+			config: activeConfig ?? loadSillajjeConfig(),
+			onStatus: (s: StampStatus) => {
+				if (s.kind === "phase") {
+					debug.event(`stamp_phase_${s.code}`, {});
+				} else if (s.kind === "warning") {
+					debug.error(
+						`stamp_warning_${s.code}`,
+						new Error(s.message),
+					);
+					if (ctx.hasUI) {
+						ctx.ui.notify(`[sillajje] ${s.message}`, "warning");
+					}
+				} else if (s.kind === "error") {
+					debug.error(`stamp_error_${s.code}`, new Error(s.message));
+					if (ctx.hasUI) {
+						ctx.ui.notify(`[sillajje] ${s.message}`, "error");
+					}
+				}
+			},
+		};
 
-		const traceCall = traceEnabled
-			? generateTrace(subCtx, spawnFn, {
-					model,
-					maxAttempts,
-					timeoutMs,
-					detail: traceDetail,
-				})
-			: Promise.resolve("");
+		const result = await stamp(input, deps);
 
-		// Use Promise.all for parallel execution.
-		const [subject, trace] = await Promise.all([headerCall, traceCall]);
-
-		debug.event("sub_generator_result", {
-			subject,
-			traceLen: trace.length,
-		});
-
-		// Detect sub-generator fallback and notify.
-		// Header: fell back when mode is "one_line" but result equals deriveSubject(prompt).
-		// Trace: fell back when enabled but result is empty.
-		if (headerMode !== "user_prompt" && subject === deriveSubject(prompt)) {
-			debug.error(
-				"sub_generator_failed",
-				new Error("header exhausted retries"),
-			);
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					"[sillajje] commit subject generation failed — sub-generator exhausted retries",
-					"warning",
-				);
-			}
-		}
-		if (traceEnabled && trace === "") {
-			debug.error(
-				"sub_generator_failed",
-				new Error("trace exhausted retries"),
-			);
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					"[sillajje] commit trace generation failed — sub-generator exhausted retries",
-					"warning",
-				);
-			}
-		}
-
-		// Build metadata string with optional field toggles.
-		const metaStr = metaEnabled ? buildMetadata(snapshot, metaFields) : "";
-
-		// Assemble body with config-gated sections.
-		const body = buildCommitBody({
-			subject,
-			trace: traceEnabled ? smartWrap(trace, 72) : "",
-			prompt: showUserPrompt ? prompt : "",
-			metadata: metaEnabled ? metaStr : "",
-			response: showResponse ? response : "",
-		});
-
-		try {
-			// 0. Ensure the workspace working copy isn't stale.
-			await pi.exec("jj", ["workspace", "update-stale"], {
-				cwd: wsPath,
+		if (result.ok) {
+			debug.event("stamp_done", {
+				subject: result.subject,
+				rev: result.rev,
 			});
-
-			// 1. Describe the working copy with the interaction body.
-			const descResult = await pi.exec("jj", ["describe", "-m", body], {
-				cwd: wsPath,
-			});
-			debug.event("jj_describe", {
-				code: descResult.code,
-				stderr: descResult.stderr?.slice(0, 200),
-			});
-			if (descResult.code !== 0 && ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] jj describe failed (exit ${descResult.code}): ${descResult.stderr}`,
-					"error",
-				);
-			}
-
-			// 2. Point the session bookmark at the stamped working copy.
-			await setSessionBookmark(sessionKey, wsPath, ctx);
-
-			// 3. Seal the current working copy and start a fresh one on top.
-			//    This ensures each interaction is a separate change in `jj log`.
-			//    No -m flag — the new empty change should have no description.
-			const newResult = await pi.exec("jj", ["new"], { cwd: wsPath });
-			debug.event("jj_new", { code: newResult.code });
-			if (newResult.code !== 0 && ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] jj new failed (exit ${newResult.code}): ${newResult.stderr}`,
-					"error",
-				);
-			}
-		} catch (err) {
-			debug.error("stamp_error", err);
+		} else if (result.reason === "failed") {
+			debug.error("stamp_failed", new Error("stamp returned failed"));
 			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] change stamping failed: ${String(err)}`,
-					"error",
-				);
+				ctx.ui.notify("[sillajje] change stamping failed", "error");
 			}
 		}
 
@@ -764,105 +543,63 @@ export default function (pi: ExtensionAPI) {
 		// (error-ended) interaction — nothing left to finalize later.
 		state.clearPendingFinalize();
 
-		// Get the diff for the sub-generator.
-		const diffResult = await pi.exec("jj", ["diff", "-r", "@"], {
-			cwd: wsPath,
-		});
-		const diff = diffResult.code === 0 ? diffResult.stdout : "";
+		const input: StampInput = {
+			interaction: null,
+			workspace: { sessionKey, wsPath },
+			rev: "@",
+		};
 
-		// Skip if there's nothing to stamp.
-		if (!diff || diff.trim().length === 0) {
-			debug.event("stamp_manual_skip", { reason: "no_diff" });
+		const deps = {
+			exec,
+			spawn: resolveSpawnFn(),
+			config: activeConfig ?? loadSillajjeConfig(),
+			onStatus: (s: StampStatus) => {
+				if (s.kind === "phase") {
+					debug.event(`stamp_phase_${s.code}`, {});
+				} else if (s.kind === "warning") {
+					debug.error(
+						`stamp_warning_${s.code}`,
+						new Error(s.message),
+					);
+					if (ctx.hasUI) {
+						ctx.ui.notify(`[sillajje] ${s.message}`, "warning");
+					}
+				} else if (s.kind === "error") {
+					debug.error(`stamp_error_${s.code}`, new Error(s.message));
+					if (ctx.hasUI) {
+						ctx.ui.notify(`[sillajje] ${s.message}`, "error");
+					}
+				}
+			},
+		};
+
+		const result = await stamp(input, deps);
+
+		if (result.ok) {
+			debug.event("stamp_manual_done", {
+				subject: result.subject,
+				rev: result.rev,
+			});
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] workspace stamped: ${result.subject}`,
+					"info",
+				);
+			}
+		} else if (result.reason === "no-changes") {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					"[sillajje] nothing to stamp — working copy has no changes",
 					"info",
 				);
 			}
-			return;
-		}
-
-		// Get config values.
-		const cfg = activeConfig ?? loadSillajjeConfig();
-		const { maxAttempts, timeoutMs, model } = getStampConfig(cfg);
-		const spawnFn = resolveSpawnFn();
-
-		// Generate a classic conventional commit header from the diff alone.
-		const subject = await generateManualHeader(diff, spawnFn, {
-			model,
-			maxAttempts,
-			timeoutMs,
-		});
-
-		debug.event("stamp_manual_header", { subject });
-
-		// Handle sub-generator fallback.
-		if (subject === "chore: manual checkpoint") {
+		} else {
 			debug.error(
-				"stamp_manual_header_failed",
-				new Error("sub-generator exhausted retries"),
+				"stamp_manual_failed",
+				new Error("stamp returned failed"),
 			);
 			if (ctx.hasUI) {
-				ctx.ui.notify(
-					"[sillajje] commit subject generation failed — using fallback",
-					"warning",
-				);
-			}
-		}
-
-		// Build body: subject + metadata (session key only).
-		const metaLine = `Meta: sillajje/${sessionKey}`;
-		const body = `${subject}\n\n${metaLine}`;
-
-		try {
-			// 1. Ensure the workspace working copy isn't stale.
-			await pi.exec("jj", ["workspace", "update-stale"], {
-				cwd: wsPath,
-			});
-
-			// 2. Describe the working copy with the commit body.
-			const descResult = await pi.exec("jj", ["describe", "-m", body], {
-				cwd: wsPath,
-			});
-			debug.event("jj_describe", {
-				code: descResult.code,
-				stderr: descResult.stderr?.slice(0, 200),
-			});
-			if (descResult.code !== 0 && ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] jj describe failed (exit ${descResult.code}): ${descResult.stderr}`,
-					"error",
-				);
-			}
-
-			// 3. Point the session bookmark at the stamped working copy.
-			//    Uses sessionKey (not sessionId) so collision-suffixed sessions
-			//    keep the bookmark on the same key as the rest of the flow.
-			await setSessionBookmark(sessionKey, wsPath, ctx);
-
-			// 4. Seal the current change and start a fresh one on top.
-			const newResult = await pi.exec("jj", ["new"], { cwd: wsPath });
-			debug.event("jj_new", { code: newResult.code });
-			if (newResult.code !== 0 && ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] jj new failed (exit ${newResult.code}): ${newResult.stderr}`,
-					"error",
-				);
-			}
-
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] workspace stamped: ${subject}`,
-					"info",
-				);
-			}
-		} catch (err) {
-			debug.error("stamp_manual_error", err);
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] manual stamp failed: ${String(err)}`,
-					"error",
-				);
+				ctx.ui.notify("[sillajje] manual stamp failed", "error");
 			}
 		}
 	};
@@ -882,38 +619,15 @@ export default function (pi: ExtensionAPI) {
 			return undefined;
 		}
 
-		// Accumulate this agent run segment into the cumulative elapsed timer.
-		// This handles retry/compact scenarios where `agent_start` fires again
-		// mid-interaction — each segment adds to the total rather than resetting.
-		state.markAgentEnd();
+		// Store messages from this agent run. Messages accumulate across retry
+		// segments so the full transcript is available at stamp time.
+		state.recordAgentMessages(event.messages as Message[]);
 
-		// Find the last assistant message and extract its text.
+		// Check if this run ended in an error.
 		const assistantMsgs = event.messages.filter(
 			(m) => (m as { role: string }).role === "assistant",
 		);
-
-		// Count thinking blocks across all assistant messages (ticket 06).
-		for (const msg of assistantMsgs) {
-			const content =
-				(msg as { content?: Array<{ type: string }> }).content ?? [];
-			for (const block of content) {
-				if (block.type === "thinking") {
-					state.recordThinkingBlock();
-				}
-			}
-		}
-
 		const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
-		if (lastAssistant) {
-			state.recordAgentResponse(
-				extractAssistantText(
-					lastAssistant as {
-						role: string;
-						content: Array<{ type: string; text?: string }>;
-					},
-				),
-			);
-		}
 
 		// A run that ended in an error (stopReason "error" — timeout, 5xx,
 		// rate limit, network...) is not necessarily the end of the
@@ -989,8 +703,6 @@ export default function (pi: ExtensionAPI) {
 			};
 		}
 
-		// Track tool calls for metadata.
-		state.recordToolCall(event.toolName);
 		return undefined;
 	});
 
@@ -1614,8 +1326,11 @@ export default function (pi: ExtensionAPI) {
 						const diff =
 							diffResult.code === 0 ? diffResult.stdout : "";
 						const cfg = activeConfig ?? loadSillajjeConfig();
-						const { maxAttempts, timeoutMs, model } =
-							getStampConfig(cfg);
+						const maxAttempts =
+							cfg.subGenerator?.retry?.maxAttempts ?? 3;
+						const timeoutMs = cfg.subGenerator?.timeoutMs ?? 30_000;
+						const model =
+							cfg.subGeneratorModel ?? "openai/gpt-4o-mini";
 						const subject = await generateManualHeader(
 							diff,
 							resolveSpawnFn(),
