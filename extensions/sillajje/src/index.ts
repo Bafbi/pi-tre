@@ -8,11 +8,11 @@ import {
 	type ExtensionAPI,
 	type UserBashEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { loadSillajjeConfig, type SillajjeConfig } from "./config.js";
+import { loadSillajjeConfig } from "./config.js";
 import { createDebugLogger } from "./debug-log.js";
 import { redirect } from "./path-redirect.js";
 import { parseRebaseFoldArgs } from "./rebase-fold.js";
-import type { StampInput, StampResult, StampStatus } from "./stamp/index.js";
+import type { StampInput, StampStatus } from "./stamp/index.js";
 import {
 	stamp,
 	setSessionBookmark as stampSetBookmark,
@@ -147,6 +147,38 @@ export default function (pi: ExtensionAPI) {
 		} catch (err) {
 			debug.error("bookmark_set_failed", err);
 		}
+	};
+
+	// -------------------------------------------------------------------
+	// createStatusSink — shared status→notification mapping for stamp ops
+	// -------------------------------------------------------------------
+
+	/**
+	 * Build an onStatus sink that maps StampStatus events to debug logs and
+	 * UI notifications. Shared by stampChange and stampManual to avoid
+	 * duplicating the mapping policy.
+	 */
+	const createStatusSink = (ctx: {
+		hasUI: boolean;
+		ui: {
+			notify: (msg: string, type: "info" | "warning" | "error") => void;
+		};
+	}) => {
+		return (s: StampStatus) => {
+			if (s.kind === "phase") {
+				debug.event(`stamp_phase_${s.code}`, {});
+			} else if (s.kind === "warning") {
+				debug.error(`stamp_warning_${s.code}`, new Error(s.message));
+				if (ctx.hasUI) {
+					ctx.ui.notify(`[sillajje] ${s.message}`, "warning");
+				}
+			} else if (s.kind === "error") {
+				debug.error(`stamp_error_${s.code}`, new Error(s.message));
+				if (ctx.hasUI) {
+					ctx.ui.notify(`[sillajje] ${s.message}`, "error");
+				}
+			}
+		};
 	};
 
 	// -------------------------------------------------------------------
@@ -474,24 +506,7 @@ export default function (pi: ExtensionAPI) {
 			exec,
 			spawn: resolveSpawnFn(),
 			config: activeConfig ?? loadSillajjeConfig(),
-			onStatus: (s: StampStatus) => {
-				if (s.kind === "phase") {
-					debug.event(`stamp_phase_${s.code}`, {});
-				} else if (s.kind === "warning") {
-					debug.error(
-						`stamp_warning_${s.code}`,
-						new Error(s.message),
-					);
-					if (ctx.hasUI) {
-						ctx.ui.notify(`[sillajje] ${s.message}`, "warning");
-					}
-				} else if (s.kind === "error") {
-					debug.error(`stamp_error_${s.code}`, new Error(s.message));
-					if (ctx.hasUI) {
-						ctx.ui.notify(`[sillajje] ${s.message}`, "error");
-					}
-				}
-			},
+			onStatus: createStatusSink(ctx),
 		};
 
 		const result = await stamp(input, deps);
@@ -553,24 +568,7 @@ export default function (pi: ExtensionAPI) {
 			exec,
 			spawn: resolveSpawnFn(),
 			config: activeConfig ?? loadSillajjeConfig(),
-			onStatus: (s: StampStatus) => {
-				if (s.kind === "phase") {
-					debug.event(`stamp_phase_${s.code}`, {});
-				} else if (s.kind === "warning") {
-					debug.error(
-						`stamp_warning_${s.code}`,
-						new Error(s.message),
-					);
-					if (ctx.hasUI) {
-						ctx.ui.notify(`[sillajje] ${s.message}`, "warning");
-					}
-				} else if (s.kind === "error") {
-					debug.error(`stamp_error_${s.code}`, new Error(s.message));
-					if (ctx.hasUI) {
-						ctx.ui.notify(`[sillajje] ${s.message}`, "error");
-					}
-				}
-			},
+			onStatus: createStatusSink(ctx),
 		};
 
 		const result = await stamp(input, deps);
@@ -643,6 +641,7 @@ export default function (pi: ExtensionAPI) {
 			(lastAssistant as { stopReason?: string }).stopReason === "error"
 		) {
 			debug.event("stamp_deferred", { reason: "agent_run_error" });
+			state.recordAgentEndError();
 			state.markPendingFinalize();
 			return undefined;
 		}
