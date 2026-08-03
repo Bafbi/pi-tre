@@ -11,13 +11,8 @@
  * Types: `StampInput`, `StampDeps`, `StampStatus`, `StampResult`
  */
 
-import { getStampConfig } from "./stamp/internal.js";
-import type {
-	StampConfig,
-	StampDeps,
-	StampInput,
-	StampResult,
-} from "./stamp/types.js";
+import { getStampConfig } from "./internal.js";
+import type { StampDeps, StampInput, StampResult } from "./types.js";
 
 /**
  * Stamp a jj Change from an Interaction or a Diff.
@@ -36,19 +31,19 @@ export async function stamp(
 	const cfg = getStampConfig(deps.config);
 
 	if (input.interaction !== null) {
-		const { stampInteraction } = await import("./stamp/interaction.js");
+		const { stampInteraction } = await import("./interaction.js");
 		return stampInteraction(input, deps, cfg);
 	}
-	const { stampDiff } = await import("./stamp/diff.js");
+	const { stampDiff } = await import("./diff.js");
 	return stampDiff(input, deps, cfg);
 }
 
 // Re-exports
-export { setSessionBookmark } from "./stamp/bookmark.js";
-export { deriveInteractionData, extractAssistantText } from "./stamp/derive.js";
+export { setSessionBookmark } from "./bookmark.js";
+export { deriveInteractionData, extractAssistantText } from "./derive.js";
 export type {
 	StampDeps,
 	StampInput,
 	StampResult,
 	StampStatus,
-} from "./stamp/types.js";
+} from "./types.js";
