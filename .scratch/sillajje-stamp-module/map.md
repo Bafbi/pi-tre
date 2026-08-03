@@ -14,12 +14,11 @@ The stamp module — a self-contained, async engine module that seals an Interac
 
 ## Decisions so far
 
-<!-- the index — one line per closed ticket. Empty until the first resolution. -->
+- [Design the stamp module interface](issues/01-design-stamp-module-interface.md) — one entry `stamp(input, deps)`: `interaction: Interaction | null` (Interaction stamp vs Diff stamp) + `workspace` + `rev` (default `@`; full seal vs describe-only); injected seams ExecFn, SpawnFn, config (extracted internally), infallible `onStatus` sink with a three-kind status union; value-based `StampResult` (`no-changes` ≠ `failed`). Terms added to CONTEXT.md; ADR-0003 records it. The extraction is ticket 02.
 
 ## Not yet specified
 
-- Which status events the adapter maps to `ui.notify` vs debug-only — depends on ticket 01's status event union.
-- Whether `before_agent_start`'s bookmark-ensure reuses the module's bookmark operation or stays adapter-local — depends on ticket 01's in/out scope.
+<!-- both fog items graduated with ticket 01: the adapter's status→notification mapping now lives in ticket 02; the bookmark-ensure reuse is decided (module exports setSessionBookmark). -->
 
 ## Out of scope
 

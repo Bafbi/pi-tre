@@ -27,6 +27,18 @@ _Avoid_: Merge, sync-update (rebase is precise and matches the jj operation name
 A `/sillajje fold <rev>` subcommand that collapses all session changes into a single new conventional-commit change on a target revision. Produces a commit message via the sub-generator, then archives the session as a practical convenience. The session bookmark is left as sillage.
 _Avoid_: Squash (jj's `jj squash` is a different operation — fold is about collapsing session history, not descending into a parent)
 
+**Stamping**:
+The act of sealing a change with a generated commit message: the Sub-generator produces the Header (and Trace), the Commit body is assembled, and the change is described with the session bookmark pointed at it. Every Interaction becomes one stamped change.
+_Avoid_: Committing (stamping is the session-level act; the jj mechanics underneath are incidental)
+
+**Interaction stamp**:
+A stamp derived from an Interaction — the automatic flow that seals the session's working copy after an Interaction ends.
+_Avoid_: Auto-stamp (the axis is the source, not the mode)
+
+**Diff stamp**:
+A stamp derived from a diff at a revision rather than an Interaction — the `/sillajje stamp` flow, also reused by the fold flow.
+_Avoid_: Manual stamp (the axis is the source, not the mode)
+
 **Change metadata**:
 The programmatically-generated block in the commit body listing tools used, tool call count, elapsed time, thinking blocks, and other observability data.
 _Avoid_: Telemetry, stats
