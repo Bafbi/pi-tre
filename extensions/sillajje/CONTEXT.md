@@ -19,6 +19,14 @@ _Avoid_: Sandbox, clone, checkout
 A manual lifecycle action that keeps the jj branch but deletes the workspace directory (via `jj workspace forget` + `rm`). An archived session cannot accept prompts until unarchived.
 _Avoid_: Close, delete, prune
 
+**Rebase**:
+A `/sillajje rebase <rev>` subcommand that syncs the session: rebases the session working copy onto a target revision, creating a merge commit that brings the target into the session's ancestry. The session remains active afterward.
+_Avoid_: Merge, sync-update (rebase is precise and matches the jj operation name)
+
+**Fold**:
+A `/sillajje fold <rev>` subcommand that collapses all session changes into a single new conventional-commit change on a target revision. Produces a commit message via the sub-generator, then archives the session as a practical convenience. The session bookmark is left as sillage.
+_Avoid_: Squash (jj's `jj squash` is a different operation — fold is about collapsing session history, not descending into a parent)
+
 **Change metadata**:
 The programmatically-generated block in the commit body listing tools used, tool call count, elapsed time, thinking blocks, and other observability data.
 _Avoid_: Telemetry, stats
