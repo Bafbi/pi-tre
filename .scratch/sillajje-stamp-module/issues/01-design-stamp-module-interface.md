@@ -1,6 +1,6 @@
 ---
 Type: grilling
-Status: open
+Status: claimed
 ---
 
 # Design the stamp module interface
