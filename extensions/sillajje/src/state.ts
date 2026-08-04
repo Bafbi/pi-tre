@@ -1,4 +1,4 @@
-import type { InteractionMeta } from "./metadata.js";
+import type { Message } from "@earendil-works/pi-ai";
 
 /** Lifecycle state of a sillajje session. */
 export type SessionLifecycle = "inactive" | "active" | "archived";
@@ -62,13 +62,21 @@ export class SessionState {
 	// ---------------------------------------------------------------------------
 
 	private newInteraction = false;
-	private prompt: string | undefined;
-	private toolCallCount = 0;
-	private toolNamesSet: Set<string> = new Set();
-	private thinkingBlocks = 0;
-	private segmentStartAt = 0;
-	private cumulativeElapsedMs = 0;
-	private response: string | undefined;
+
+	/**
+	 * Transcript messages accumulated from agent_end events.
+	 * The stamp module derives prompt, response, tools, thinking, and elapsed
+	 * from these messages.
+	 */
+	private messages: Message[] = [];
+
+	/**
+	 * Whether the last agent_end ended in an error (stopReason "error").
+	 * Set by recordAgentEndError so deferred-finalize logic can branch on it
+	 * without re-inspecting messages.
+	 */
+	private lastRunEndedInError = false;
+
 	/** Tracks the streamingBehavior from the last `input` event. Used in `before_agent_start` to detect new interactions for queued follow-ups that may bypass `input`. */
 	private lastStreamingBehavior: string | undefined = undefined;
 
@@ -228,6 +236,7 @@ export class SessionState {
 	 */
 	clearPendingFinalize(): void {
 		this.pendingFinalize = false;
+		this.lastRunEndedInError = false;
 	}
 
 	/**
@@ -240,85 +249,45 @@ export class SessionState {
 		}
 	}
 
-	recordPrompt(text: string): void {
-		this.prompt = text;
-	}
-
-	getInteractionPrompt(): string | undefined {
-		return this.prompt;
-	}
-
-	/** Mark the start of an agent run segment. */
-	markAgentStart(): void {
-		this.segmentStartAt = Date.now();
+	/**
+	 * Record messages from an agent_end event. Messages accumulate across retry
+	 * segments so the full transcript is available at stamp time.
+	 */
+	recordAgentMessages(msgs: Message[]): void {
+		this.messages.push(...msgs);
 	}
 
 	/**
-	 * Mark the end of an agent run segment, adding its duration
-	 * to the cumulative elapsed time for this interaction.
+	 * Record that the last agent run ended in an error.
+	 * Used by deferred-finalize logic.
 	 */
-	markAgentEnd(): void {
-		if (this.segmentStartAt > 0) {
-			this.cumulativeElapsedMs += Date.now() - this.segmentStartAt;
-			this.segmentStartAt = 0;
-		}
+	recordAgentEndError(): void {
+		this.lastRunEndedInError = true;
 	}
 
 	/**
-	 * Return the total elapsed time for the current interaction.
-	 * Includes both completed segments (cumulative) and the currently
-	 * running segment, if any.
+	 * Whether the last agent run ended in an error (stopReason "error").
 	 */
-	getInteractionElapsedMs(): number {
-		const running =
-			this.segmentStartAt > 0 ? Date.now() - this.segmentStartAt : 0;
-		return this.cumulativeElapsedMs + running;
-	}
-
-	recordToolCall(toolName: string): void {
-		this.toolCallCount++;
-		this.toolNamesSet.add(toolName);
-	}
-
-	recordThinkingBlock(): void {
-		this.thinkingBlocks++;
-	}
-
-	recordAgentResponse(text: string): void {
-		this.response = text;
-	}
-
-	getInteractionResponse(): string | undefined {
-		return this.response;
+	lastAgentRunWasError(): boolean {
+		return this.lastRunEndedInError;
 	}
 
 	/**
-	 * Return a snapshot of the current interaction data for metadata building.
-	 * Returns undefined when there is no new interaction to stamp or the prompt is missing.
+	 * Return the accumulated transcript messages for the current interaction.
+	 * Returns undefined when there is no new interaction or no messages.
 	 */
-	getInteractionData(sessionId: string): InteractionMeta | undefined {
-		if (!this.newInteraction || !this.prompt) return undefined;
-
-		return {
-			toolNames: [...this.toolNamesSet],
-			toolCallCount: this.toolCallCount,
-			elapsedMs: this.getInteractionElapsedMs(),
-			thinkingBlocks: this.thinkingBlocks,
-			sessionId,
-		};
+	getInteractionMessages(): Message[] | undefined {
+		if (!this.newInteraction || this.messages.length === 0)
+			return undefined;
+		return [...this.messages];
 	}
 
-	/** Reset per-interaction counters. Called after each stamp. */
+	/** Reset per-interaction state. Called after each stamp. */
 	resetInteraction(): void {
 		this.newInteraction = false;
-		this.prompt = undefined;
-		this.toolCallCount = 0;
-		this.toolNamesSet = new Set();
-		this.thinkingBlocks = 0;
-		this.segmentStartAt = 0;
-		this.cumulativeElapsedMs = 0;
-		this.response = undefined;
+		this.messages = [];
 		this.lastStreamingBehavior = undefined;
 		this.pendingFinalize = false;
+		this.lastRunEndedInError = false;
 	}
 }

@@ -1,20 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { SessionState } from "../../src/state";
-
-/**
- * Run a test body with deterministic fake timers, restoring real timers
- * afterwards. `SessionState` reads `Date.now()`, which fake timers intercept,
- * so elapsed-time assertions are exact instead of tolerance-based.
- */
-function withFakeTimers(fn: () => void): void {
-	vi.useFakeTimers();
-	try {
-		fn();
-	} finally {
-		vi.useRealTimers();
-	}
-}
 
 describe("SessionState", () => {
 	it("defaults to inactive with no repo root", () => {
@@ -205,152 +191,63 @@ describe("SessionState interaction tracking", () => {
 		expect(s.hasNewInteraction()).toBe(false);
 	});
 
-	it("recordPrompt stores the prompt text", () => {
-		const s = new SessionState();
-		s.recordPrompt("Fix the login bug");
-		expect(s.getInteractionPrompt()).toBe("Fix the login bug");
-	});
-
-	it("markAgentStart records a timestamp (running segment)", () => {
-		withFakeTimers(() => {
-			const s = new SessionState();
-			s.markAgentStart();
-			vi.advanceTimersByTime(10);
-			expect(s.getInteractionElapsedMs()).toBe(10);
-		});
-	});
-
-	it("markAgentEnd adds one segment to cumulative", () => {
-		withFakeTimers(() => {
-			const s = new SessionState();
-			s.markAgentStart();
-			vi.advanceTimersByTime(15);
-			expect(s.getInteractionElapsedMs()).toBe(15);
-
-			// Ending the segment freezes the elapsed value.
-			s.markAgentEnd();
-			expect(s.getInteractionElapsedMs()).toBe(15);
-		});
-	});
-
-	it("markAgentEnd accumulates multiple segments", () => {
-		withFakeTimers(() => {
-			const s = new SessionState();
-
-			s.markAgentStart();
-			vi.advanceTimersByTime(10);
-			s.markAgentEnd();
-			expect(s.getInteractionElapsedMs()).toBe(10);
-
-			s.markAgentStart();
-			vi.advanceTimersByTime(25);
-			s.markAgentEnd();
-			expect(s.getInteractionElapsedMs()).toBe(35);
-
-			// A running third segment is added on top of the cumulative total.
-			s.markAgentStart();
-			vi.advanceTimersByTime(5);
-			expect(s.getInteractionElapsedMs()).toBe(40);
-		});
-	});
-
-	it("getInteractionElapsedMs returns cumulative when no running segment", () => {
-		withFakeTimers(() => {
-			const s = new SessionState();
-			s.markAgentStart();
-			vi.advanceTimersByTime(20);
-			s.markAgentEnd();
-			expect(s.getInteractionElapsedMs()).toBe(20);
-
-			// No running segment — advancing time does not change the value.
-			const frozen = s.getInteractionElapsedMs();
-			vi.advanceTimersByTime(50);
-			expect(s.getInteractionElapsedMs()).toBe(frozen);
-		});
-	});
-
-	it("resetInteraction clears cumulative elapsed", () => {
-		withFakeTimers(() => {
-			const s = new SessionState();
-			s.markAgentStart();
-			vi.advanceTimersByTime(10);
-			s.markAgentEnd();
-			expect(s.getInteractionElapsedMs()).toBe(10);
-
-			s.resetInteraction();
-			expect(s.getInteractionElapsedMs()).toBe(0);
-		});
-	});
-
-	it("recordToolCall increments count and tracks unique names", () => {
+	it("recordAgentMessages stores messages", () => {
 		const s = new SessionState();
 		s.startInteraction(undefined);
-		s.recordPrompt("test");
-		s.recordToolCall("read");
-		s.recordToolCall("write");
-		s.recordToolCall("read");
+		const msgs = [
+			{ role: "user", content: "Hello", timestamp: 1000 },
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "Hi" }],
+				timestamp: 2000,
+			},
+		] as any[];
+		s.recordAgentMessages(msgs);
 
-		const data = s.getInteractionData("sess-1");
-		expect(data).toBeDefined();
-		if (!data) throw new Error("data should be defined");
-		expect(data.toolCallCount).toBe(3);
-		expect(data.toolNames).toEqual(["read", "write"]);
+		const result = s.getInteractionMessages();
+		expect(result).toBeDefined();
+		expect(result).toHaveLength(2);
 	});
 
-	it("recordThinkingBlock increments thinking block count", () => {
+	it("recordAgentMessages accumulates across calls", () => {
 		const s = new SessionState();
 		s.startInteraction(undefined);
-		s.recordPrompt("test");
-		s.recordThinkingBlock();
-		s.recordThinkingBlock();
+		s.recordAgentMessages([
+			{ role: "user", content: "A", timestamp: 1000 },
+		] as any[]);
+		s.recordAgentMessages([
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "B" }],
+				timestamp: 2000,
+			},
+		] as any[]);
 
-		const data = s.getInteractionData("sess-1");
-		expect(data).toBeDefined();
-		if (!data) throw new Error("data should be defined");
-		expect(data.thinkingBlocks).toBe(2);
+		const result = s.getInteractionMessages();
+		expect(result).toHaveLength(2);
 	});
 
-	it("recordAgentResponse stores the response", () => {
+	it("getInteractionMessages returns undefined with no new interaction", () => {
 		const s = new SessionState();
-		s.recordAgentResponse("I fixed the bug.");
-		expect(s.getInteractionResponse()).toBe("I fixed the bug.");
+		s.recordAgentMessages([
+			{ role: "user", content: "test", timestamp: 1000 },
+		] as any[]);
+		expect(s.getInteractionMessages()).toBeUndefined();
 	});
 
-	it("getInteractionData returns snapshot with all fields", () => {
-		const s = new SessionState();
-		s.startInteraction(undefined);
-		s.recordPrompt("Add a login page");
-		s.markAgentStart();
-		s.recordToolCall("write");
-		s.recordToolCall("edit");
-		s.recordThinkingBlock();
-		s.recordAgentResponse("Done.");
-
-		const data = s.getInteractionData("abc");
-		expect(data).toBeDefined();
-		if (!data) throw new Error("data should be defined");
-		expect(data.toolNames).toEqual(["write", "edit"]);
-		expect(data.toolCallCount).toBe(2);
-		expect(data.thinkingBlocks).toBe(1);
-		expect(data.elapsedMs).toBeGreaterThanOrEqual(0);
-		expect(data.sessionId).toBe("abc");
-	});
-
-	it("getInteractionData returns undefined when no new interaction", () => {
-		const s = new SessionState();
-		s.recordPrompt("test");
-		s.markAgentStart();
-
-		// Without calling startInteraction, hasNewInteraction defaults to false
-		expect(s.getInteractionData("id")).toBeUndefined();
-	});
-
-	it("getInteractionData returns undefined when prompt is missing", () => {
+	it("getInteractionMessages returns undefined with no messages", () => {
 		const s = new SessionState();
 		s.startInteraction(undefined);
-		s.markAgentStart();
+		expect(s.getInteractionMessages()).toBeUndefined();
+	});
 
-		expect(s.getInteractionData("id")).toBeUndefined();
+	it("recordAgentEndError and lastAgentRunWasError track error state", () => {
+		const s = new SessionState();
+		expect(s.lastAgentRunWasError()).toBe(false);
+		s.recordAgentEndError();
+		expect(s.lastAgentRunWasError()).toBe(true);
+		s.clearPendingFinalize();
+		expect(s.lastAgentRunWasError()).toBe(false);
 	});
 
 	it("enableInteractionIfNotSteering enables new interaction when no steering was recorded", () => {
@@ -403,7 +300,6 @@ describe("SessionState interaction tracking", () => {
 	it("lastStreamingBehavior is reset by resetInteraction", () => {
 		const s = new SessionState();
 		s.startInteraction("followUp");
-		s.recordPrompt("test");
 		s.resetInteraction();
 		// After reset, enableInteractionIfNotSteering should default to
 		// treating undefined as non-steer (new interaction)
@@ -414,32 +310,30 @@ describe("SessionState interaction tracking", () => {
 	it("resetInteraction clears all interaction state", () => {
 		const s = new SessionState();
 		s.startInteraction(undefined);
-		s.recordPrompt("test");
-		s.markAgentStart();
-		s.recordToolCall("read");
-		s.recordThinkingBlock();
-		s.recordAgentResponse("done");
+		s.recordAgentMessages([
+			{ role: "user", content: "test", timestamp: 1000 },
+		] as any[]);
+		s.recordAgentEndError();
 
 		s.resetInteraction();
 
 		expect(s.hasNewInteraction()).toBe(false);
-		expect(s.getInteractionPrompt()).toBeUndefined();
-		expect(s.getInteractionResponse()).toBeUndefined();
-
-		const data = s.getInteractionData("id");
-		expect(data).toBeUndefined();
+		expect(s.getInteractionMessages()).toBeUndefined();
+		expect(s.hasPendingFinalize()).toBe(false);
+		expect(s.lastAgentRunWasError()).toBe(false);
 	});
 
 	it("reset clears interaction tracking", () => {
 		const s = new SessionState();
 		s.startInteraction(undefined);
-		s.recordPrompt("test");
-		s.recordToolCall("read");
+		s.recordAgentMessages([
+			{ role: "user", content: "test", timestamp: 1000 },
+		] as any[]);
 
 		s.reset();
 
 		expect(s.hasNewInteraction()).toBe(false);
-		expect(s.getInteractionPrompt()).toBeUndefined();
+		expect(s.getInteractionMessages()).toBeUndefined();
 	});
 
 	it("pending finalize: mark, clear, and reset semantics", () => {

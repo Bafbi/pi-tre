@@ -16,6 +16,7 @@
 		"generate-schema": "npx tsx scripts/generate-schema.ts"
 	},
 	"peerDependencies": {
+		"@earendil-works/pi-ai": "catalog:pi-dev",
 		"@earendil-works/pi-coding-agent": "catalog:pi-dev",
 		"@sinclair/typebox": "catalog:pi-dev"
 	}

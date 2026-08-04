@@ -40,32 +40,53 @@ function getSessionId(
 	return id;
 }
 
-function assistantMsg(text: string) {
+function assistantMsg(
+	text: string,
+	opts?: {
+		toolCalls?: Array<{ id: string; name: string }>;
+		thinking?: boolean;
+		stopReason?: string;
+		errorMessage?: string;
+	},
+) {
+	const content: Array<{
+		type: string;
+		text?: string;
+		thinking?: string;
+		id?: string;
+		name?: string;
+	}> = [];
+	if (opts?.thinking) {
+		content.push({
+			type: "thinking",
+			thinking: "Let me think about this...",
+		});
+	}
+	if (opts?.toolCalls) {
+		for (const tc of opts.toolCalls) {
+			content.push({ type: "toolCall", id: tc.id, name: tc.name });
+		}
+	}
+	content.push({ type: "text", text });
 	return {
 		role: "assistant" as const,
-		content: [{ type: "text" as const, text }],
+		content,
 		api: "anthropic-messages" as const,
 		provider: "anthropic" as const,
 		model: "test",
 		usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
-		stopReason: "stop" as const,
+		stopReason: opts?.stopReason ?? "stop",
+		errorMessage: opts?.errorMessage,
 		timestamp: Date.now(),
 	};
 }
 
 /** Assistant message representing a failed LLM run (e.g. provider timeout). */
 function errorMsg(errorText: string) {
-	return {
-		role: "assistant" as const,
-		content: [{ type: "text" as const, text: errorText }],
-		api: "anthropic-messages" as const,
-		provider: "anthropic" as const,
-		model: "test",
-		usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
-		stopReason: "error" as const,
+	return assistantMsg(errorText, {
+		stopReason: "error",
 		errorMessage: errorText,
-		timestamp: Date.now(),
-	};
+	});
 }
 
 /** Default workspace path for a given session (config workspacesRoot default). */
@@ -180,7 +201,14 @@ describeJj("sillajje change stamping", () => {
 		await runner.emit({
 			type: "agent_end",
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("I created the login page.")] as any[],
+			messages: [
+				assistantMsg("I created the login page.", {
+					toolCalls: [
+						{ id: "tc-1", name: "write" },
+						{ id: "tc-2", name: "bash" },
+					],
+				}),
+			] as any[],
 		});
 		await runner.emit({ type: "agent_settled" });
 
