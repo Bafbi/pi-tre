@@ -44,6 +44,21 @@ export interface HeaderOptions {
 	prompt: string;
 }
 
+/**
+ * Result of a sub-generator call.
+ *
+ * Carries an explicit `fellBack` flag so callers can detect sub-generator
+ * exhaustion without comparing the returned text against a fallback literal
+ * (a legitimate output that matches the fallback string must not look like a
+ * failure, and renaming a fallback string must not silently disable warnings).
+ */
+export interface GeneratedText {
+	/** The produced text, or the generator's fallback default on exhaustion. */
+	text: string;
+	/** True when retries were exhausted and the fallback default was returned. */
+	fellBack: boolean;
+}
+
 export interface TraceOptions {
 	model: string;
 	maxAttempts: number;
@@ -256,13 +271,14 @@ async function spawnWithRetry(
  * @param ctx - Context with transcript, diff, and prior descriptions.
  * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
  * @param options - Model, retry, timeout, and fallback prompt.
- * @returns The subject line (never empty — always a string).
+ * @returns The subject line (never empty) plus a `fellBack` flag reporting
+ * sub-generator exhaustion.
  */
 export async function generateHeader(
 	ctx: SubGeneratorContext,
 	spawnFn: SpawnFn,
 	options: HeaderOptions,
-): Promise<string> {
+): Promise<GeneratedText> {
 	const input = renderTemplate(HEADER_PROMPT_TEMPLATE, ctx);
 
 	try {
@@ -279,10 +295,10 @@ export async function generateHeader(
 		const firstNewline = raw.indexOf("\n");
 		const subject =
 			firstNewline === -1 ? raw : raw.slice(0, firstNewline).trim();
-		return subject;
+		return { text: subject, fellBack: false };
 	} catch {
 		// Fallback to deriveSubject on exhaustion.
-		return deriveSubject(options.prompt);
+		return { text: deriveSubject(options.prompt), fellBack: true };
 	}
 }
 
@@ -303,13 +319,14 @@ export async function generateHeader(
  * @param ctx - Context with transcript, diff, and prior descriptions.
  * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
  * @param options - Model, retry, timeout, and detail level.
- * @returns The trace narrative, or empty string on exhaustion.
+ * @returns The trace narrative (empty string on exhaustion) plus a `fellBack`
+ * flag reporting sub-generator exhaustion.
  */
 export async function generateTrace(
 	ctx: SubGeneratorContext,
 	spawnFn: SpawnFn,
 	options: TraceOptions,
-): Promise<string> {
+): Promise<GeneratedText> {
 	const template = pickTraceTemplate(options.detail);
 	const input = renderTemplate(template, ctx);
 
@@ -323,10 +340,10 @@ export async function generateTrace(
 			options.maxAttempts,
 		);
 
-		return raw;
+		return { text: raw, fellBack: false };
 	} catch {
 		// Fallback to empty string on exhaustion.
-		return "";
+		return { text: "", fellBack: true };
 	}
 }
 
@@ -387,13 +404,14 @@ Respond with exactly one line, max 72 characters.`;
  * @param diff - The file diff from the workspace working copy.
  * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
  * @param options - Model, retry, and timeout configuration.
- * @returns The subject line (never empty).
+ * @returns The subject line (never empty) plus a `fellBack` flag reporting
+ * sub-generator exhaustion.
  */
 export async function generateManualHeader(
 	diff: string,
 	spawnFn: SpawnFn,
 	options: { model: string; maxAttempts: number; timeoutMs: number },
-): Promise<string> {
+): Promise<GeneratedText> {
 	const input = MANUAL_HEADER_PROMPT_TEMPLATE.replace(
 		/\{\{diff\}\}/g,
 		diff || "(no file changes)",
@@ -412,9 +430,9 @@ export async function generateManualHeader(
 		const firstNewline = raw.indexOf("\n");
 		const subject =
 			firstNewline === -1 ? raw : raw.slice(0, firstNewline).trim();
-		return subject;
+		return { text: subject, fellBack: false };
 	} catch {
-		return "chore: manual checkpoint";
+		return { text: "chore: manual checkpoint", fellBack: true };
 	}
 }
 

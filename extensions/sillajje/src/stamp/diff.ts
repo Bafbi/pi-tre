@@ -33,10 +33,26 @@ export async function stampDiff(
 	// Phase: collecting-diff
 	emit({ kind: "phase", code: "collecting-diff" }, deps);
 
-	const diffResult = await deps.exec("jj", ["diff", "-r", rev], {
-		cwd: wsPath,
-	});
-	const diff = diffResult.code === 0 ? diffResult.stdout : "";
+	// The diff is the primary input of this path. A non-zero exit reads as an
+	// empty diff (no-changes); a rejected fetch is a real failure and must not
+	// be confused with no-changes.
+	let diff: string;
+	try {
+		const diffResult = await deps.exec("jj", ["diff", "-r", rev], {
+			cwd: wsPath,
+		});
+		diff = diffResult.code === 0 ? diffResult.stdout : "";
+	} catch (err) {
+		emit(
+			{
+				kind: "error",
+				code: "diff_fetch_failed",
+				message: `jj diff failed: ${String(err)}`,
+			},
+			deps,
+		);
+		return { ok: false, reason: "failed" };
+	}
 
 	if (!diff || diff.trim().length === 0) {
 		return { ok: false, reason: "no-changes" };
@@ -45,14 +61,20 @@ export async function stampDiff(
 	// Phase: generating-header
 	emit({ kind: "phase", code: "generating-header" }, deps);
 
-	const subject = await generateManualHeader(diff, deps.spawn, {
-		model: cfg.model,
-		maxAttempts: cfg.maxAttempts,
-		timeoutMs: cfg.timeoutMs,
-	});
+	const { text: subject, fellBack } = await generateManualHeader(
+		diff,
+		deps.spawn,
+		{
+			model: cfg.model,
+			maxAttempts: cfg.maxAttempts,
+			timeoutMs: cfg.timeoutMs,
+		},
+	);
 
-	// Detect sub-generator fallback.
-	if (subject === "chore: manual checkpoint") {
+	// Emit a warning only when the sub-generator actually exhausted its retries
+	// (signalled by the fallback flag, not by comparing against the fallback
+	// literal).
+	if (fellBack) {
 		emit(
 			{
 				kind: "warning",

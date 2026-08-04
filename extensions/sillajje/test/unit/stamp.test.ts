@@ -26,10 +26,35 @@ import type { ExecFn, ExecResult } from "../../src/workspace";
 /** Create a default fully-populated SillajjeConfig for tests. */
 function defaultConfig(overrides?: Partial<SillajjeConfig>): SillajjeConfig {
 	const base = Default(SillajjeConfigSchema, {}) as SillajjeConfig;
-	if (overrides) {
-		return { ...base, ...overrides };
+	if (!overrides) return base;
+	// Deep-merge nested overrides so a single flag change (e.g. only
+	// message.body.trace.enabled) keeps every other base setting — each
+	// gating test then exercises exactly the flag it changes.
+	return mergeDeep(base, overrides);
+}
+
+/** Recursive plain-object merge: overrides win; arrays and primitives replace. */
+function mergeDeep<T>(base: T, overrides: unknown): T {
+	if (Array.isArray(base) || Array.isArray(overrides)) {
+		return (overrides ?? base) as T;
 	}
-	return base;
+	if (
+		typeof base === "object" &&
+		base !== null &&
+		typeof overrides === "object" &&
+		overrides !== null
+	) {
+		const out: Record<string, unknown> = {
+			...(base as Record<string, unknown>),
+		};
+		for (const [key, value] of Object.entries(
+			overrides as Record<string, unknown>,
+		)) {
+			out[key] = mergeDeep(out[key], value);
+		}
+		return out as T;
+	}
+	return (overrides ?? base) as T;
 }
 
 /** Build a UserMessage fixture. */
@@ -796,7 +821,7 @@ describe("stamp (Interaction path)", () => {
 
 	it("user_prompt mode skips the sub-generator header call", async () => {
 		const exec = mockExec();
-		const spawn = vi.fn(); // Should not be called for header
+		const spawn = mockSpawn();
 		const { sink } = collectingSink();
 
 		const cfg = defaultConfig({ message: { header: "user_prompt" } });
@@ -813,9 +838,13 @@ describe("stamp (Interaction path)", () => {
 			onStatus: sink,
 		});
 
-		// spawn should never be called (no header + trace disabled in this minimal config).
-		// Actually, trace is enabled by default — but our mock returns act/feat which
-		// wouldn't match user_prompt mode's skip. The key is spawn is not called for header.
+		// The trace sub-generator still runs (enabled by default) — assert it
+		// ran, but never with the header prompt.
+		const spawnCalls = (spawn as ReturnType<typeof vi.fn>).mock.calls;
+		expect(spawnCalls.length).toBe(1);
+		expect(String(spawnCalls[0][2])).not.toContain(
+			"Produce a single subject line for this interaction.",
+		);
 	});
 
 	// -------------------------------------------------------------------
@@ -1173,14 +1202,17 @@ describe("stamp (Diff path)", () => {
 	// jj failures
 	// -------------------------------------------------------------------
 
-	it("returns ok: false when jj diff fails", async () => {
+	it("treats a failed jj diff as no-changes", async () => {
 		const exec = mockExec({
 			"jj diff -r @": { code: 1, stdout: "", stderr: "diff error" },
 		});
 		const spawn = mockSpawn();
 		const { sink } = collectingSink();
 
-		// Diff is treated as empty on failure → no-changes.
+		// A non-zero `jj diff` exit reads as an empty diff — the stamp module
+		// intentionally maps it to no-changes rather than exposing a
+		// command-failure reason (the diff decides whether there is anything
+		// to seal).
 		const result = await stamp(diffInput(), {
 			exec,
 			spawn,
@@ -1189,6 +1221,30 @@ describe("stamp (Diff path)", () => {
 		});
 
 		expect(result).toEqual({ ok: false, reason: "no-changes" });
+	});
+
+	it("returns failed when the jj diff fetch rejects", async () => {
+		const exec = mockExec();
+		(
+			exec as unknown as { mockRejectedValueOnce: (v: unknown) => void }
+		).mockRejectedValueOnce(new Error("exec adapter down"));
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		// A rejected diff fetch is a real failure — distinct from no-changes.
+		const result = await stamp(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(
+			statuses.some(
+				(s) => s.kind === "error" && s.code === "diff_fetch_failed",
+			),
+		).toBe(true);
 	});
 
 	it("returns ok: false when jj update-stale fails during diff stamp", async () => {

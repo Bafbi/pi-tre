@@ -54,12 +54,30 @@ export async function stampInteraction(
 	cfg: StampConfig,
 ): Promise<StampResult> {
 	if (!input.interaction) {
+		emit(
+			{
+				kind: "error",
+				code: "missing_interaction_input",
+				message:
+					"interaction stamp called without a transcript — no commit body was written",
+			},
+			deps,
+		);
 		return { ok: false, reason: "failed" };
 	}
 
 	const messages = input.interaction;
 	const data = deriveInteractionData(messages);
 	if (!data) {
+		emit(
+			{
+				kind: "error",
+				code: "derive_interaction_failed",
+				message:
+					"transcript lacks required interaction data (no user or assistant message)",
+			},
+			deps,
+		);
 		return { ok: false, reason: "failed" };
 	}
 
@@ -69,10 +87,17 @@ export async function stampInteraction(
 	// Phase: collecting-diff
 	emit({ kind: "phase", code: "collecting-diff" }, deps);
 
-	const diffResult = await deps.exec("jj", ["diff", "-r", rev], {
-		cwd: wsPath,
-	});
-	const diff = diffResult.code === 0 ? diffResult.stdout : "";
+	// The diff is auxiliary context for the sub-generator. A rejected fetch
+	// degrades to an empty diff — it must not fail the stamp.
+	let diff = "";
+	try {
+		const diffResult = await deps.exec("jj", ["diff", "-r", rev], {
+			cwd: wsPath,
+		});
+		diff = diffResult.code === 0 ? diffResult.stdout : "";
+	} catch {
+		// Non-fatal: the sub-generator still gets transcript + prior descriptions.
+	}
 
 	// Fetch prior descriptions (non-fatal).
 	let priorDescriptions: string[] = [];
@@ -117,7 +142,10 @@ export async function stampInteraction(
 					timeoutMs: cfg.timeoutMs,
 					prompt: data.prompt,
 				})
-			: Promise.resolve(deriveSubject(data.prompt));
+			: Promise.resolve({
+					text: deriveSubject(data.prompt),
+					fellBack: false,
+				});
 
 	const traceCall = cfg.traceEnabled
 		? generateTrace(subCtx, deps.spawn, {
@@ -126,15 +154,14 @@ export async function stampInteraction(
 				timeoutMs: cfg.timeoutMs,
 				detail: cfg.traceDetail,
 			})
-		: Promise.resolve("");
+		: Promise.resolve({ text: "", fellBack: false });
 
-	const [subject, trace] = await Promise.all([headerCall, traceCall]);
+	const [header, trace] = await Promise.all([headerCall, traceCall]);
+	const subject = header.text;
 
-	// Detect sub-generator fallback and emit warnings.
-	if (
-		cfg.headerMode !== "user_prompt" &&
-		subject === deriveSubject(data.prompt)
-	) {
+	// Emit a warning only when a sub-generator actually exhausted its retries
+	// (signalled by the generator's fallback flag, not by text comparison).
+	if (header.fellBack) {
 		emit(
 			{
 				kind: "warning",
@@ -145,7 +172,7 @@ export async function stampInteraction(
 			deps,
 		);
 	}
-	if (cfg.traceEnabled && trace === "") {
+	if (trace.fellBack) {
 		emit(
 			{
 				kind: "warning",
@@ -171,7 +198,7 @@ export async function stampInteraction(
 
 	const body = buildCommitBody({
 		subject,
-		trace: cfg.traceEnabled ? smartWrap(trace, 72) : "",
+		trace: cfg.traceEnabled ? smartWrap(trace.text, 72) : "",
 		prompt: cfg.showUserPrompt ? data.prompt : "",
 		metadata: cfg.metaEnabled ? metaStr : "",
 		response: cfg.showResponse ? data.response : "",

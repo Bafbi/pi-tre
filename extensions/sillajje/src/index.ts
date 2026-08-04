@@ -523,10 +523,10 @@ export default function (pi: ExtensionAPI) {
 				rev: result.rev,
 			});
 		} else if (result.reason === "failed") {
+			// The stamp module emits an error status before returning `failed`,
+			// and createStatusSink notifies the user on every error status — the
+			// sink is the single notification point for stamp failures.
 			debug.error("stamp_failed", new Error("stamp returned failed"));
-			if (ctx.hasUI) {
-				ctx.ui.notify("[sillajje] change stamping failed", "error");
-			}
 		}
 
 		// Always reset interaction state — even on failure we clean up for the next one.
@@ -584,6 +584,10 @@ export default function (pi: ExtensionAPI) {
 				subject: result.subject,
 				rev: result.rev,
 			});
+			// The manual stamp sealed the working copy, which covers the pending
+			// interaction — clear its transcript so a subsequent automatic stamp
+			// doesn't reuse stale interaction metadata.
+			state.resetInteraction();
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					`[sillajje] workspace stamped: ${result.subject}`,
@@ -598,13 +602,13 @@ export default function (pi: ExtensionAPI) {
 				);
 			}
 		} else {
+			// The stamp module emits an error status before returning `failed`,
+			// and createStatusSink notifies the user on every error status — the
+			// sink is the single notification point for stamp failures.
 			debug.error(
 				"stamp_manual_failed",
 				new Error("stamp returned failed"),
 			);
-			if (ctx.hasUI) {
-				ctx.ui.notify("[sillajje] manual stamp failed", "error");
-			}
 		}
 	};
 
@@ -1336,7 +1340,7 @@ export default function (pi: ExtensionAPI) {
 						const timeoutMs = cfg.subGenerator?.timeoutMs ?? 30_000;
 						const model =
 							cfg.subGeneratorModel ?? "openai/gpt-4o-mini";
-						const subject = await generateManualHeader(
+						const { text: subject } = await generateManualHeader(
 							diff,
 							resolveSpawnFn(),
 							{ model, maxAttempts, timeoutMs },

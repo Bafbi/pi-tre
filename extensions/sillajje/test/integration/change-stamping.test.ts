@@ -75,7 +75,7 @@ function assistantMsg(
 		provider: "anthropic" as const,
 		model: "test",
 		usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
-		stopReason: (opts?.stopReason ?? "stop") as const,
+		stopReason: opts?.stopReason ?? "stop",
 		errorMessage: opts?.errorMessage,
 		timestamp: Date.now(),
 	};

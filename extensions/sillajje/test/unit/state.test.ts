@@ -313,12 +313,14 @@ describe("SessionState interaction tracking", () => {
 		s.recordAgentMessages([
 			{ role: "user", content: "test", timestamp: 1000 },
 		] as any[]);
+		s.recordAgentEndError();
 
 		s.resetInteraction();
 
 		expect(s.hasNewInteraction()).toBe(false);
 		expect(s.getInteractionMessages()).toBeUndefined();
 		expect(s.hasPendingFinalize()).toBe(false);
+		expect(s.lastAgentRunWasError()).toBe(false);
 	});
 
 	it("reset clears interaction tracking", () => {

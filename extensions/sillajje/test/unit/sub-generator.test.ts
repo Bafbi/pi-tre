@@ -72,7 +72,7 @@ describe("generateHeader", () => {
 			model: "claude-sonnet",
 		});
 
-		expect(result).toBe("debug/fix: null pointer in auth");
+		expect(result.text).toBe("debug/fix: null pointer in auth");
 
 		expect(spawnFn).toHaveBeenCalledTimes(1);
 		const [cmd, , input, timeoutMs] = spawnFn.mock.calls[0];
@@ -98,7 +98,7 @@ describe("generateHeader", () => {
 			prompt: "test",
 		});
 
-		expect(result).toBe("debug/fix: null pointer in auth");
+		expect(result.text).toBe("debug/fix: null pointer in auth");
 	});
 
 	it("uses full output when only one line", async () => {
@@ -111,7 +111,7 @@ describe("generateHeader", () => {
 			prompt: "test",
 		});
 
-		expect(result).toBe("answer: explained middleware");
+		expect(result.text).toBe("answer: explained middleware");
 	});
 
 	it("renders template variables into stdin input", async () => {
@@ -146,7 +146,8 @@ describe("generateHeader", () => {
 		});
 
 		// After 3 attempts with empty output, falls back to deriveSubject
-		expect(result).toBe("Fix the null pointer bug");
+		expect(result.text).toBe("Fix the null pointer bug");
+		expect(result.fellBack).toBe(true);
 		expect(spawnFn).toHaveBeenCalledTimes(3);
 	});
 
@@ -161,7 +162,8 @@ describe("generateHeader", () => {
 			prompt: "Refactor the API",
 		});
 
-		expect(result).toBe("Refactor the API");
+		expect(result.text).toBe("Refactor the API");
+		expect(result.fellBack).toBe(true);
 		expect(spawnFn).toHaveBeenCalledTimes(2);
 	});
 
@@ -176,7 +178,8 @@ describe("generateHeader", () => {
 			prompt: "timeout test",
 		});
 
-		expect(result).toBe("timeout test");
+		expect(result.text).toBe("timeout test");
+		expect(result.fellBack).toBe(true);
 		expect(spawnFn).toHaveBeenCalledTimes(3);
 	});
 
@@ -191,7 +194,8 @@ describe("generateHeader", () => {
 			prompt: "test",
 		});
 
-		expect(result).toBe("act/fix: handle edge case");
+		expect(result.text).toBe("act/fix: handle edge case");
+		expect(result.fellBack).toBe(false);
 		expect(spawnFn).toHaveBeenCalledTimes(2);
 	});
 
@@ -205,7 +209,8 @@ describe("generateHeader", () => {
 			prompt: "test",
 		});
 
-		expect(result).toBe("act/feat: add login");
+		expect(result.text).toBe("act/feat: add login");
+		expect(result.fellBack).toBe(false);
 		expect(spawnFn).toHaveBeenCalledTimes(1);
 	});
 });
@@ -226,7 +231,7 @@ describe("generateManualHeader", () => {
 			{ model: "openai/gpt-4o-mini", maxAttempts: 3, timeoutMs: 30_000 },
 		);
 
-		expect(result).toBe("feat: add user login form");
+		expect(result.text).toBe("feat: add user login form");
 
 		expect(spawnFn).toHaveBeenCalledTimes(1);
 		const [cmd, , input, timeoutMs] = spawnFn.mock.calls[0];
@@ -253,7 +258,7 @@ describe("generateManualHeader", () => {
 			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
 		);
 
-		expect(result).toBe("fix: handle null pointer");
+		expect(result.text).toBe("fix: handle null pointer");
 	});
 
 	it("uses full output when only one line", async () => {
@@ -267,7 +272,7 @@ describe("generateManualHeader", () => {
 			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
 		);
 
-		expect(result).toBe("refactor: extract validation");
+		expect(result.text).toBe("refactor: extract validation");
 	});
 
 	it("renders diff into stdin input", async () => {
@@ -297,7 +302,8 @@ describe("generateManualHeader", () => {
 			{ model: "x", maxAttempts: 2, timeoutMs: 1000 },
 		);
 
-		expect(result).toBe("chore: manual checkpoint");
+		expect(result.text).toBe("chore: manual checkpoint");
+		expect(result.fellBack).toBe(true);
 		expect(spawnFn).toHaveBeenCalledTimes(2);
 	});
 
@@ -310,7 +316,8 @@ describe("generateManualHeader", () => {
 			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
 		);
 
-		expect(result).toBe("chore: manual checkpoint");
+		expect(result.text).toBe("chore: manual checkpoint");
+		expect(result.fellBack).toBe(true);
 		expect(spawnFn).toHaveBeenCalledTimes(3);
 	});
 
@@ -325,7 +332,8 @@ describe("generateManualHeader", () => {
 			{ model: "x", maxAttempts: 2, timeoutMs: 1000 },
 		);
 
-		expect(result).toBe("chore: manual checkpoint");
+		expect(result.text).toBe("chore: manual checkpoint");
+		expect(result.fellBack).toBe(true);
 		expect(spawnFn).toHaveBeenCalledTimes(2);
 	});
 
@@ -341,7 +349,8 @@ describe("generateManualHeader", () => {
 			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
 		);
 
-		expect(result).toBe("docs: update readme");
+		expect(result.text).toBe("docs: update readme");
+		expect(result.fellBack).toBe(false);
 		expect(spawnFn).toHaveBeenCalledTimes(2);
 	});
 
@@ -356,7 +365,8 @@ describe("generateManualHeader", () => {
 			{ model: "x", maxAttempts: 3, timeoutMs: 1000 },
 		);
 
-		expect(result).toBe("chore: bump version");
+		expect(result.text).toBe("chore: bump version");
+		expect(result.fellBack).toBe(false);
 		expect(spawnFn).toHaveBeenCalledTimes(1);
 	});
 
@@ -369,7 +379,7 @@ describe("generateManualHeader", () => {
 			timeoutMs: 1000,
 		});
 
-		expect(result).toBe("docs: initial");
+		expect(result.text).toBe("docs: initial");
 		const [, , input] = spawnFn.mock.calls[0];
 		expect(input).toContain("(no file changes)");
 	});
@@ -394,9 +404,9 @@ describe("generateTrace", () => {
 			model: "openai/gpt-4o-mini",
 		});
 
-		expect(result).toContain("null pointer");
-		expect(result).toContain("auth middleware");
-		expect(result).toContain("auth.ts");
+		expect(result.text).toContain("null pointer");
+		expect(result.text).toContain("auth middleware");
+		expect(result.text).toContain("auth.ts");
 
 		expect(spawnFn).toHaveBeenCalledTimes(1);
 		const [cmd] = spawnFn.mock.calls[0];
@@ -476,7 +486,8 @@ describe("generateTrace", () => {
 			maxAttempts: 3,
 		});
 
-		expect(result).toBe("");
+		expect(result.text).toBe("");
+		expect(result.fellBack).toBe(true);
 		expect(spawnFn).toHaveBeenCalledTimes(3);
 	});
 
@@ -488,7 +499,8 @@ describe("generateTrace", () => {
 			maxAttempts: 2,
 		});
 
-		expect(result).toBe("");
+		expect(result.text).toBe("");
+		expect(result.fellBack).toBe(true);
 		expect(spawnFn).toHaveBeenCalledTimes(2);
 	});
 
@@ -502,7 +514,8 @@ describe("generateTrace", () => {
 			maxAttempts: 2,
 		});
 
-		expect(result).toBe("");
+		expect(result.text).toBe("");
+		expect(result.fellBack).toBe(true);
 		expect(spawnFn).toHaveBeenCalledTimes(2);
 	});
 
@@ -517,7 +530,8 @@ describe("generateTrace", () => {
 			maxAttempts: 3,
 		});
 
-		expect(result).toBe("Fixed the bug by adding a null check.");
+		expect(result.text).toBe("Fixed the bug by adding a null check.");
+		expect(result.fellBack).toBe(false);
 		expect(spawnFn).toHaveBeenCalledTimes(2);
 	});
 });
@@ -551,7 +565,8 @@ describe("retry wrapper behaviour", () => {
 			prompt: "test",
 		});
 
-		expect(result).toBe("act: done");
+		expect(result.text).toBe("act: done");
+		expect(result.fellBack).toBe(false);
 		expect(spawnFn).toHaveBeenCalledTimes(1);
 	});
 
@@ -565,7 +580,8 @@ describe("retry wrapper behaviour", () => {
 			maxAttempts: 3,
 		});
 
-		expect(result).toBe("trace narrative here");
+		expect(result.text).toBe("trace narrative here");
+		expect(result.fellBack).toBe(false);
 		expect(spawnFn).toHaveBeenCalledTimes(1);
 	});
 });
