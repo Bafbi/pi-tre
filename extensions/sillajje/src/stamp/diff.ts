@@ -77,7 +77,6 @@ export async function stampDiff(
 				sessionKey,
 				body,
 				subject,
-				rev,
 			);
 		}
 		return await describeRevision(deps, wsPath, rev, body, subject);

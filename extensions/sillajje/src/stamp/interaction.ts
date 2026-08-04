@@ -187,7 +187,6 @@ export async function stampInteraction(
 				sessionKey,
 				body,
 				subject,
-				rev,
 			);
 		}
 		return await describeRevision(deps, wsPath, rev, body, subject);

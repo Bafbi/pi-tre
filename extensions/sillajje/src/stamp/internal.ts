@@ -63,7 +63,6 @@ export async function sealWorkingCopy(
 	sessionKey: string,
 	body: string,
 	subject: string,
-	rev: string,
 ): Promise<
 	{ ok: true; subject: string; rev: string } | { ok: false; reason: "failed" }
 > {
@@ -131,7 +130,7 @@ export async function sealWorkingCopy(
 		return { ok: false, reason: "failed" };
 	}
 
-	return { ok: true, subject, rev };
+	return { ok: true, subject, rev: "@" };
 }
 
 /**
