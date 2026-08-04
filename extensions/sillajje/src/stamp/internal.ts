@@ -3,6 +3,7 @@
  */
 
 import type { SillajjeConfig } from "../config.js";
+import { sessionBookmark } from "./bookmark.js";
 import type { StampConfig, StampDeps, StampStatus } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -124,7 +125,7 @@ export async function sealWorkingCopy(
 	// 3. Point the session bookmark at the stamped working copy.
 	const bookmarkResult = await deps.exec(
 		"jj",
-		["bookmark", "set", `sillajje/${sessionKey}`, "-r", "@"],
+		["bookmark", "set", sessionBookmark(sessionKey), "-r", "@"],
 		{ cwd: wsPath },
 	);
 	if (bookmarkResult.code !== 0) {

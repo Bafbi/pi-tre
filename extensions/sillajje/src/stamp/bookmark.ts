@@ -8,6 +8,16 @@
 import type { ExecFn } from "../workspace.js";
 
 /**
+ * The session's bookmark name: `sillajje/<sessionKey>`.
+ *
+ * The bookmark is the stable handle on session work — jj show, revsets, and
+ * the Meta line all resolve through it — so the name is made in one place.
+ */
+export function sessionBookmark(sessionKey: string): string {
+	return `sillajje/${sessionKey}`;
+}
+
+/**
  * Point the `sillajje/<sessionKey>` bookmark at the workspace's current
  * working copy (`@`).
  */
@@ -16,7 +26,9 @@ export async function setSessionBookmark(
 	sessionKey: string,
 	wsPath: string,
 ): Promise<void> {
-	await exec("jj", ["bookmark", "set", `sillajje/${sessionKey}`, "-r", "@"], {
-		cwd: wsPath,
-	});
+	await exec(
+		"jj",
+		["bookmark", "set", sessionBookmark(sessionKey), "-r", "@"],
+		{ cwd: wsPath },
+	);
 }

@@ -15,6 +15,7 @@ import {
 } from "../metadata.js";
 import type { SubGeneratorContext } from "../sub-generator.js";
 import { generateHeader, generateTrace } from "../sub-generator.js";
+import { sessionBookmark } from "./bookmark.js";
 import { deriveInteractionData } from "./derive.js";
 import { describeRevision, emit, sealWorkingCopy } from "./internal.js";
 import type {
@@ -81,7 +82,7 @@ export async function stampInteraction(
 			[
 				"log",
 				"-r",
-				`ancestors(sillajje/${sessionKey})`,
+				`ancestors(${sessionBookmark(sessionKey)})`,
 				"--no-graph",
 				"-T",
 				"description.first_line()",

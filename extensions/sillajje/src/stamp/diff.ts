@@ -6,6 +6,7 @@
  */
 
 import { generateManualHeader } from "../sub-generator.js";
+import { sessionBookmark } from "./bookmark.js";
 import { describeRevision, emit, sealWorkingCopy } from "./internal.js";
 import type {
 	StampConfig,
@@ -63,7 +64,7 @@ export async function stampDiff(
 		);
 	}
 
-	const metaLine = `Meta: sillajje/${sessionKey}`;
+	const metaLine = `Meta: ${sessionBookmark(sessionKey)}`;
 	const body = `${subject}\n\n${metaLine}`;
 
 	// Phase: sealing-change
