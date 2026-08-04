@@ -20,15 +20,21 @@ export function sessionBookmark(sessionKey: string): string {
 /**
  * Point the `sillajje/<sessionKey>` bookmark at the workspace's current
  * working copy (`@`).
+ *
+ * Returns `true` when the bookmark was set. A non-zero `jj bookmark set`
+ * exit returns `false` — an expected failure surfaced as a value, matching
+ * the stamp module's error policy. Callers must not continue as if the
+ * bookmark was created when `false` is returned.
  */
 export async function setSessionBookmark(
 	exec: ExecFn,
 	sessionKey: string,
 	wsPath: string,
-): Promise<void> {
-	await exec(
+): Promise<boolean> {
+	const result = await exec(
 		"jj",
 		["bookmark", "set", sessionBookmark(sessionKey), "-r", "@"],
 		{ cwd: wsPath },
 	);
+	return result.code === 0;
 }

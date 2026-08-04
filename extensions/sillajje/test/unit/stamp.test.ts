@@ -300,13 +300,27 @@ describe("extractAssistantText", () => {
 describe("setSessionBookmark", () => {
 	it("calls jj bookmark set with the correct args", async () => {
 		const exec = mockExec();
-		await setSessionBookmark(exec, "my-session", "/ws");
+		const ok = await setSessionBookmark(exec, "my-session", "/ws");
+
+		expect(ok).toBe(true);
 
 		expect(exec).toHaveBeenCalledWith(
 			"jj",
 			["bookmark", "set", "sillajje/my-session", "-r", "@"],
 			{ cwd: "/ws" },
 		);
+	});
+
+	it("returns false when jj bookmark set fails", async () => {
+		const exec = mockExec({
+			"jj bookmark set": {
+				code: 1,
+				stdout: "",
+				stderr: "bookmark error",
+			},
+		});
+		const ok = await setSessionBookmark(exec, "my-session", "/ws");
+		expect(ok).toBe(false);
 	});
 });
 

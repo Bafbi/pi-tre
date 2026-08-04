@@ -137,13 +137,19 @@ export default function (pi: ExtensionAPI) {
 	 * `jj show`, `jj diff -r 'sillajje/<id>'`, unarchive, and bookmarkExists
 	 * all resolve through it, so it must exist from the first interaction.
 	 *
-	 * Failures are logged (event + error) and surfaced via the UI when
-	 * available, but never thrown — callers treat a failed bookmark set as
-	 * non-fatal (the stamp flow retries on the next interaction).
+	 * Failures are logged (event + error) but never propagated — a failed
+	 * bookmark set is non-fatal (the stamp flow retries on the next
+	 * interaction).
 	 */
 	const setSessionBookmark = async (sessionKey: string, wsPath: string) => {
 		try {
-			await stampSetBookmark(exec, sessionKey, wsPath);
+			const ok = await stampSetBookmark(exec, sessionKey, wsPath);
+			if (!ok) {
+				debug.error(
+					"bookmark_set_failed",
+					new Error("jj bookmark set failed"),
+				);
+			}
 		} catch (err) {
 			debug.error("bookmark_set_failed", err);
 		}
