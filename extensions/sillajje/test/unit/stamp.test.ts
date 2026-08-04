@@ -635,7 +635,11 @@ describe("stamp (Interaction path)", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "failed",
+			lastCompletedStep: "none",
+		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "update_stale_failed")).toBe(true);
 	});
@@ -656,7 +660,11 @@ describe("stamp (Interaction path)", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "failed",
+			lastCompletedStep: "update-stale",
+		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "describe_failed")).toBe(true);
 	});
@@ -681,7 +689,11 @@ describe("stamp (Interaction path)", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "failed",
+			lastCompletedStep: "describe",
+		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "bookmark_set_failed")).toBe(true);
 	});
@@ -702,7 +714,11 @@ describe("stamp (Interaction path)", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "failed",
+			lastCompletedStep: "bookmark-set",
+		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "jj_new_failed")).toBe(true);
 	});
@@ -1184,7 +1200,11 @@ describe("stamp (Diff path)", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "failed",
+			lastCompletedStep: "none",
+		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "update_stale_failed")).toBe(true);
 	});
@@ -1212,7 +1232,11 @@ describe("stamp (Diff path)", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "failed",
+			lastCompletedStep: "update-stale",
+		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "describe_failed")).toBe(true);
 	});

@@ -51,11 +51,32 @@ export function emit(status: StampStatus, deps: StampDeps): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Failure result of the seal sequence: names the last step that completed
+ * before the failure, so callers can distinguish a fully-unapplied failure
+ * from a partially-applied one.
+ */
+type SealFailure = {
+	ok: false;
+	reason: "failed";
+	/** The seal step that completed before the failure, or "none". */
+	lastCompletedStep: "none" | "update-stale" | "describe" | "bookmark-set";
+};
+
+/**
  * Execute the full jj seal sequence on the workspace working copy:
  * update-stale → describe → bookmark set → jj new.
  *
- * Returns `ok: false` on any jj failure, with an error status emitted.
- * Returns `ok: true` on success.
+ * Contract on failure: the result carries `lastCompletedStep` — the seal step
+ * that had completed when the failure happened, `"none"` when nothing was
+ * applied. This lets callers distinguish a fully unapplied failure (failed
+ * update-stale) from a partially applied one (e.g. the change already
+ * described and bookmarked when `jj new` fails). Each failure also emits a
+ * step-specific error status through the sink (`update_stale_failed`,
+ * `describe_failed`, `bookmark_set_failed`, `jj_new_failed`).
+ *
+ * Note: the module's public `StampResult` folds these failures to
+ * `{ ok: false, reason: "failed" }`; step detail is available at this seam
+ * and through the emitted error statuses.
  */
 export async function sealWorkingCopy(
 	deps: StampDeps,
@@ -63,9 +84,7 @@ export async function sealWorkingCopy(
 	sessionKey: string,
 	body: string,
 	subject: string,
-): Promise<
-	{ ok: true; subject: string; rev: string } | { ok: false; reason: "failed" }
-> {
+): Promise<{ ok: true; subject: string; rev: string } | SealFailure> {
 	// 1. Ensure the workspace working copy isn't stale.
 	const updateResult = await deps.exec("jj", ["workspace", "update-stale"], {
 		cwd: wsPath,
@@ -79,7 +98,7 @@ export async function sealWorkingCopy(
 			},
 			deps,
 		);
-		return { ok: false, reason: "failed" };
+		return { ok: false, reason: "failed", lastCompletedStep: "none" };
 	}
 
 	// 2. Describe the working copy with the commit body.
@@ -95,7 +114,11 @@ export async function sealWorkingCopy(
 			},
 			deps,
 		);
-		return { ok: false, reason: "failed" };
+		return {
+			ok: false,
+			reason: "failed",
+			lastCompletedStep: "update-stale",
+		};
 	}
 
 	// 3. Point the session bookmark at the stamped working copy.
@@ -113,7 +136,7 @@ export async function sealWorkingCopy(
 			},
 			deps,
 		);
-		return { ok: false, reason: "failed" };
+		return { ok: false, reason: "failed", lastCompletedStep: "describe" };
 	}
 
 	// 4. Seal the current working copy and start a fresh one on top.
@@ -127,7 +150,11 @@ export async function sealWorkingCopy(
 			},
 			deps,
 		);
-		return { ok: false, reason: "failed" };
+		return {
+			ok: false,
+			reason: "failed",
+			lastCompletedStep: "bookmark-set",
+		};
 	}
 
 	return { ok: true, subject, rev: "@" };
