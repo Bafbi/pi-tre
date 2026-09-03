@@ -118,24 +118,17 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		expect(after).toContain(`sillajje/${sessionId}`);
 
 		// The bookmark points at the session workspace's working copy (@).
-		// `jj workspace list` and `jj bookmark list` both show the change id
-		// as the first id token, so compare change ids (stable under rewrites).
-		const wsList = execSync("jj workspace list", {
-			cwd,
-			encoding: "utf-8",
-		});
-		const wsLine = wsList
-			.split("\n")
-			.find((l: string) => l.startsWith(`sillajje-${sessionId}:`));
-		if (!wsLine) {
-			throw new Error(`workspace sillajje-${sessionId} not found`);
-		}
-		const wsChangeId = wsLine.split(":")[1].trim().split(" ")[0];
-		const bmList = execSync(
-			`jj bookmark list --revision sillajje/${sessionId}`,
+		// Compare change ids (stable under rewrites) via `jj log` templates,
+		// which are stable across jj output-format changes.
+		const wsChangeId = execSync(
+			`jj log -r 'sillajje-${sessionId}@' --no-graph -T change_id`,
 			{ cwd, encoding: "utf-8" },
-		);
-		expect(bmList).toContain(wsChangeId);
+		).trim();
+		const bmChangeId = execSync(
+			`jj log -r 'sillajje/${sessionId}' --no-graph -T change_id`,
+			{ cwd, encoding: "utf-8" },
+		).trim();
+		expect(bmChangeId).toBe(wsChangeId);
 	});
 
 	it("before_agent_start injects workspace path into system prompt", async () => {
