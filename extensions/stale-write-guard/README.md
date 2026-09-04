@@ -15,22 +15,22 @@ This reduces accidental overwrite when files are modified externally.
 - **Existing file + read is fresh** -> allow mutation
 - **Non-existing file (new write)** -> allow mutation
 
-## Debug command
+## State
+
+The filesystem records when a file changed (mtime), but not whether the
+agent has read that version. So the extension keeps one number per file:
+the mtime the agent last saw. A successful `read`, `write`, or `edit`
+result updates it. State is in memory and resets on session start.
+
+## Dump command
 
 ```text
-/stale-write-guard-debug [on|off|status|toggle|dump]
+/stale-write-guard-dump
 ```
 
-- `on/off/toggle`: control debug widget + status
-- `status`: show current debug state
-- `dump`: generate a full diagnostic report into editor text
-
-The dump includes:
-- runtime/session metadata
-- tracked files and mtimes
-- current block/allow decision per file
-- recent extension events
-- ignored tool errors summary
+Writes a report into the editor text: every tracked file with its current
+mtime, last seen mtime, and the allow/block decision the guard would make
+right now.
 
 ## Install
 
@@ -56,7 +56,6 @@ mise run test
 ```
 
 Relevant code:
-- `src/index.ts` (event wiring + command)
+- `src/index.ts` (event wiring + dump command)
 - `src/guard.ts` (stale decision logic)
-- `src/state.ts` (in-memory tracking)
-- `src/path.ts` (path normalization/canonicalization)
+- `src/path.ts` (path canonicalization)

@@ -25,10 +25,7 @@ function setMtimeMs(path: string, mtimeMs: number): void {
 }
 
 async function createRunner(cwd: string): Promise<ExtensionRunner> {
-	const extensionPath = resolve(
-		process.cwd(),
-		"extensions/stale-write-guard/src/index.ts",
-	);
+	const extensionPath = resolve(import.meta.dirname, "../../src/index.ts");
 	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
 	expect(loaded.errors).toHaveLength(0);
 	expect(loaded.extensions).toHaveLength(1);
@@ -60,19 +57,16 @@ describe("stale-write-guard extension", () => {
 		const runner = await createRunner(cwd);
 
 		expect(runner.hasHandlers("session_start")).toBe(true);
-		const debugCommand = runner.getCommand("stale-write-guard-debug");
-		expect(debugCommand).toBeDefined();
-		expect(debugCommand?.invocationName).toBe("stale-write-guard-debug");
+		const dumpCommand = runner.getCommand("stale-write-guard-dump");
+		expect(dumpCommand).toBeDefined();
+		expect(dumpCommand?.invocationName).toBe("stale-write-guard-dump");
 
-		if (!debugCommand)
+		if (!dumpCommand)
 			throw new Error(
-				"Expected stale-write-guard-debug command to be registered",
+				"Expected stale-write-guard-dump command to be registered",
 			);
 		await expect(
-			debugCommand.handler("status", runner.createCommandContext()),
-		).resolves.toBeUndefined();
-		await expect(
-			debugCommand.handler("dump", runner.createCommandContext()),
+			dumpCommand.handler("", runner.createCommandContext()),
 		).resolves.toBeUndefined();
 	});
 

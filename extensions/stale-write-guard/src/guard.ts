@@ -1,29 +1,17 @@
 export const DEFAULT_MTIME_TOLERANCE_MS = 2;
 
-export interface StaleWriteCheckInput {
-	currentMtimeMs: number;
-	lastReadMtimeMs?: number;
-	toleranceMs?: number;
-}
-
 /**
- * Returns true when mutating an existing file would be unsafe because
- * the extension has no successful read record for the current file version.
+ * Returns true when mutating an existing file is unsafe because the
+ * extension has no read record for the file's current version.
  *
- * In practice this means:
- * - no recorded read yet -> block
- * - recorded read is older than current mtime -> block
- * - recorded read is up to date -> allow
+ * The filesystem records when a file changed (mtime), but not whether
+ * the agent has read that version. So we compare the current mtime
+ * against the mtime recorded the last time the agent saw the file.
  */
-export function requiresReadBeforeMutation({
-	currentMtimeMs,
-	lastReadMtimeMs,
-	toleranceMs = DEFAULT_MTIME_TOLERANCE_MS,
-}: StaleWriteCheckInput): boolean {
-	if (lastReadMtimeMs === undefined) {
-		return true;
-	}
-
-	const readIsStale = currentMtimeMs - lastReadMtimeMs > toleranceMs;
-	return readIsStale;
+export function requiresReadBeforeMutation(
+	currentMtimeMs: number,
+	lastSeenMtimeMs: number | undefined,
+): boolean {
+	if (lastSeenMtimeMs === undefined) return true;
+	return currentMtimeMs - lastSeenMtimeMs > DEFAULT_MTIME_TOLERANCE_MS;
 }

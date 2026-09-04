@@ -12,11 +12,13 @@ If a file was modified externally after the agent last touched it, the extension
 - **Clear feedback**: blocking reason should tell the model exactly what to do next (read file again).
 
 ## Structure expectations
-- `src/index.ts`: extension wiring + event handlers.
-- Prefer small internal modules when logic grows:
-  - `src/path.ts`: path normalization/canonicalization
-  - `src/state.ts`: in-memory tracking state
-  - `src/guards.ts`: tool_call/tool_result guard logic
+- `src/index.ts`: extension wiring + event handlers + dump command.
+- Small internal modules:
+  - `src/path.ts`: path canonicalization
+  - `src/guard.ts`: stale decision logic
+- State is a `Map<string, number>` (canonical path -> mtime the agent last
+  saw) owned by `src/index.ts`. Do not add fields to it. The guard decision
+  needs exactly one number per file.
 
 ## Implementation constraints
 - Handle symlinks via canonical paths where possible.
