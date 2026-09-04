@@ -16,9 +16,19 @@ If a file was modified externally after the agent last touched it, the extension
 - Small internal modules:
   - `src/path.ts`: path canonicalization
   - `src/guard.ts`: stale decision logic
+  - `src/injected.ts`: content injected without a read tool call
 - State is a `Map<string, number>` (canonical path -> mtime the agent last
   saw) owned by `src/index.ts`. Do not add fields to it. The guard decision
   needs exactly one number per file.
+
+## Load order constraint
+The guard must load after any extension that rewrites tool input paths
+(sillajje). Pi runs `tool_call` handlers in load order and hands the same
+args object to `tool_result`, so the guard only sees final paths when it
+runs last. If it runs before sillajje, reads record workspace mtimes while
+edits check repo-checkout mtimes, and every read-then-edit blocks forever.
+Keep `stale-write-guard` last in the `pi.extensions` list in the root
+`package.json`. `test/unit/manifest-order.test.ts` pins this.
 
 ## Implementation constraints
 - Handle symlinks via canonical paths where possible.

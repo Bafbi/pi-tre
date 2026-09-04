@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 
 import {
 	type ExtensionAPI,
@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import { requiresReadBeforeMutation } from "./guard.js";
+import { diskMatchesInjected, extractInjectedContent } from "./injected.js";
 import { resolveCanonicalPath } from "./path.js";
 
 function getPathFromInput(input: Record<string, unknown>): string | undefined {
@@ -24,6 +25,23 @@ function getPathFromInput(input: Record<string, unknown>): string | undefined {
 function getFileMtimeMs(canonicalPath: string): number | undefined {
 	try {
 		return statSync(canonicalPath).mtimeMs;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Stat before read: any change landing between the two calls leaves a stale
+ * mtime on record, which fails safe (the next edit is blocked and the agent
+ * re-reads). Stat after read could record a newer mtime than the content the
+ * agent saw, which would silently whitelist an unseen version.
+ */
+function statThenRead(
+	path: string,
+): { mtimeMs: number; content: string } | undefined {
+	try {
+		const mtimeMs = statSync(path).mtimeMs;
+		return { mtimeMs, content: readFileSync(path, "utf-8") };
 	} catch {
 		return undefined;
 	}
@@ -46,12 +64,37 @@ function formatMtime(mtimeMs: number | undefined): string {
  *
  * A successful write/edit also updates the map: after the tool result the
  * file on disk is exactly what the agent has in context.
+ *
+ * Some content reaches the context without a tool_result: `/skill:name`
+ * expansion injects a skill file block into the prompt, and session-start
+ * context files (AGENTS.md, CLAUDE.md) land in the system prompt. The
+ * before_agent_start handler records those too, but only after verifying
+ * the disk file still holds the injected content.
  */
 export default function (pi: ExtensionAPI) {
 	const lastSeenMtimeMs = new Map<string, number>();
 
 	pi.on("session_start", async () => {
 		lastSeenMtimeMs.clear();
+	});
+
+	pi.on("before_agent_start", async (event, ctx) => {
+		const injected = extractInjectedContent(
+			event.prompt,
+			event.systemPromptOptions?.contextFiles,
+		);
+
+		for (const entry of injected) {
+			// resolveCanonicalPath handles absolute skill/context paths, ~, and
+			// realpath for symlinked skill dirs.
+			const canonicalPath = resolveCanonicalPath(entry.path, ctx.cwd);
+			const disk = statThenRead(canonicalPath);
+			if (disk === undefined) continue;
+			if (!diskMatchesInjected(entry, disk.content)) continue;
+			lastSeenMtimeMs.set(canonicalPath, disk.mtimeMs);
+		}
+
+		return undefined;
 	});
 
 	pi.on("tool_call", async (event, ctx) => {

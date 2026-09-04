@@ -15,6 +15,25 @@ This reduces accidental overwrite when files are modified externally.
 - **Existing file + read is fresh** -> allow mutation
 - **Non-existing file (new write)** -> allow mutation
 
+### Content injected without a read tool call
+
+Two pi paths put file content into context without a `tool_result`, so a
+plain read record never exists:
+
+- `/skill:name` expansion injects the skill file's body into the prompt as
+  a `<skill name="..." location="...">` block.
+- Session-start context files (`AGENTS.md`, `AGENTS.override.md`,
+  `CLAUDE.md`) land in the system prompt.
+
+On `before_agent_start`, the guard records these files too — but only when
+the disk file still holds the injected content. A stale context file
+records nothing and stays blocked, so an external edit is never whitelisted
+by an old prompt.
+
+Prompt templates (`/template:name`) also expand without a `tool_result`,
+but their expansion carries no file path, so the guard records nothing for
+them.
+
 ## State
 
 The filesystem records when a file changed (mtime), but not whether the
@@ -59,3 +78,9 @@ Relevant code:
 - `src/index.ts` (event wiring + dump command)
 - `src/guard.ts` (stale decision logic)
 - `src/path.ts` (path canonicalization)
+- `src/injected.ts` (content injected without a read tool call)
+
+## Load order
+
+The guard must load after sillajje (see AGENTS.md). Keep it last in the
+`pi.extensions` list in the root `package.json`.
