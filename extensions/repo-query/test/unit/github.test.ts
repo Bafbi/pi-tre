@@ -27,7 +27,6 @@ describe("validateGitHubRepo", () => {
 
 		expect(result).toEqual({
 			valid: true,
-			archived: false,
 			warning: undefined,
 		});
 	});
@@ -40,7 +39,6 @@ describe("validateGitHubRepo", () => {
 		const result = await validateGitHubRepo("owner", "archived-repo");
 
 		expect(result.valid).toBe(true);
-		expect(result.archived).toBe(true);
 		expect(result.warning).toContain("archived");
 		expect(result.warning).toContain("2020-01-01");
 	});

@@ -2,6 +2,13 @@ import { URL } from "node:url";
 
 import type { ParsedRepo } from "./types.js";
 
+const CREDENTIALS_IN_URL = /(https?:\/\/)([^/\s@]+)@/gi;
+
+/** Redact HTTP(S) URL credentials before showing user input in output or logs. */
+export function redactCredentials(value: string): string {
+	return value.replace(CREDENTIALS_IN_URL, "$1[credentials]@");
+}
+
 /**
  * Parse a repo identifier string into structured form.
  *
@@ -79,6 +86,9 @@ function parseHttpUrl(
 	branch: string | null,
 ): ParsedRepo {
 	const url = new URL(raw);
+	if (url.username || url.password) {
+		throw new Error("Repository URLs must not include credentials.");
+	}
 	const host = classifyHost(url.hostname);
 	const pathParts = url.pathname
 		.replace(/^\//, "")
@@ -151,7 +161,6 @@ function extractBranch(raw: string): { rest: string; branch: string | null } {
 }
 
 function isBranchDelimiter(raw: string, index: number): boolean {
-	const char = raw[index];
 	const after = raw.slice(index + 1);
 	if (after.length === 0) return false;
 
@@ -165,7 +174,7 @@ function isBranchDelimiter(raw: string, index: number): boolean {
 	}
 
 	// Guard against SSH host delimiter in scp-like syntax (git@host:path)
-	if (char === ":" && raw.startsWith("git@")) {
+	if (raw.startsWith("git@")) {
 		const firstColonAfterPrefix = raw.indexOf(":", 4);
 		if (index === firstColonAfterPrefix) {
 			return false;

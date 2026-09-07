@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
@@ -22,8 +22,6 @@ export const RepoQueryConfigSchema = Type.Object(
 );
 
 export type RepoQueryConfig = Static<typeof RepoQueryConfigSchema>;
-
-const DEFAULT_CONFIG: RepoQueryConfig = {};
 
 function loadConfigFile(path: string): RepoQueryConfig {
 	if (!existsSync(path)) return {};
@@ -63,13 +61,17 @@ function loadConfigFile(path: string): RepoQueryConfig {
  */
 export function loadRepoQueryConfig(cwd: string): RepoQueryConfig {
 	const globalPath = join(getAgentDir(), "extensions", "repo-query.json");
-	const projectPath = join(cwd, ".pi", "extensions", "repo-query.json");
+	const projectPath = join(
+		cwd,
+		CONFIG_DIR_NAME,
+		"extensions",
+		"repo-query.json",
+	);
 
 	const globalConfig = loadConfigFile(globalPath);
 	const projectConfig = loadConfigFile(projectPath);
 
 	return {
-		...DEFAULT_CONFIG,
 		...globalConfig,
 		...projectConfig,
 		// Merge nested models maps so project keys override global keys
@@ -86,7 +88,7 @@ export function loadRepoQueryConfig(cwd: string): RepoQueryConfig {
  * Resolution order:
  * 1. Per-repo config matching the first repo's display name
  * 2. `defaultModel` from config
- * 3. `TEST_MODEL` environment variable
+ * 3. `REPO_QUERY_MODEL` environment variable
  * 4. undefined (subagent uses its own default)
  *
  * For multi-repo queries, only the first repo is checked for a per-repo
@@ -105,11 +107,11 @@ export function resolveModel(
 			Object.hasOwn(config.models, firstRepo.displayName)
 		) {
 			const value = config.models[firstRepo.displayName];
-			if (typeof value === "string" && value.length > 0) {
+			if (value.length > 0) {
 				return value;
 			}
 		}
 	}
 
-	return config.defaultModel ?? process.env.TEST_MODEL;
+	return config.defaultModel ?? process.env.REPO_QUERY_MODEL;
 }

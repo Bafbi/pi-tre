@@ -89,15 +89,15 @@ Project-local overrides global. The config is a JSON file:
 
 1. Per-repo config matching the first repo's display name (`owner/repo`)
 2. `defaultModel` from config
-3. `TEST_MODEL` environment variable
+3. `REPO_QUERY_MODEL` environment variable
 4. Subagent default (no `--model` passed)
 
-### `TEST_MODEL` environment variable
+### `REPO_QUERY_MODEL` environment variable
 
-For CI or shared workstations, set `TEST_MODEL` as a fallback:
+To force a model without writing a config file, set `REPO_QUERY_MODEL`:
 
 ```bash
-export TEST_MODEL="anthropic/claude-sonnet-4-20250514"
+export REPO_QUERY_MODEL="anthropic/claude-sonnet-4-20250514"
 ```
 
 This is used when no config file specifies a model.
@@ -152,3 +152,28 @@ Unit tests mock external boundaries (GitHub API via Octokit, `pi.exec` for git o
 When a branch-specific clone fails, the function runs `git ls-remote --heads` to gather available remote branches, then uses **fuzzy matching** (normalized Levenshtein similarity ≥ 0.4) to suggest up to 5 similar branch names in the error message.
 
 Unit tests in `test/unit/clone.test.ts` cover all three paths plus branch suggestions. Integration tests in `test/integration/extension-runner.test.ts` verify real `git clone` from a local source repo into the session workspace.
+
+## Tests
+
+Run the suite from the extension directory or via mise:
+
+```bash
+mise run //extensions/repo-query:check
+```
+
+The default suite runs the service and LLM integration tests. Tests that call
+real services use the `.service.test.ts` suffix. Tests that call a real LLM use
+the `.llm.test.ts` suffix. Skip either category with Mise flags:
+
+```bash
+mise run //extensions/repo-query:check --no-service
+mise run //extensions/repo-query:check --no-llm
+mise run //extensions/repo-query:check --no-service --no-llm
+```
+
+A live subagent test (`test/integration/live-subagent.llm.test.ts`) runs a real
+LLM against a local repo. Mise provides `PI_TEST_MODEL` by default. Override it
+in `mise.local.toml` or your shell. Provider failures skip with a visible
+reason. The GitHub service test retries once, then skips with a visible reason
+when GitHub is unavailable. Assertion and application failures still fail the
+test.

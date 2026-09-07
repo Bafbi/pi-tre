@@ -34,50 +34,50 @@ Branch suffix (`:`) is stripped before URL parsing.
 - Single repo: subagent cwd is the repo root
 - Multiple repos: subagent cwd is the workspace parent
 - Toolset: `read,grep,find,ls,bash` only (no edit/write)
-- Output limit: 4000 chars truncated with ellipsis notice
+- Output limit: 8000 chars truncated with ellipsis notice
 - Timeout: 5 minutes
 
 ## Testing
 
 ### Test philosophy
 
-Tests are split by concern and mock external boundaries so the suite runs fast and deterministically. Integration tests use `ExtensionRunner` from `@mariozechner/pi-coding-agent`; unit tests mock at the module boundary.
+Tests are split by concern. Unit and integration tests mock external boundaries so they run fast and deterministically, with two explicit categories: tests ending in `.service.test.ts` call real external services, and tests ending in `.llm.test.ts` make real LLM calls. Integration tests use `ExtensionRunner` from `@earendil-works/pi-coding-agent`; unit tests mock at the module boundary.
 
-### Mock registries (globalThis-based)
+### Mocking (dependency injection)
 
-Because jiti (extension loader) and native ESM (test imports) create separate module instances, in-memory caches (e.g., `cachedWorkspace`) are not shared. Test-only mock registries on `globalThis` bridge this gap:
+Because jiti (extension loader) and native ESM (test imports) create separate module instances, in-memory caches (e.g., `cachedWorkspace`) are not shared.
 
-| Registry | Key | Purpose |
-|----------|-----|---------|
-| `setTestExplorerImpl` | `__repoQueryExplorerMock` | Short-circuit `runExplorer` before spawning a real pi subagent |
-| `setTestCloneImpl` | `__repoQueryCloneMock` | Short-circuit `ensureRepoCloned` before invoking real `git` |
+The extension takes its seams as explicit parameters instead of global state:
 
-Integration tests that exercise the tool end-to-end set both mocks so no external process or network is hit.
+- `createRepoQueryExtension({ explorer, clone })` in `src/index.ts` replaces `runExplorer` and `ensureRepoCloned` for pipeline-level `execute` tests. Tests drive the captured tool with the helpers in `test/helpers/create-runner.ts`.
+- `runExplorer(options, impl)` and `ensureRepoCloned(repo, workspace, signal, pi, impl)` accept an optional last-parameter implementation for direct-call tests. `runExplorer`'s `impl` also takes a fake `spawn` and `killGraceMs` for the kill/abort paths.
+- Loader-based tests (`discoverAndLoadExtensions` via `createRunner`) cannot reach factory parameters; they mock `globalThis.fetch` for GitHub validation or use local-path repos, which clone without network.
 
-### `TEST_MODEL` environment variable
+### `REPO_QUERY_MODEL` environment variable
 
-`resolveModel` falls back to `TEST_MODEL` when no config file specifies a model. This is only relevant for tests that **remove** the explorer mock and spawn a real subagent. No existing tests do this — all tests mock the explorer. If you add a test that spawns a real subagent, gate it with `describe.skipIf(!process.env.TEST_MODEL)` or document the dependency.
+`resolveModel` falls back to `REPO_QUERY_MODEL` when no config file specifies a model. Set it to force a model without writing a config file. Tests that need a specific model inject it through the config file or the factory overrides instead.
+
+### Live subagent test
+
+`test/integration/live-subagent.llm.test.ts` runs a real subagent against a local git repo and asserts the reported usage. Mise provides `PI_TEST_MODEL` by default. A provider failure (bad model, auth, quota, outage) skips the test with the provider's message instead of failing. Run `mise run //extensions/repo-query:test --no-llm` to skip it.
 
 ### Remote clone integration test
 
-`test/integration/clone-remote.test.ts` is the only test that hits real GitHub servers. It is conditionally skipped:
-
-- `git --version` must succeed
-- `git ls-remote https://github.com/biomejs/biome.git HEAD` must succeed
+`test/integration/clone-remote.service.test.ts` is the only test that hits real GitHub servers. It runs by default through Mise, retries once, then skips with a visible reason when GitHub is unavailable. Assertion and application failures still fail the test. Run `mise run //extensions/repo-query:test --no-service` for a hermetic suite.
 
 The test uses `biomejs/biome` as the target repo and asserts:
 - `.git/shallow` exists (confirms shallow clone)
 - `package.json` exists (content sanity)
 - Second call reuses the same workspace path
 
-The test still mocks the explorer (`setTestExplorerImpl`) because subagent spawning requires a real pi process.
+The test mocks the explorer through the factory overrides because subagent spawning requires a real pi process.
 
 ### Running tests
 
 ```bash
-# All tests (fast + remote clone if network available)
-mise run test
+# All tests, including service and LLM integration tests
+mise run //extensions/repo-query:test
 
-# Fast tests only (skip remote clone)
-pnpm test -- --run --exclude="**/clone-remote.test.ts"
+# Fast hermetic tests
+mise run //extensions/repo-query:test --no-service --no-llm
 ```

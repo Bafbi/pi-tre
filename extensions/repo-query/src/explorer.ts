@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,10 +9,13 @@ import {
 	withFileMutationQueue,
 } from "@earendil-works/pi-coding-agent";
 
-import type { ParsedRepo } from "./types.js";
+import type { ParsedRepo, SubagentUsage } from "./types.js";
 
 const SUBAGENT_TIMEOUT_MS = 300_000;
+const DEFAULT_KILL_GRACE_MS = 5_000;
 const MAX_OUTPUT_CHARS = 8000;
+
+const ABORT_NOTICE = "[Exploration aborted before completion.]";
 
 function truncateSubagentOutput(text: string): string {
 	return text.length > MAX_OUTPUT_CHARS
@@ -20,12 +23,61 @@ function truncateSubagentOutput(text: string): string {
 		: text;
 }
 
+/**
+ * Append-only text accumulator shared by text_delta (incremental) and
+ * message_end (full) events. A "full" event is kept as-is unless it is the
+ * same text already accumulated or an extension of it; anything else means
+ * the provider rewrote the final message, so it replaces the value instead
+ * of appending.
+ */
+function createSafeAccumulator(): {
+	append: (text: string, eventKind?: string) => void;
+	get: () => string;
+} {
+	let value = "";
+	return {
+		get: () => value,
+		append: (text, eventKind) => {
+			if (!text) return;
+			if (eventKind === "full") {
+				if (value === text) return;
+				if (text.startsWith(value) && text.length > value.length) {
+					value = text;
+					return;
+				}
+				value = text;
+				return;
+			}
+			value += text;
+		},
+	};
+}
+
 interface Message {
 	role: string;
 	content: Array<{ type: string; text: string }>;
+	usage?: Record<string, unknown>;
+	stopReason?: string;
+	errorMessage?: string;
+	model?: string;
 }
 
-interface SubagentOptions {
+/** Parsed fields from a subagent assistant message at message_end. */
+export interface SubagentMessageInfo {
+	usage?: {
+		input?: number;
+		output?: number;
+		cacheRead?: number;
+		cacheWrite?: number;
+		totalTokens?: number;
+		cost?: { total?: number };
+	};
+	stopReason?: string;
+	errorMessage?: string;
+	model?: string;
+}
+
+export interface SubagentOptions {
 	workspace: string;
 	repos: ParsedRepo[];
 	query: string;
@@ -36,35 +88,37 @@ interface SubagentOptions {
 	) => void;
 }
 
-interface ExplorationResult {
+export interface ExplorationResult {
 	answer: string;
 	error?: string;
+	usage?: SubagentUsage;
 }
 
-class TimeoutError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "TimeoutError";
-	}
+/** Minimal child-process surface runExplorer needs. A subset of ChildProcess. */
+export interface ExplorerProcess {
+	killed: boolean;
+	stdout: { on(event: "data", cb: (data: Buffer) => void): unknown };
+	stderr: { on(event: "data", cb: (data: Buffer) => void): unknown };
+	on(event: "close", cb: (code: number | null) => void): unknown;
+	on(event: "error", cb: (err: Error) => void): unknown;
+	kill(signal?: NodeJS.Signals): boolean;
 }
 
-const TEST_REGISTRY_KEY = "__repoQueryExplorerMock";
+export type SpawnFunction = (
+	command: string,
+	args: string[],
+	opts: { cwd: string },
+) => ExplorerProcess;
 
-function getMockExplorer():
-	| ((options: SubagentOptions) => Promise<ExplorationResult>)
-	| undefined {
-	return (globalThis as Record<string, unknown>)[TEST_REGISTRY_KEY] as
-		| ((options: SubagentOptions) => Promise<ExplorationResult>)
-		| undefined;
-}
-
-/** Test-only: inject a mock implementation for runExplorer. */
-export function setTestExplorerImpl(
-	impl:
-		| ((options: SubagentOptions) => Promise<ExplorationResult>)
-		| undefined,
-): void {
-	(globalThis as Record<string, unknown>)[TEST_REGISTRY_KEY] = impl;
+/**
+ * Injection seams for runExplorer.
+ * - `run` replaces runExplorer entirely (extension factory test overrides).
+ * - `spawn` and `killGraceMs` support unit tests of the kill/abort paths.
+ */
+export interface ExplorerImpl {
+	run?: (options: SubagentOptions) => Promise<ExplorationResult>;
+	spawn?: SpawnFunction;
+	killGraceMs?: number;
 }
 
 /**
@@ -75,15 +129,17 @@ export function setTestExplorerImpl(
  */
 export async function runExplorer(
 	options: SubagentOptions,
+	impl?: ExplorerImpl,
 ): Promise<ExplorationResult> {
-	const mock = getMockExplorer();
-	if (mock) {
-		return mock(options);
+	if (impl?.run) {
+		return impl.run(options);
 	}
 
 	const { workspace, repos, query, model, signal, onUpdate } = options;
 	const isSingle = repos.length === 1;
 	const cwd = isSingle ? join(workspace, repos[0].dirName) : workspace;
+	const childSpawn = impl?.spawn ?? defaultSpawn;
+	const killGraceMs = impl?.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
 
 	const systemPrompt = buildSystemPrompt(repos, query, isSingle);
 
@@ -112,68 +168,71 @@ export async function runExplorer(
 
 	const invocation = getPiInvocation();
 	let buffer = "";
-	let answerText = "";
-	let thinkingText = "";
 	let errorMessage = "";
+	let spawnErrorMessage = "";
 	let wasAborted = false;
+	let llmErrorMessage = "";
+	const usage: SubagentUsage = {
+		turns: 0,
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		cost: 0,
+		totalTokens: 0,
+	};
+
+	const handleAssistantMessage = (info: SubagentMessageInfo): void => {
+		usage.turns++;
+		if (info.usage) {
+			usage.input += info.usage.input ?? 0;
+			usage.output += info.usage.output ?? 0;
+			usage.cacheRead += info.usage.cacheRead ?? 0;
+			usage.cacheWrite += info.usage.cacheWrite ?? 0;
+			usage.cost += info.usage.cost?.total ?? 0;
+			usage.totalTokens += info.usage.totalTokens ?? 0;
+		}
+		if (info.stopReason === "error") {
+			llmErrorMessage = info.errorMessage || "unknown subagent LLM error";
+		}
+	};
+
+	// Accumulators shared by the delta and full-text events. See
+	// createSafeAccumulator for the dedup rules.
+	const answer = createSafeAccumulator();
+	const thinking = createSafeAccumulator();
+
+	const handleLine = (line: string, emit: boolean) => {
+		processSubagentLine(
+			line,
+			(text, kind) => {
+				answer.append(text, kind);
+				if (emit) emitUpdate();
+			},
+			(text, kind) => {
+				thinking.append(text, kind);
+				if (emit) emitUpdate();
+			},
+			handleAssistantMessage,
+		);
+	};
+
+	const emitUpdate = () => {
+		onUpdate?.({
+			content: [{ type: "text", text: answer.get() || "(exploring...)" }],
+			details: { answer: answer.get(), thought: thinking.get() },
+		});
+	};
 
 	try {
-		const exitCode = await new Promise<number>((resolve, reject) => {
-			const proc = spawn(
+		const exitCode = await new Promise<number>((resolve) => {
+			const proc = childSpawn(
 				invocation.command,
 				[...invocation.args, ...args],
-				{
-					cwd,
-					shell: false,
-					stdio: ["ignore", "pipe", "pipe"],
-				},
+				{ cwd },
 			);
 
-			// Append text without duplicating when the same full text arrives
-			// from both text_delta (incremental or full) and message_end (full).
-			const safeAppendText = (text: string, eventKind?: string) => {
-				if (!text) return;
-				if (eventKind === "full") {
-					if (answerText === text) return;
-					if (
-						text.startsWith(answerText) &&
-						text.length > answerText.length
-					) {
-						answerText = text;
-						return;
-					}
-					// Provider may have rewritten the final message; replace rather than append
-					answerText = text;
-					return;
-				}
-				answerText += text;
-			};
-			const safeAppendThinking = (text: string, eventKind?: string) => {
-				if (!text) return;
-				if (eventKind === "full") {
-					if (thinkingText === text) return;
-					if (
-						text.startsWith(thinkingText) &&
-						text.length > thinkingText.length
-					) {
-						thinkingText = text;
-						return;
-					}
-					// Provider may have rewritten the final message; replace rather than append
-					thinkingText = text;
-					return;
-				}
-				thinkingText += text;
-			};
-			const emitUpdate = () => {
-				onUpdate?.({
-					content: [
-						{ type: "text", text: answerText || "(exploring...)" },
-					],
-					details: { answer: answerText, thought: thinkingText },
-				});
-			};
-
+			let didExit = false;
 			let timeoutFired = false;
 			let graceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -182,12 +241,19 @@ export async function runExplorer(
 				if (graceTimer) clearTimeout(graceTimer);
 			};
 
-			const timeoutId = setTimeout(() => {
-				timeoutFired = true;
+			// Send SIGTERM, then SIGKILL if the process is still alive after
+			// the grace period. Checks the exit flag, not proc.killed — killed
+			// is true the moment SIGTERM is sent.
+			const killWithEscalation = () => {
 				proc.kill("SIGTERM");
 				graceTimer = setTimeout(() => {
-					if (!proc.killed) proc.kill("SIGKILL");
-				}, 5000);
+					if (!didExit) proc.kill("SIGKILL");
+				}, killGraceMs);
+			};
+
+			const timeoutId = setTimeout(() => {
+				timeoutFired = true;
+				killWithEscalation();
 			}, SUBAGENT_TIMEOUT_MS);
 
 			proc.stdout.on("data", (data: Buffer) => {
@@ -195,17 +261,7 @@ export async function runExplorer(
 				const lines = buffer.split("\n");
 				buffer = lines.pop() ?? "";
 				for (const line of lines) {
-					processSubagentLine(
-						line,
-						(text, kind) => {
-							safeAppendText(text, kind);
-							emitUpdate();
-						},
-						(text, kind) => {
-							safeAppendThinking(text, kind);
-							emitUpdate();
-						},
-					);
+					handleLine(line, true);
 				}
 			});
 
@@ -213,32 +269,27 @@ export async function runExplorer(
 				errorMessage += data.toString();
 			});
 
+			let removeAbortListener = () => {};
+
 			proc.on("close", (code) => {
+				didExit = true;
 				clearTimers();
+				removeAbortListener();
 				if (buffer.trim()) {
-					processSubagentLine(
-						buffer,
-						(text, kind) => {
-							safeAppendText(text, kind);
-						},
-						(text, kind) => {
-							safeAppendThinking(text, kind);
-						},
-					);
+					handleLine(buffer, false);
 				}
 				if (timeoutFired) {
-					reject(
-						new TimeoutError(
-							`Subagent timed out after ${SUBAGENT_TIMEOUT_MS} ms`,
-						),
-					);
+					resolve(-1);
 				} else {
 					resolve(code ?? 0);
 				}
 			});
 
-			proc.on("error", () => {
+			proc.on("error", (err) => {
+				didExit = true;
 				clearTimers();
+				removeAbortListener();
+				spawnErrorMessage = err.message;
 				resolve(1);
 			});
 
@@ -246,41 +297,72 @@ export async function runExplorer(
 				const killProc = () => {
 					wasAborted = true;
 					clearTimers();
-					proc.kill("SIGTERM");
-					graceTimer = setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
-					}, 5000);
+					killWithEscalation();
 				};
-				if (signal.aborted) killProc();
-				else signal.addEventListener("abort", killProc, { once: true });
+				if (signal.aborted) {
+					killProc();
+				} else {
+					signal.addEventListener("abort", killProc, { once: true });
+					removeAbortListener = () =>
+						signal.removeEventListener("abort", killProc);
+				}
 			}
 		});
 
-		if (wasAborted && !answerText) {
+		if (llmErrorMessage) {
 			return {
 				answer: "",
-				error: `Exploration aborted. ${errorMessage || ""}`.trim(),
+				error: `Subagent LLM error: ${llmErrorMessage}`,
+				usage,
 			};
 		}
 
-		if (exitCode !== 0 && !answerText) {
+		if (spawnErrorMessage && !answer.get()) {
+			return {
+				answer: "",
+				error: `Exploration failed: ${spawnErrorMessage}`,
+				usage,
+			};
+		}
+
+		if (wasAborted) {
+			if (!answer.get()) {
+				return {
+					answer: "",
+					error: `Exploration aborted. ${errorMessage || ""}`.trim(),
+					usage,
+				};
+			}
+			// Keep the partial answer, but make clear it is incomplete.
+			return {
+				answer: `${truncateSubagentOutput(answer.get())}\n${ABORT_NOTICE}`,
+				usage,
+			};
+		}
+
+		if (exitCode === -1) {
+			// timeoutFired — the subagent ignored SIGTERM and SIGKILL.
+			return {
+				answer: truncateSubagentOutput(answer.get()),
+				error: `Subagent timed out after ${SUBAGENT_TIMEOUT_MS} ms`,
+				usage,
+			};
+		}
+
+		if (exitCode !== 0 && !answer.get()) {
 			return {
 				answer: "",
 				error: `Exploration failed (exit ${exitCode}). ${errorMessage || ""}`.trim(),
+				usage,
 			};
 		}
 
-		return { answer: truncateSubagentOutput(answerText) };
+		return { answer: truncateSubagentOutput(answer.get()), usage };
 	} catch (err) {
-		if (err instanceof TimeoutError) {
-			return {
-				answer: truncateSubagentOutput(answerText),
-				error: err.message,
-			};
-		}
 		return {
-			answer: truncateSubagentOutput(answerText),
+			answer: truncateSubagentOutput(answer.get()),
 			error: `Exploration failed: ${err instanceof Error ? err.message : String(err)}`,
+			usage,
 		};
 	} finally {
 		// Cleanup temp prompt file
@@ -297,6 +379,7 @@ export function processSubagentLine(
 	line: string,
 	onAnswer: (text: string, kind?: string) => void,
 	onThinking: (thinking: string, kind?: string) => void,
+	onAssistantMessage?: (info: SubagentMessageInfo) => void,
 ): void {
 	if (!line.trim()) return;
 	let event: unknown;
@@ -321,7 +404,7 @@ export function processSubagentLine(
 		}
 	}
 
-	// Final message — capture complete text
+	// Final message — capture complete text, usage, and stop reason
 	if (event.type === "message_end" && event.message) {
 		const msg = event.message as Message;
 		if (msg.role === "assistant" && Array.isArray(msg.content)) {
@@ -335,6 +418,21 @@ export function processSubagentLine(
 				) {
 					onAnswer(part.text, "full");
 				}
+			}
+			if (onAssistantMessage) {
+				onAssistantMessage({
+					usage: isObject(msg.usage) ? msg.usage : undefined,
+					stopReason:
+						typeof msg.stopReason === "string"
+							? msg.stopReason
+							: undefined,
+					errorMessage:
+						typeof msg.errorMessage === "string"
+							? msg.errorMessage
+							: undefined,
+					model:
+						typeof msg.model === "string" ? msg.model : undefined,
+				});
 			}
 		}
 	}
@@ -355,7 +453,26 @@ function hasAssistantMessageEvent(event: Record<string, unknown>): boolean {
 	);
 }
 
+function defaultSpawn(
+	command: string,
+	args: string[],
+	opts: { cwd: string },
+): ExplorerProcess {
+	return nodeSpawn(command, args, {
+		cwd: opts.cwd,
+		shell: false,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+}
+
 function getPiInvocation(): { command: string; args: string[] } {
+	// Under vitest, process.argv[1] is the test runner's entry, not pi.
+	// Spawn the pi binary from PATH so LLM-backed tests exercise the real
+	// subagent.
+	if (process.env.VITEST) {
+		return { command: "pi", args: [] };
+	}
+
 	const currentScript = process.argv[1];
 	const isBunVirtual = currentScript?.startsWith("/$bunfs/root/");
 

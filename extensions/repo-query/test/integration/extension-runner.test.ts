@@ -1,19 +1,15 @@
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import {
-	discoverAndLoadExtensions,
-	ExtensionRunner,
-	ModelRegistry,
-	ModelRuntime,
-	SessionManager,
-} from "@earendil-works/pi-coding-agent";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-
-import { setTestExplorerImpl } from "../../src/explorer.js";
 import { clearWorkspaceCache } from "../../src/workspace.js";
+import {
+	captureExtension,
+	cleanupDirs,
+	createRunner,
+	makeTempDir,
+	minimalContext,
+} from "../helpers/create-runner.js";
 
 let gitAvailable = false;
 try {
@@ -26,50 +22,16 @@ try {
 const tempDirs: string[] = [];
 const workspacesToClean: string[] = [];
 
-function makeRunnerCwd(): string {
-	const dir = mkdtempSync(join(tmpdir(), "repo-query-ext-test-"));
-	tempDirs.push(dir);
-	return dir;
-}
-
-async function createRunner(cwd: string): Promise<ExtensionRunner> {
-	const extensionPath = resolve(
-		process.cwd(),
-		"extensions/repo-query/src/index.ts",
-	);
-	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
-	expect(loaded.errors).toHaveLength(0);
-	expect(loaded.extensions).toHaveLength(1);
-
-	const sessionManager = SessionManager.inMemory();
-	const modelRuntime = await ModelRuntime.create({
-		authPath: join(cwd, "auth.json"),
-		allowModelNetwork: false,
-	});
-	const modelRegistry = new ModelRegistry(modelRuntime);
-	return new ExtensionRunner(
-		loaded.extensions,
-		loaded.runtime,
-		cwd,
-		sessionManager,
-		modelRegistry,
-	);
-}
-
 afterEach(async () => {
-	for (const dir of tempDirs.splice(0)) {
-		await rm(dir, { recursive: true, force: true });
-	}
-	for (const ws of workspacesToClean.splice(0)) {
-		await rm(ws, { recursive: true, force: true });
-	}
-	setTestExplorerImpl(undefined);
+	await cleanupDirs(tempDirs);
+	await cleanupDirs(workspacesToClean);
 	clearWorkspaceCache();
 });
 
 describe("repo-query extension", () => {
 	it("loads from configured path and registers tool + command", async () => {
-		const cwd = makeRunnerCwd();
+		const cwd = makeTempDir("repo-query-ext-test-");
+		tempDirs.push(cwd);
 		const runner = await createRunner(cwd);
 
 		expect(runner.hasHandlers("session_start")).toBe(true);
@@ -82,7 +44,8 @@ describe("repo-query extension", () => {
 	it.skipIf(!gitAvailable)(
 		"repo_query tool explores a local git repo successfully",
 		async () => {
-			const cwd = makeRunnerCwd();
+			const cwd = makeTempDir("repo-query-ext-test-");
+			tempDirs.push(cwd);
 
 			// Create a fake local git repo
 			const localRepo = join(cwd, "my-local-repo");
@@ -114,26 +77,20 @@ describe("repo-query extension", () => {
 				stdio: "ignore",
 			});
 
-			const runner = await createRunner(cwd);
-
-			// Get the tool and execute it directly
-			const tools = runner.getAllRegisteredTools();
-			const repoQueryTool = tools.find(
-				(t) => t.definition.name === "repo_query",
-			);
+			// Mock only the subagent; the clone runs for real via pi.exec.
+			const { getTool } = captureExtension({
+				explorer: async () => ({ answer: "Mock exploration result" }),
+			});
+			const repoQueryTool = getTool();
 			expect(repoQueryTool).toBeDefined();
 			if (!repoQueryTool) throw new Error("repo_query tool not found");
 
-			// Always mock the explorer in this test — we are inside vitest, not a real pi process,
-			// so subagent spawning via getPiInvocation() would fail.
-			setTestExplorerImpl(async () => ({ answer: "README.md, main.ts" }));
-
-			const result = await repoQueryTool.definition.execute(
+			const result = await repoQueryTool.execute(
 				"test-call-1",
 				{ query: "What files are in this repo?", repos: [localRepo] },
 				undefined,
 				undefined,
-				runner.createContext(),
+				minimalContext(cwd),
 			);
 
 			expect(result).toBeDefined();
@@ -141,19 +98,24 @@ describe("repo-query extension", () => {
 			expect(result.content.length).toBeGreaterThan(0);
 
 			const text = result.content[0]?.text ?? "";
-			expect(text.length).toBeGreaterThan(0);
-			expect(text).toContain("README.md");
+			expect(text).toContain("Mock exploration result");
+			expect(text).toContain("# Answer");
 
 			const details = result.details as {
-				results: Array<{ status: string }>;
+				results: Array<{ status: string; localPath?: string }>;
 				workspacePath: string;
+				answer?: string;
 			};
 			expect(details.results[0]?.status).toBe("success");
+			expect(details.answer).toBe("Mock exploration result");
 
-			// Track workspace for cleanup
-			if (details.workspacePath) {
-				workspacesToClean.push(details.workspacePath);
-			}
+			// The workspace holds a real clone of the local repo
+			const localPath = details.results[0]?.localPath;
+			expect(localPath).toBeDefined();
+			expect(localPath?.startsWith(details.workspacePath)).toBe(true);
+			expect(existsSync(join(localPath ?? "", ".git"))).toBe(true);
+
+			workspacesToClean.push(details.workspacePath);
 		},
 		30000,
 	);

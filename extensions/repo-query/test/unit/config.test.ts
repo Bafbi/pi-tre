@@ -108,8 +108,8 @@ describe("resolveModel", () => {
 		expect(resolveModel(config, repos)).toBe("default");
 	});
 
-	it("returns undefined when nothing matches and TEST_MODEL is unset", () => {
-		vi.stubEnv("TEST_MODEL", undefined);
+	it("returns undefined when nothing matches and REPO_QUERY_MODEL is unset", () => {
+		vi.stubEnv("REPO_QUERY_MODEL", undefined);
 		const config = {};
 		const repos = [{ displayName: "foo/bar" }] as ParsedRepo[];
 		expect(resolveModel(config, repos)).toBeUndefined();
@@ -120,8 +120,8 @@ describe("resolveModel", () => {
 		expect(resolveModel(config, [])).toBe("default");
 	});
 
-	it("falls back to TEST_MODEL env var when no config match", () => {
-		vi.stubEnv("TEST_MODEL", "env-model");
+	it("falls back to REPO_QUERY_MODEL env var when no config match", () => {
+		vi.stubEnv("REPO_QUERY_MODEL", "env-model");
 		const config = {};
 		const repos = [{ displayName: "foo/bar" }] as ParsedRepo[];
 		expect(resolveModel(config, repos)).toBe("env-model");

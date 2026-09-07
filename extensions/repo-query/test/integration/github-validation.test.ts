@@ -1,58 +1,21 @@
-import { mkdtempSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import {
-	discoverAndLoadExtensions,
-	ExtensionRunner,
-	ModelRegistry,
-	ModelRuntime,
-	SessionManager,
-} from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { setTestCloneImpl } from "../../src/clone.js";
-import { setTestExplorerImpl } from "../../src/explorer.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearWorkspaceCache } from "../../src/workspace.js";
+import {
+	captureExtension,
+	cleanupDirs,
+	makeTempDir,
+	minimalContext,
+} from "../helpers/create-runner.js";
+
+// These tests are hermetic: GitHub API responses come from a mocked fetch,
+// and clone/explorer are injected through the extension factory overrides.
+// No test here touches the network.
 
 const tempDirs: string[] = [];
 
-function makeRunnerCwd(): string {
-	const dir = mkdtempSync(join(tmpdir(), "repo-query-gh-test-"));
-	tempDirs.push(dir);
-	return dir;
-}
-
-async function createRunner(cwd: string): Promise<ExtensionRunner> {
-	const extensionPath = resolve(
-		process.cwd(),
-		"extensions/repo-query/src/index.ts",
-	);
-	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
-	expect(loaded.errors).toHaveLength(0);
-	expect(loaded.extensions).toHaveLength(1);
-
-	const sessionManager = SessionManager.inMemory();
-	const modelRuntime = await ModelRuntime.create({
-		authPath: join(cwd, "auth.json"),
-		allowModelNetwork: false,
-	});
-	const modelRegistry = new ModelRegistry(modelRuntime);
-	return new ExtensionRunner(
-		loaded.extensions,
-		loaded.runtime,
-		cwd,
-		sessionManager,
-		modelRegistry,
-	);
-}
-
 afterEach(async () => {
-	for (const dir of tempDirs.splice(0)) {
-		await rm(dir, { recursive: true, force: true });
-	}
-	setTestExplorerImpl(undefined);
-	setTestCloneImpl(undefined);
+	vi.restoreAllMocks();
+	await cleanupDirs(tempDirs);
 	clearWorkspaceCache();
 });
 
@@ -90,19 +53,31 @@ function mockGitHubApi(config: FetchMockConfig) {
 	};
 }
 
-describe("repo_query GitHub validation", () => {
-	beforeEach(() => {
-		setTestExplorerImpl(undefined);
-		setTestCloneImpl(undefined);
-	});
+async function executeQuery(
+	query: string,
+	repos: string[],
+): Promise<Record<string, unknown>> {
+	const cwd = makeTempDir("repo-query-gh-test-");
+	tempDirs.push(cwd);
 
-	afterEach(() => {
-		setTestExplorerImpl(undefined);
-		setTestCloneImpl(undefined);
+	const { getTool } = captureExtension({
+		explorer: async () => ({ answer: "Mock exploration result" }),
+		clone: async () => ({ status: "cloned" as const }),
 	});
+	const tool = getTool();
+	if (!tool) throw new Error("repo_query tool not found");
 
+	return tool.execute(
+		"test-call",
+		{ query, repos },
+		undefined,
+		undefined,
+		minimalContext(cwd),
+	) as Promise<Record<string, unknown>>;
+}
+
+describe("repo_query GitHub validation (hermetic)", () => {
 	it("proceeds with exploration for valid GitHub repo", async () => {
-		const cwd = makeRunnerCwd();
 		const gh = mockGitHubApi({
 			responses: new Map([
 				[
@@ -112,45 +87,25 @@ describe("repo_query GitHub validation", () => {
 			]),
 		});
 
-		setTestExplorerImpl(async () => ({
-			answer: "Mock exploration result",
-		}));
-		setTestCloneImpl(async () => ({ status: "cloned" }));
-
-		const runner = await createRunner(cwd);
-		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find(
-			(t) => t.definition.name === "repo_query",
-		);
-		expect(repoQueryTool).toBeDefined();
-		if (!repoQueryTool) throw new Error("repo_query tool not found");
-
 		try {
-			const result = await repoQueryTool.definition.execute(
-				"test-call-1",
-				{
-					query: "What is the main entry point?",
-					repos: ["owner/repo"],
-				},
-				undefined,
-				undefined,
-				runner.createContext(),
-			);
+			const result = await executeQuery("What is the main entry point?", [
+				"owner/repo",
+			]);
 
-			expect(result.isError).toBe(false);
-			const text = result.content[0]?.text ?? "";
+			const text = (result.content as Array<{ text: string }>)[0]?.text;
 			expect(text).toContain("Mock exploration result");
 			const details = result.details as {
 				results: Array<{ status: string }>;
+				answer?: string;
 			};
 			expect(details.results[0]?.status).toBe("success");
+			expect(details.answer).toBe("Mock exploration result");
 		} finally {
 			gh.restore();
 		}
 	});
 
 	it("marks archived repo with warning but still explores", async () => {
-		const cwd = makeRunnerCwd();
 		const gh = mockGitHubApi({
 			responses: new Map([
 				[
@@ -160,32 +115,11 @@ describe("repo_query GitHub validation", () => {
 			]),
 		});
 
-		setTestExplorerImpl(async () => ({
-			answer: "Archived exploration result",
-		}));
-		setTestCloneImpl(async () => ({ status: "cloned" }));
-
-		const runner = await createRunner(cwd);
-		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find(
-			(t) => t.definition.name === "repo_query",
-		);
-		expect(repoQueryTool).toBeDefined();
-		if (!repoQueryTool) throw new Error("repo_query tool not found");
-
 		try {
-			const result = await repoQueryTool.definition.execute(
-				"test-call-2",
-				{
-					query: "What is the main entry point?",
-					repos: ["owner/archived"],
-				},
-				undefined,
-				undefined,
-				runner.createContext(),
-			);
+			const result = await executeQuery("What is the main entry point?", [
+				"owner/archived",
+			]);
 
-			expect(result.isError).toBe(false);
 			const details = result.details as {
 				results: Array<{ status: string; warnings: string[] }>;
 			};
@@ -200,8 +134,7 @@ describe("repo_query GitHub validation", () => {
 		}
 	});
 
-	it("returns not_found with suggestions for missing repo", async () => {
-		const cwd = makeRunnerCwd();
+	it("throws with suggestions when the repo is not found", async () => {
 		const gh = mockGitHubApi({
 			responses: new Map([
 				[
@@ -216,38 +149,25 @@ describe("repo_query GitHub validation", () => {
 			]),
 		});
 
-		const runner = await createRunner(cwd);
-		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find(
-			(t) => t.definition.name === "repo_query",
-		);
-		expect(repoQueryTool).toBeDefined();
-		if (!repoQueryTool) throw new Error("repo_query tool not found");
-
 		try {
-			const result = await repoQueryTool.definition.execute(
-				"test-call-3",
-				{
-					query: "What is the main entry point?",
-					repos: ["owner/missing"],
-				},
-				undefined,
-				undefined,
-				runner.createContext(),
-			);
+			// The hard-failure path throws; pi reports the thrown message to the LLM.
+			await expect(
+				executeQuery("What is the main entry point?", [
+					"owner/missing",
+				]),
+			).rejects.toThrow(/owner\/missing/);
 
-			expect(result.isError).toBe(true);
-			const text = result.content[0]?.text ?? "";
-			expect(text).toContain("owner/missing");
-			expect(text).toContain("not found");
-			expect(text).toContain("owner/real-repo");
+			await expect(
+				executeQuery("What is the main entry point?", [
+					"owner/missing",
+				]),
+			).rejects.toThrow(/owner\/real-repo/);
 		} finally {
 			gh.restore();
 		}
 	});
 
-	it("returns isError true when some repos succeed and others have suggestions", async () => {
-		const cwd = makeRunnerCwd();
+	it("returns the mixed answer plus Recommendation when some repos have suggestions", async () => {
 		const gh = mockGitHubApi({
 			responses: new Map([
 				[
@@ -261,39 +181,17 @@ describe("repo_query GitHub validation", () => {
 			]),
 		});
 
-		setTestExplorerImpl(async () => ({ answer: "Mixed result answer" }));
-		setTestCloneImpl(async () => ({ status: "cloned" }));
-
-		const runner = await createRunner(cwd);
-		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find(
-			(t) => t.definition.name === "repo_query",
-		);
-		expect(repoQueryTool).toBeDefined();
-		if (!repoQueryTool) throw new Error("repo_query tool not found");
-
 		try {
-			const result = await repoQueryTool.definition.execute(
-				"test-call-mixed",
-				{
-					query: "How does this work?",
-					repos: ["owner/good", "owner/missing"],
-				},
-				undefined,
-				undefined,
-				runner.createContext(),
-			);
+			const result = await executeQuery("How does this work?", [
+				"owner/good",
+				"owner/missing",
+			]);
 
-			// isError should be true because the missing repo has suggestions (retryable failure)
-			expect(result.isError).toBe(true);
-
-			const text = result.content[0]?.text ?? "";
-			// Should still contain the answer from the successful repo
-			expect(text).toContain("Mixed result answer");
-			// Should contain the suggestion for the missing repo
+			// Partial failures return normally; the answer text carries the details.
+			const text = (result.content as Array<{ text: string }>)[0]?.text;
+			expect(text).toContain("Mock exploration result");
 			expect(text).toContain("owner/missing");
 			expect(text).toContain("owner/real-repo");
-			// Should contain the Recommendation section
 			expect(text).toContain("## Recommendation");
 			expect(text).toContain(
 				"Use `owner/real-repo` instead of `owner/missing`",
@@ -304,47 +202,26 @@ describe("repo_query GitHub validation", () => {
 	});
 
 	it("proceeds with clone when GitHub API fails unexpectedly", async () => {
-		const cwd = makeRunnerCwd();
 		const gh = mockGitHubApi({
 			responses: new Map([
 				["https://api.github.com/repos/owner/repo", 500],
 			]),
 		});
 
-		setTestExplorerImpl(async () => ({
-			answer: "Fallback exploration result",
-		}));
-		setTestCloneImpl(async () => ({ status: "cloned" }));
-
-		const runner = await createRunner(cwd);
-		const tools = runner.getAllRegisteredTools();
-		const repoQueryTool = tools.find(
-			(t) => t.definition.name === "repo_query",
-		);
-		expect(repoQueryTool).toBeDefined();
-		if (!repoQueryTool) throw new Error("repo_query tool not found");
-
 		try {
-			const result = await repoQueryTool.definition.execute(
-				"test-call-4",
-				{
-					query: "What is the main entry point?",
-					repos: ["owner/repo"],
-				},
-				undefined,
-				undefined,
-				runner.createContext(),
-			);
+			const result = await executeQuery("What is the main entry point?", [
+				"owner/repo",
+			]);
 
-			expect(result.isError).toBe(false);
 			const details = result.details as {
 				results: Array<{ status: string; warnings: string[] }>;
 			};
 			expect(
 				details.results[0]?.warnings.some((w) =>
-					w.includes("API check failed"),
+					w.includes("GitHub API check failed"),
 				),
 			).toBe(true);
+			expect(details.results[0]?.status).toBe("success");
 		} finally {
 			gh.restore();
 		}

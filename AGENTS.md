@@ -29,6 +29,26 @@ Every extension exposes four tasks via mise task templates: `lint`, `typecheck`,
 2. Or individual steps: `mise //extensions/<name>:lint`, `:typecheck`, `:test`
 
 
+## LLM-backed tests
+
+Extensions may ship tests that call a real LLM (for example, repo-query's live
+subagent test). Such tests:
+
+- Read `PI_TEST_MODEL` and skip when it is unset.
+- Run tests that need a real LLM when `PI_TEST_MODEL` is set.
+- Skip with the provider's message when the LLM call fails. A broken provider
+  never fails the suite.
+
+The default Mise environment provides a cheap `PI_TEST_MODEL`. Override it in
+`mise.local.toml` (gitignored) or in your shell when another provider is needed.
+Use `mise run ... --no-llm` to exclude LLM-backed tests and
+`mise run ... --no-service` to exclude tests that call real external services.
+These flags apply to `test` and `check` tasks.
+
+Run tests through mise tasks (`mise run //extensions/<name>:test`). A direct
+`pnpm exec vitest run` does not get mise's `[env]` injection and skips the
+LLM-backed tests when `PI_TEST_MODEL` is unavailable.
+
 ## Check requirement
 
 **Any modification to an extension must pass its per-extension check before committing.**

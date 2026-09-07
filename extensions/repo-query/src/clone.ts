@@ -6,24 +6,18 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import Fuse from "fuse.js";
 
+import { redactCredentials } from "./resolver.js";
 import type { ParsedRepo } from "./types.js";
 
 const CLONE_TIMEOUT_MS = 120_000;
+const MAX_STDERR_CHARS = 200;
 
-const CLONE_MOCK_REGISTRY_KEY = "__repoQueryCloneMock";
-
-function getMockClone(): typeof ensureRepoCloned | undefined {
-	return (globalThis as Record<string, unknown>)[CLONE_MOCK_REGISTRY_KEY] as
-		| typeof ensureRepoCloned
-		| undefined;
+export interface CloneResult {
+	status: "existing" | "cloned" | "failed";
+	error?: string;
 }
 
-/** Test-only: inject a mock implementation for ensureRepoCloned. */
-export function setTestCloneImpl(
-	impl: typeof ensureRepoCloned | undefined,
-): void {
-	(globalThis as Record<string, unknown>)[CLONE_MOCK_REGISTRY_KEY] = impl;
-}
+export type CloneImpl = typeof ensureRepoCloned;
 
 /**
  * Parse `git ls-remote --heads` output and return up to `maxResults` branch names
@@ -54,6 +48,45 @@ function getBranchSuggestions(
 		.map((r) => r.item);
 }
 
+/** Keep the tail of git's stderr — that is where the actual error lives. */
+function stderrTail(stderr: string | undefined): string {
+	const tail = redactCredentials(stderr ?? "")
+		.trim()
+		.split("\n")
+		.filter((line) => line.trim())
+		.slice(-3)
+		.join("; ");
+	if (!tail) return "";
+	return tail.length > MAX_STDERR_CHARS
+		? `${tail.slice(0, MAX_STDERR_CHARS)}...`
+		: tail;
+}
+
+/** Extract a useful, redacted cause from an exec rejection. */
+function errorDetail(err: unknown): string {
+	const message =
+		err instanceof Error
+			? redactCredentials(err.message)
+			: typeof err === "string"
+				? redactCredentials(err)
+				: "";
+	const stderr =
+		typeof err === "object" && err !== null && "stderr" in err
+			? (err as { stderr?: unknown }).stderr
+			: undefined;
+	const tail = typeof stderr === "string" ? stderrTail(stderr) : "";
+	if (tail && message && message !== tail) return `${message}: ${tail}`;
+	return tail || message;
+}
+
+async function removeRepoDir(repoDir: string): Promise<void> {
+	try {
+		await rm(repoDir, { recursive: true, force: true });
+	} catch {
+		/* ignore cleanup errors */
+	}
+}
+
 /**
  * Ensure a repo is cloned into the workspace. Uses shallow clone.
  *
@@ -66,22 +99,25 @@ function getBranchSuggestions(
  *   - Explicit branch: only that branch is attempted (no fallback).
  *     On failure, `git ls-remote --heads` is used to suggest similar branches.
  *   - No branch: clones the remote default branch without --branch.
+ *
+ * `impl` is an injection seam for tests; production callers omit it.
  */
 export async function ensureRepoCloned(
 	repo: ParsedRepo,
 	workspace: string,
 	signal: AbortSignal | undefined,
 	pi: ExtensionAPI,
-): Promise<{ status: "existing" | "cloned" | "failed"; error?: string }> {
-	const mock = getMockClone();
-	if (mock) {
-		return mock(repo, workspace, signal, pi);
+	impl?: CloneImpl,
+): Promise<CloneResult> {
+	if (impl) {
+		return impl(repo, workspace, signal, pi);
 	}
 
 	const repoDir = join(workspace, repo.dirName);
+	const repoLabel = redactCredentials(repo.raw);
 
 	if (existsSync(join(repoDir, ".git"))) {
-		return { status: "existing" };
+		return checkExistingOrigin(repo, repoDir, pi);
 	}
 
 	await mkdir(repoDir, { recursive: true });
@@ -89,37 +125,52 @@ export async function ensureRepoCloned(
 	const cloneSource = expandHome(repo.cloneUrl);
 
 	if (repo.branch) {
+		const args = [
+			"clone",
+			"--depth",
+			"1",
+			"--single-branch",
+			"--branch",
+			repo.branch,
+			cloneSource,
+			repoDir,
+		];
+
+		let cloneErrorTail = "";
 		try {
-			const args = [
-				"clone",
-				"--depth",
-				"1",
-				"--single-branch",
-				"--branch",
-				repo.branch,
-				cloneSource,
-				repoDir,
-			];
 			const result = await pi.exec("git", args, {
 				signal,
 				timeout: CLONE_TIMEOUT_MS,
 			});
-
 			if (result.code === 0) {
 				return { status: "cloned" };
 			}
-		} catch {
-			/* requested branch failed */
+			cloneErrorTail = stderrTail(result.stderr);
+		} catch (err) {
+			if (signal?.aborted) {
+				await removeRepoDir(repoDir);
+				return {
+					status: "failed",
+					error: `Clone of ${repoLabel} aborted.`,
+				};
+			}
+			cloneErrorTail = errorDetail(err);
 		}
 
-		try {
-			await rm(repoDir, { recursive: true, force: true });
-		} catch {
-			/* ignore cleanup errors */
+		await removeRepoDir(repoDir);
+
+		if (signal?.aborted) {
+			return {
+				status: "failed",
+				error: `Clone of ${repoLabel} aborted.`,
+			};
 		}
 
 		// Try to find similar branch names via fuzzy matching
-		let errorMsg = `Failed to clone ${repo.raw} (ref '${repo.branch}').`;
+		let errorMsg = `Failed to clone ${repoLabel} (ref '${repo.branch}').`;
+		if (cloneErrorTail) {
+			errorMsg += ` git: ${cloneErrorTail}`;
+		}
 		try {
 			const lsResult = await pi.exec(
 				"git",
@@ -150,15 +201,16 @@ export async function ensureRepoCloned(
 	}
 
 	// No explicit branch: clone the remote default
+	const args = [
+		"clone",
+		"--depth",
+		"1",
+		"--single-branch",
+		cloneSource,
+		repoDir,
+	];
+
 	try {
-		const args = [
-			"clone",
-			"--depth",
-			"1",
-			"--single-branch",
-			cloneSource,
-			repoDir,
-		];
 		const result = await pi.exec("git", args, {
 			signal,
 			timeout: CLONE_TIMEOUT_MS,
@@ -167,20 +219,64 @@ export async function ensureRepoCloned(
 		if (result.code === 0) {
 			return { status: "cloned" };
 		}
-	} catch {
-		/* default branch failed */
-	}
 
+		const tail = stderrTail(result.stderr);
+		await removeRepoDir(repoDir);
+		return {
+			status: "failed",
+			error: `Failed to clone ${repoLabel} (default branch).${tail ? ` git: ${tail}` : ""}`,
+		};
+	} catch (err) {
+		await removeRepoDir(repoDir);
+		const cause = errorDetail(err);
+		return {
+			status: "failed",
+			error: `Failed to clone ${repoLabel} (default branch).${cause ? ` ${cause}` : ""}`,
+		};
+	}
+}
+
+/**
+ * The directory already holds a git repo. Make sure it is the requested one:
+ * sanitizeDirName can map two distinct repos to the same dirName. Compare the
+ * existing origin URL with the requested clone URL. Local-path clones have no
+ * origin remote, so a failed lookup falls through to "existing".
+ */
+async function checkExistingOrigin(
+	repo: ParsedRepo,
+	repoDir: string,
+	pi: ExtensionAPI,
+): Promise<CloneResult> {
 	try {
-		await rm(repoDir, { recursive: true, force: true });
+		const origin = await pi.exec(
+			"git",
+			["-C", repoDir, "remote", "get-url", "origin"],
+			{ timeout: 10_000 },
+		);
+		if (origin.code === 0 && origin.stdout.trim()) {
+			const existingUrl = origin.stdout.trim();
+			if (
+				normalizeGitUrl(existingUrl) !==
+				normalizeGitUrl(expandHome(repo.cloneUrl))
+			) {
+				return {
+					status: "failed",
+					error: `Directory collision: '${repo.dirName}' already contains ${redactCredentials(existingUrl)} but '${redactCredentials(repo.raw)}' resolved to ${redactCredentials(repo.cloneUrl)}.`,
+				};
+			}
+		}
 	} catch {
-		/* ignore cleanup errors */
+		/* no origin remote (e.g. local path clone) — treat as existing */
 	}
+	return { status: "existing" };
+}
 
-	return {
-		status: "failed",
-		error: `Failed to clone ${repo.raw} (default branch).`,
-	};
+/** Compare URLs modulo trailing slashes and a trailing .git suffix. */
+function normalizeGitUrl(url: string): string {
+	return url
+		.replace(/\/+$/, "")
+		.replace(/\.git$/, "")
+		.replace(/\/+$/, "");
 }
 
 function expandHome(pathStr: string): string {

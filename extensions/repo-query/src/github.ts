@@ -3,13 +3,7 @@ import { Octokit } from "@octokit/rest";
 import type { ValidationResult } from "./types.js";
 
 function getOctokit(): Octokit {
-	return new Octokit({
-		auth: process.env.GITHUB_TOKEN,
-		request: {
-			fetch: (...args: Parameters<typeof fetch>) =>
-				globalThis.fetch(...args),
-		},
-	});
+	return new Octokit({ auth: process.env.GITHUB_TOKEN });
 }
 
 /**
@@ -27,7 +21,7 @@ export async function validateGitHubRepo(
 			? `Repository ${owner}/${repo} is archived (read-only). Last pushed: ${data.pushed_at ?? "unknown"}.`
 			: undefined;
 
-		return { valid: true, archived: data.archived, warning };
+		return { valid: true, warning };
 	} catch (err: unknown) {
 		const status = (err as { status?: number }).status;
 		if (status === 404) {

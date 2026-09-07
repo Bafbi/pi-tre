@@ -1,4 +1,7 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
 const STATUS_KEY = "repo-query";
 const DEBUG_WIDGET_KEY = "repo-query-debug";
@@ -59,6 +62,72 @@ export function trackRepo(
 
 export function setWorkspacePath(state: DebugState, path: string): void {
 	state.workspacePath = path;
+}
+
+/** Register the /repo-query-debug command on the extension API. */
+export function registerDebugCommand(
+	pi: ExtensionAPI,
+	debug: DebugState,
+): void {
+	pi.registerCommand("repo-query-debug", {
+		description: "Debug repo-query (on|off|status|toggle|dump)",
+		handler: async (args, ctx) => {
+			const [subcommandRaw] = args.trim().split(/\s+/).filter(Boolean);
+			const subcommand = subcommandRaw ?? "toggle";
+
+			switch (subcommand) {
+				case "on": {
+					setDebugEnabled(debug, true, ctx);
+					addDebugEvent(debug, "debug enabled", ctx);
+					break;
+				}
+				case "off": {
+					setDebugEnabled(debug, false, ctx);
+					addDebugEvent(debug, "debug disabled", ctx);
+					break;
+				}
+				case "status": {
+					addDebugEvent(debug, "debug status requested", ctx);
+					break;
+				}
+				case "dump": {
+					const report = buildDebugDump(debug, ctx);
+					addDebugEvent(debug, "debug dump generated", ctx);
+					if (ctx.hasUI) {
+						ctx.ui.setEditorText(report);
+						ctx.ui.notify(
+							"repo-query debug dump copied to editor",
+							"info",
+						);
+					}
+					break;
+				}
+				case "toggle": {
+					setDebugEnabled(debug, !debug.enabled, ctx);
+					addDebugEvent(
+						debug,
+						`debug ${debug.enabled ? "enabled" : "disabled"} (toggle)`,
+						ctx,
+					);
+					break;
+				}
+				default: {
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							"Unknown subcommand. Use: /repo-query-debug [on|off|status|toggle|dump]",
+							"warning",
+						);
+					}
+					return;
+				}
+			}
+
+			if (ctx.hasUI && subcommand !== "dump") {
+				const status = debug.enabled ? "ON" : "OFF";
+				ctx.ui.notify(`repo-query debug: ${status}`, "info");
+			}
+		},
+	});
 }
 
 export function syncDebugUi(state: DebugState, ctx: UiCtx): void {

@@ -103,6 +103,121 @@ describe("ensureRepoCloned", () => {
 
 		expect(result.status).toBe("failed");
 		expect(result.error).toContain("Failed to clone");
+		expect(result.error).toContain("fatal: not found");
+	});
+
+	it("includes stderr when the clone command rejects", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
+
+		const result = await ensureRepoCloned(
+			{
+				raw: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+			} as ParsedRepo,
+			workspace,
+			undefined,
+			mockPi(async () => {
+				throw Object.assign(new Error("git failed"), {
+					stderr: "fatal: authentication failed",
+				});
+			}),
+		);
+
+		expect(result.status).toBe("failed");
+		expect(result.error).toContain("fatal: authentication failed");
+	});
+
+	it("reports clone aborted and skips ls-remote when the signal is already aborted", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
+		const controller = new AbortController();
+		controller.abort();
+		const calls: string[][] = [];
+
+		const result = await ensureRepoCloned(
+			{
+				raw: "owner/repo:develop",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+				branch: "develop",
+			} as ParsedRepo,
+			workspace,
+			controller.signal,
+			mockPi(async (_cmd, args) => {
+				calls.push(args);
+				return {
+					stdout: "",
+					stderr: "fatal: not found",
+					code: 128,
+					killed: false,
+				};
+			}),
+		);
+
+		expect(result.status).toBe("failed");
+		expect(result.error).toContain("aborted");
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).not.toContain("ls-remote");
+	});
+
+	it("fails with a collision message when the existing repo has a different origin", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
+		const repoDir = join(workspace, "repo");
+		mkdirSync(join(repoDir, ".git"), { recursive: true });
+
+		const result = await ensureRepoCloned(
+			{
+				raw: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				dirName: "repo",
+			} as ParsedRepo,
+			workspace,
+			undefined,
+			mockPi(async (_cmd, args) => {
+				if (args.includes("remote")) {
+					return {
+						stdout: "https://github.com/owner/other.git\n",
+						stderr: "",
+						code: 0,
+						killed: false,
+					};
+				}
+				return { stdout: "", stderr: "", code: 0, killed: false };
+			}),
+		);
+
+		expect(result.status).toBe("failed");
+		expect(result.error).toContain("collision");
+		expect(result.error).toContain("https://github.com/owner/other.git");
+		expect(result.error).toContain("https://github.com/owner/repo.git");
+	});
+
+	it("falls back to existing when the origin cannot be determined", async () => {
+		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(workspace);
+		const repoDir = join(workspace, "repo");
+		mkdirSync(join(repoDir, ".git"), { recursive: true });
+
+		const result = await ensureRepoCloned(
+			{
+				raw: "~/local-repo",
+				cloneUrl: "~/local-repo",
+				dirName: "repo",
+			} as ParsedRepo,
+			workspace,
+			undefined,
+			mockPi(async () => ({
+				stdout: "",
+				stderr: "error: no such remote",
+				code: 128,
+				killed: false,
+			})),
+		);
+
+		expect(result.status).toBe("existing");
 	});
 
 	it("tries only the explicit branch (no fallback)", async () => {
@@ -187,7 +302,6 @@ describe("ensureRepoCloned", () => {
 		const workspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
 		tempDirs.push(workspace);
 
-		let _callCount = 0;
 		const result = await ensureRepoCloned(
 			{
 				raw: "owner/repo:mian",
@@ -198,7 +312,6 @@ describe("ensureRepoCloned", () => {
 			workspace,
 			undefined,
 			mockPi(async () => {
-				_callCount++;
 				// Both calls fail
 				return {
 					stdout: "",

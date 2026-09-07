@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { processSubagentLine } from "../../src/explorer.js";
+import {
+	processSubagentLine,
+	type SubagentMessageInfo,
+} from "../../src/explorer.js";
 
 describe("processSubagentLine", () => {
 	it("extracts text_delta", () => {
@@ -170,5 +173,97 @@ describe("processSubagentLine", () => {
 			() => {},
 		);
 		expect(answers).toHaveLength(0);
+	});
+});
+
+describe("processSubagentLine usage and stopReason", () => {
+	it("fires the assistant-message callback with usage on message_end", () => {
+		const messages: SubagentMessageInfo[] = [];
+		processSubagentLine(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "answer" }],
+					usage: {
+						input: 100,
+						output: 50,
+						cacheRead: 10,
+						cacheWrite: 5,
+						totalTokens: 165,
+						cost: { total: 0.01 },
+					},
+					stopReason: "stop",
+				},
+			}),
+			() => {},
+			() => {},
+			(info) => messages.push(info),
+		);
+
+		expect(messages).toHaveLength(1);
+		expect(messages[0]?.usage?.input).toBe(100);
+		expect(messages[0]?.usage?.totalTokens).toBe(165);
+		expect(messages[0]?.usage?.cost?.total).toBe(0.01);
+		expect(messages[0]?.stopReason).toBe("stop");
+	});
+
+	it("reports stopReason error with its error message", () => {
+		const messages: SubagentMessageInfo[] = [];
+		processSubagentLine(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "partial" }],
+					stopReason: "error",
+					errorMessage: "provider overloaded",
+				},
+			}),
+			() => {},
+			() => {},
+			(info) => messages.push(info),
+		);
+
+		expect(messages[0]?.stopReason).toBe("error");
+		expect(messages[0]?.errorMessage).toBe("provider overloaded");
+	});
+
+	it("omits the assistant-message callback when message_end has no usage", () => {
+		const messages: SubagentMessageInfo[] = [];
+		processSubagentLine(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "answer" }],
+				},
+			}),
+			() => {},
+			() => {},
+			(info) => messages.push(info),
+		);
+
+		expect(messages).toHaveLength(1);
+		expect(messages[0]?.usage).toBeUndefined();
+		expect(messages[0]?.stopReason).toBeUndefined();
+	});
+
+	it("does not fire the assistant-message callback for user messages", () => {
+		const messages: SubagentMessageInfo[] = [];
+		processSubagentLine(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "hi" }],
+				},
+			}),
+			() => {},
+			() => {},
+			(info) => messages.push(info),
+		);
+
+		expect(messages).toHaveLength(0);
 	});
 });

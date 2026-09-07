@@ -93,10 +93,16 @@ describe("parseRepoIdentifier", () => {
 		expect(result.repo).toBe("repo");
 	});
 
-	it("does not treat HTTP userinfo at-sign as branch", () => {
-		const result = parseRepoIdentifier("http://user@host/path/to/repo");
-		expect(result.cloneUrl).toBe("http://user@host/path/to/repo.git");
-		expect(result.branch).toBeNull();
+	it("rejects HTTP URLs with a username", () => {
+		expect(() =>
+			parseRepoIdentifier("http://user@host/path/to/repo"),
+		).toThrow("Repository URLs must not include credentials.");
+	});
+
+	it("rejects HTTP URLs with a password", () => {
+		expect(() =>
+			parseRepoIdentifier("https://user:secret@host/path/to/repo"),
+		).toThrow("Repository URLs must not include credentials.");
 	});
 
 	it("gives colon precedence over at-sign for branch delimiter", () => {

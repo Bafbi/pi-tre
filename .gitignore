@@ -17,3 +17,5 @@ node_modules/
 **/.turbo/
 
 .env
+# local mise overrides
+mise.local.toml

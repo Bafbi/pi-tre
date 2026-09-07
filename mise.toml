@@ -11,6 +11,10 @@ pnpm = "latest"
 [env]
 NODE_ENV = "development"
 
+# Model for the default LLM-backed test. This is not a secret. Override it in
+# mise.local.toml or the shell when a different provider is needed.
+PI_TEST_MODEL = "opencode-go/mimo-v2.5"
+
 [deps.pnpm]
 auto = true
 
@@ -20,7 +24,7 @@ auto = true
 [task_templates."ext:test"]
 description = "Run tests for this extension"
 depends = [":typecheck", "//:lint"]
-run = "pnpm exec vitest run"
+run = "bash ../../scripts/run-vitest.sh"
 
 [task_templates."ext:lint"]
 description = "Run Biome checks for this extension"
@@ -47,7 +51,7 @@ run = "pnpm run lint"
 
 [tasks.test]
 description = "Run all extension tests"
-run = "pnpm run test"
+run = "bash scripts/run-vitest.sh"
 
 [tasks.typecheck]
 description = "Type-check all workspace packages"
