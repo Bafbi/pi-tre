@@ -41,12 +41,12 @@ const MAX_REPOS = 5;
 const RepoQueryParams = Type.Object({
 	query: Type.String({
 		description:
-			"The question or task to answer by exploring the repositories",
+			"One concrete question about the repos' code. Name the symbols, files, or behavior to find so the subagent can grep for them.",
 	}),
 	repos: Type.Array(
 		Type.String({
 			description:
-				"Repository identifiers. Examples: 'owner/repo', 'owner/repo:branch', 'https://github.com/org/repo', 'git@gitlab.com:org/repo.git'",
+				"Repository identifiers: 'owner/repo', 'owner/repo:branch', 'https://github.com/org/repo', or 'git@gitlab.com:org/repo.git'. Add ':branch' to pin a branch.",
 		}),
 		{ minItems: 1, maxItems: MAX_REPOS },
 	),
@@ -122,17 +122,17 @@ export function createRepoQueryExtension(
 			label: "Repo Query",
 			description: [
 				"Explore one or more git repositories to answer a query.",
-				"Clones repositories via shallow clone and delegates exploration to a subagent.",
+				"Use it for any library, tool, package, or product whose source lives in a git repo, from quick lookups to broad codebase exploration.",
+				"Shallow-clones each repo, then a subagent answers using grep, find, and read.",
 				"Supports GitHub shorthand ('owner/repo'), full URLs, and branch suffix (:branch).",
 				"GitHub repos are validated via API; non-existent repos return search suggestions.",
-				"Repositories are cached per session and reused across multiple queries.",
 			].join(" "),
 			promptSnippet:
 				"Query git repositories by cloning them and exploring with a subagent",
 			promptGuidelines: [
-				"Use repo_query when you need to investigate code in external repositories — don't try to read remote code manually.",
-				"Provide specific, targeted queries to repo_query; the subagent searches using grep/find/read and fares best with concrete questions about architecture, patterns, or file locations.",
-				"repo_query caches cloned repos per session — re-querying the same repo is fast and uses the local copy.",
+				"Use repo_query to investigate code in external repositories: implementation details, APIs, patterns, or file locations.",
+				"Give repo_query one concrete question per call. Name the symbols, files, or behavior to find so the subagent can grep for them.",
+				"repo_query caches clones per session, so follow-up queries on the same repos are cheap.",
 			],
 			parameters: RepoQueryParams,
 
