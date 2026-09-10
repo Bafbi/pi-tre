@@ -34,12 +34,32 @@ Prompt templates (`/template:name`) also expand without a `tool_result`,
 but their expansion carries no file path, so the guard records nothing for
 them.
 
+### Content seen through bash
+
+Agents often inspect files with `cat`, `head`, `grep`, or `rg` instead of
+the read tool. On a successful `bash` tool result, the guard parses the
+command (`src/bash.ts`) and records a read for every file the command
+prints. The parser is conservative:
+
+- Whole-file readers: `cat`, `head`, `tail`, `tac`, `nl`, `bat`.
+- Pattern readers: `grep`, `rg`. The first operand is the pattern, the
+  rest are files. Only matching lines reach the context, so this counts
+  as seeing those lines, not the whole file.
+- Commands with pipes, redirects, command substitution, variables, or
+  backgrounding record nothing: the parser cannot tell what the agent
+  actually saw.
+- A failed command records nothing (the result is an error).
+
+A missing record only costs an extra read. A wrong record would whitelist
+a stale write, so every ambiguity fails closed.
+
 ## State
 
 The filesystem records when a file changed (mtime), but not whether the
 agent has read that version. So the extension keeps one number per file:
-the mtime the agent last saw. A successful `read`, `write`, or `edit`
-result updates it. State is in memory and resets on session start.
+the mtime the agent last saw. A successful `read`, `write`, `edit`, or
+recognized `bash` result updates it. State is in memory and resets on
+session start.
 
 ## Dump command
 
@@ -78,6 +98,7 @@ Relevant code:
 - `src/index.ts` (event wiring + dump command)
 - `src/guard.ts` (stale decision logic)
 - `src/path.ts` (path canonicalization)
+- `src/bash.ts` (bash commands that print file content)
 - `src/injected.ts` (content injected without a read tool call)
 
 ## Load order

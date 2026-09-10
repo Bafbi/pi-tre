@@ -16,6 +16,7 @@ If a file was modified externally after the agent last touched it, the extension
 - Small internal modules:
   - `src/path.ts`: path canonicalization
   - `src/guard.ts`: stale decision logic
+  - `src/bash.ts`: bash commands that print file content (cat, grep & co)
   - `src/injected.ts`: content injected without a read tool call
 - State is a `Map<string, number>` (canonical path -> mtime the agent last
   saw) owned by `src/index.ts`. Do not add fields to it. The guard decision

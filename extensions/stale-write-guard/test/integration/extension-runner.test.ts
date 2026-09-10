@@ -179,6 +179,105 @@ describe("stale-write-guard extension", () => {
 		expect(result).toBeUndefined();
 	});
 
+	it("allows edit after the agent printed the file with bash cat", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello from bash\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-1",
+			toolName: "bash",
+			input: { command: `cat ${toolPath}` },
+			content: [{ type: "text", text: "hello from bash" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "edit-1",
+			toolName: "edit",
+			input: {
+				path: toolPath,
+				edits: [{ oldText: "hello", newText: "hi" }],
+			},
+		});
+
+		expect(result).toBeUndefined();
+	});
+
+	it("blocks edit when the file changed after the bash cat", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-1",
+			toolName: "bash",
+			input: { command: `cat ${toolPath}` },
+			content: [{ type: "text", text: "hello" }],
+			details: undefined,
+			isError: false,
+		});
+
+		writeFileSync(filePath, "external change\n", "utf8");
+		setMtimeMs(filePath, 2_000_000);
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "edit-1",
+			toolName: "edit",
+			input: {
+				path: toolPath,
+				edits: [{ oldText: "external", newText: "agent" }],
+			},
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("does not record a read from a piped bash command", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-1",
+			toolName: "bash",
+			input: { command: `cat ${toolPath} | head` },
+			content: [{ type: "text", text: "hello" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "edit-1",
+			toolName: "edit",
+			input: {
+				path: toolPath,
+				edits: [{ oldText: "hello", newText: "hi" }],
+			},
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
 	it("allows write for non-existing files", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);

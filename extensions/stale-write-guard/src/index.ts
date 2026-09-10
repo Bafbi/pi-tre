@@ -2,12 +2,14 @@ import { readFileSync, statSync } from "node:fs";
 
 import {
 	type ExtensionAPI,
+	isBashToolResult,
 	isEditToolResult,
 	isReadToolResult,
 	isToolCallEventType,
 	isWriteToolResult,
 } from "@earendil-works/pi-coding-agent";
 
+import { extractReadPaths } from "./bash.js";
 import { requiresReadBeforeMutation } from "./guard.js";
 import { diskMatchesInjected, extractInjectedContent } from "./injected.js";
 import { resolveCanonicalPath } from "./path.js";
@@ -65,11 +67,15 @@ function formatMtime(mtimeMs: number | undefined): string {
  * A successful write/edit also updates the map: after the tool result the
  * file on disk is exactly what the agent has in context.
  *
- * Some content reaches the context without a tool_result: `/skill:name`
- * expansion injects a skill file block into the prompt, and session-start
- * context files (AGENTS.md, CLAUDE.md) land in the system prompt. The
- * before_agent_start handler records those too, but only after verifying
- * the disk file still holds the injected content.
+ * Some content reaches the context without a read tool_result: `/skill:name`
+ * expansion injects a skill file block into the prompt, session-start
+ * context files (AGENTS.md, CLAUDE.md) land in the system prompt, and the
+ * agent may print files with cat/grep-style bash commands. The
+ * before_agent_start handler records the injected files, but only after
+ * verifying the disk file still holds the injected content. The
+ * tool_result handler records bash-read files, but only for commands that
+ * provably print file content (see src/bash.ts); anything ambiguous
+ * records nothing, which fails safe.
  */
 export default function (pi: ExtensionAPI) {
 	const lastSeenMtimeMs = new Map<string, number>();
@@ -130,6 +136,22 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("tool_result", async (event, ctx) => {
 		if (event.isError) return undefined;
+
+		if (isBashToolResult(event)) {
+			// The agent often inspects files with cat, grep & co instead of the
+			// read tool. That content is as good as a read result, so record it —
+			// otherwise the next edit blocks although the context is current.
+			const command = event.input.command;
+			if (typeof command !== "string") return undefined;
+
+			for (const rawPath of extractReadPaths(command)) {
+				const canonicalPath = resolveCanonicalPath(rawPath, ctx.cwd);
+				const mtimeMs = getFileMtimeMs(canonicalPath);
+				if (mtimeMs === undefined) continue;
+				lastSeenMtimeMs.set(canonicalPath, mtimeMs);
+			}
+			return undefined;
+		}
 
 		const isTrackedTool =
 			isReadToolResult(event) ||

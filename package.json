@@ -5,7 +5,7 @@
 	"packageManager": "pnpm@10.33.0",
 	"scripts": {
 		"lint": "biome check .",
-		"format": "biome format --write .",
+		"format": "biome format --write --verbose .",
 		"format:check": "biome format .",
 		"typecheck": "pnpm -r run typecheck",
 		"test": "vitest run",
