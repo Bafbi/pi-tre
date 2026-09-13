@@ -507,6 +507,46 @@ describe("createInProcessBackend timeout and abort", () => {
 		expect(exit.aborted).toBe(true);
 	}, 5_000);
 
+	it("ends the run when the signal aborts during initialization", async () => {
+		let resolveSession: (() => void) | undefined;
+		const createdSession = new FakeSession();
+		const createSession = (): Promise<CreateAgentSessionResult> =>
+			new Promise<CreateAgentSessionResult>((resolve) => {
+				resolveSession = () =>
+					resolve({
+						session: createdSession as unknown as AgentSession,
+						extensionsResult: { extensions: [], errors: [] },
+					} as unknown as CreateAgentSessionResult);
+			});
+		const backend = createInProcessBackend({
+			modelRuntime: stubRuntime([]),
+			createSession:
+				createSession as unknown as typeof import("@earendil-works/pi-coding-agent").createAgentSession,
+		});
+
+		const signal = new AbortController();
+		const reading = collectEvents(
+			backend.run({ prompt: "x", cwd: "/tmp", signal: signal.signal }),
+		);
+		await new Promise((r) => setTimeout(r, 10));
+
+		// The session factory has not resolved, yet abort must end the run.
+		signal.abort();
+		const events = await reading;
+
+		const exit = events[events.length - 1] as {
+			type: string;
+			aborted: boolean;
+		};
+		expect(exit.type).toBe("exit");
+		expect(exit.aborted).toBe(true);
+
+		// A session that resolves after the abort is disposed.
+		resolveSession?.();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(createdSession.disposeCalls).toBe(1);
+	}, 5_000);
+
 	it("abort() on the session aborts the child run", async () => {
 		const { createSession, created } = fakeSessionFactory();
 		const backend = createInProcessBackend({

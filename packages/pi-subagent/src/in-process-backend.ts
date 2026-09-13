@@ -145,8 +145,7 @@ export function createInProcessBackend(
 				events: push.stream,
 				usage: () => usagePromise,
 				abort: () => {
-					aborted = true;
-					void childSession?.abort();
+					requestAbort();
 					return runPromise.then(() => {});
 				},
 			};
@@ -173,6 +172,19 @@ export function createInProcessBackend(
 				resolveUsage({ ...usage });
 			};
 
+			// Abort is cooperative once a session exists. During initialization
+			// there is nothing to abort yet, so end the run now; a session that
+			// resolves later is disposed by the `finished` check.
+			const requestAbort = (): void => {
+				if (aborted || finished) return;
+				aborted = true;
+				if (childSession) {
+					void childSession.abort();
+					return;
+				}
+				finish(0);
+			};
+
 			// Wall-clock deadline: `timeoutMs` bounds the whole turn, not
 			// periods of silence. At the deadline the child is aborted
 			// cooperatively; if it has not settled within the grace period,
@@ -190,6 +202,21 @@ export function createInProcessBackend(
 						if (!finished) finish();
 					}, TIMEOUT_ABORT_GRACE_MS);
 				}, timeoutMs);
+			}
+
+			// Installed before the initialization awaits so an abort cannot be
+			// missed while the model runtime, resource loader, or session is
+			// being built.
+			if (task.signal) {
+				if (task.signal.aborted) {
+					requestAbort();
+				} else {
+					task.signal.addEventListener("abort", requestAbort, {
+						once: true,
+					});
+					removeSignalListener = () =>
+						task.signal?.removeEventListener("abort", requestAbort);
+				}
 			}
 
 			const runPromise = (async (): Promise<void> => {
@@ -218,6 +245,10 @@ export function createInProcessBackend(
 							})
 						: undefined;
 
+					// An abort during initialization already ended the run; do not
+					// build a session just to dispose it.
+					if (finished) return;
+
 					const { session: child } = await createSession({
 						cwd: task.cwd,
 						agentDir,
@@ -243,25 +274,6 @@ export function createInProcessBackend(
 					child.subscribe((event) => {
 						handleSessionEvent(event, push, usage);
 					});
-
-					if (task.signal) {
-						const abortChild = () => {
-							aborted = true;
-							void child.abort();
-						};
-						if (task.signal.aborted) {
-							abortChild();
-						} else {
-							task.signal.addEventListener("abort", abortChild, {
-								once: true,
-							});
-							removeSignalListener = () =>
-								task.signal?.removeEventListener(
-									"abort",
-									abortChild,
-								);
-						}
-					}
 
 					// The watchdog or an external abort fired while the session
 					// was being created; nothing to run.
