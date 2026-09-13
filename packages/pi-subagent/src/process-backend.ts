@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import {
 	type AssistantMessageInfo,
 	emitAssistantMessage,
@@ -155,6 +156,15 @@ export function createProcessBackend(
 
 			let removeAbortListener = () => {};
 
+			// Resolves when the run has fully ended: the exit event is pushed,
+			// the stream is closed, and usage has settled. `abort()` waits on
+			// this so awaiting it means the run is over, matching the in-process
+			// backend and the shared session contract.
+			let resolveRunDone: () => void = () => {};
+			const runDone = new Promise<void>((resolve) => {
+				resolveRunDone = resolve;
+			});
+
 			// Kill the child with escalation, once it exists. The spawn body
 			// installs this; `abort()` before spawn records the intent.
 			let killChild: (() => void) | undefined;
@@ -171,7 +181,7 @@ export function createProcessBackend(
 					abortIntent = true;
 					wasAborted = true;
 					killChild?.();
-					return Promise.resolve();
+					return runDone;
 				},
 			};
 
@@ -216,6 +226,7 @@ export function createProcessBackend(
 						push.push({ type: "exit", ...exit });
 						push.close();
 						resolveUsage({ ...usage });
+						resolveRunDone();
 					})();
 				};
 
@@ -273,6 +284,8 @@ export function createProcessBackend(
 					let buffer = "";
 					let stderrText = "";
 					let bytes = 0;
+					const stdoutDecoder = new StringDecoder("utf8");
+					const stderrDecoder = new StringDecoder("utf8");
 
 					const handleLine = (line: string): void => {
 						processLine(line, {
@@ -289,9 +302,11 @@ export function createProcessBackend(
 						});
 					};
 
-					proc.stdout.on("data", (data: Buffer) => {
+					// The byte cap bounds all child output, stdout and stderr
+					// alike, so a noisy child cannot exhaust the parent.
+					const chargeBytes = (data: Buffer): boolean => {
 						bytes += data.length;
-						if (overflow) return;
+						if (overflow) return false;
 						if (bytes > maxOutputBytes) {
 							overflow = true;
 							push.push({
@@ -299,9 +314,14 @@ export function createProcessBackend(
 								message: `subagent output exceeded the ${maxOutputBytes}-byte cap`,
 							});
 							killWithEscalation(proc);
-							return;
+							return false;
 						}
-						buffer += data.toString();
+						return true;
+					};
+
+					proc.stdout.on("data", (data: Buffer) => {
+						if (!chargeBytes(data)) return;
+						buffer += stdoutDecoder.write(data);
 						const lines = buffer.split("\n");
 						buffer = lines.pop() ?? "";
 						for (const line of lines) {
@@ -310,10 +330,13 @@ export function createProcessBackend(
 					});
 
 					proc.stderr.on("data", (data: Buffer) => {
-						stderrText += data.toString();
+						if (!chargeBytes(data)) return;
+						stderrText += stderrDecoder.write(data);
 					});
 
 					proc.on("close", (code) => {
+						buffer += stdoutDecoder.end();
+						stderrText += stderrDecoder.end();
 						if (buffer.trim()) {
 							handleLine(buffer);
 						}

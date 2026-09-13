@@ -290,6 +290,102 @@ describe("createProcessBackend event parsing", () => {
 		).toEqual([]);
 	});
 
+	it("joins multiple text parts into one full-message event", async () => {
+		const proc = new FakeProc();
+		const spawned = waitForSpawn();
+
+		const session = baseBackend(makeSpawn(proc, spawned.onSpawn)).run({
+			prompt: "Task: test",
+			cwd: "/tmp",
+		});
+		const child = await spawned.promise;
+
+		emitLine(child, {
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "text", text: "foo" },
+					{ type: "text", text: "bar" },
+				],
+			},
+		});
+		child.emit("close", 0);
+
+		const events = await collectEvents(session);
+		const accumulator = createSafeAccumulator();
+		for (const event of events) {
+			const e = event as {
+				type: string;
+				text?: string;
+				kind?: "delta" | "full";
+			};
+			if (e.type === "text") accumulator.append(e.text ?? "", e.kind);
+		}
+		expect(accumulator.get()).toBe("foobar");
+	});
+
+	it("ignores malformed content parts instead of throwing", async () => {
+		const proc = new FakeProc();
+		const spawned = waitForSpawn();
+
+		const session = baseBackend(makeSpawn(proc, spawned.onSpawn)).run({
+			prompt: "Task: test",
+			cwd: "/tmp",
+		});
+		const child = await spawned.promise;
+
+		emitLine(child, {
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [null, { type: "text", text: "ok" }],
+			},
+		});
+		child.emit("close", 0);
+
+		const events = await collectEvents(session);
+		expect(events).toContainEqual({
+			type: "text",
+			text: "ok",
+			kind: "full",
+		});
+	});
+
+	it("decodes a multibyte character split across stdout chunks", async () => {
+		const proc = new FakeProc();
+		const spawned = waitForSpawn();
+
+		const session = baseBackend(makeSpawn(proc, spawned.onSpawn)).run({
+			prompt: "Task: test",
+			cwd: "/tmp",
+		});
+		const child = await spawned.promise;
+
+		const line = Buffer.from(
+			`${JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "héllo" }],
+				},
+			})}\n`,
+			"utf8",
+		);
+		// Split inside the two-byte "é" to exercise the streaming decoder.
+		const splitAt = line.indexOf(Buffer.from("é", "utf8")) + 1;
+		child.stdout.emit("data", line.subarray(0, splitAt));
+		child.stdout.emit("data", line.subarray(splitAt));
+		child.emit("close", 0);
+
+		const events = await collectEvents(session);
+		expect(events).toContainEqual({
+			type: "text",
+			text: "héllo",
+			kind: "full",
+		});
+	});
+
 	it("delivers the system prompt through a temp file and removes it after the run", async () => {
 		const proc = new FakeProc();
 		const spawned = waitForSpawn();
@@ -449,6 +545,30 @@ describe("createProcessBackend kill, abort, and timeout", () => {
 		expect(proc.signals).toHaveLength(0);
 	}, 5_000);
 
+	it("resolves abort() only after the run ends", async () => {
+		const proc = new FakeProc(false);
+		const spawned = waitForSpawn();
+
+		const session = baseBackend(makeSpawn(proc, spawned.onSpawn), {
+			killGraceMs: 1_000,
+		}).run({ prompt: "Task: test", cwd: "/tmp" });
+		const child = await spawned.promise;
+		const reading = collectEvents(session);
+
+		let settled = false;
+		const aborted = session.abort().then(() => {
+			settled = true;
+		});
+		// SIGTERM is sent, but the child has not closed yet.
+		await new Promise((r) => setTimeout(r, 10));
+		expect(settled).toBe(false);
+
+		child.emit("close", 0);
+		await aborted;
+		expect(settled).toBe(true);
+		await reading;
+	}, 5_000);
+
 	it("escalates SIGTERM to SIGKILL on timeout and reports timedOut", async () => {
 		const proc = new FakeProc(false);
 		const spawned = waitForSpawn();
@@ -512,6 +632,31 @@ describe("createProcessBackend kill, abort, and timeout", () => {
 
 		// The oversized child is stopped with the usual escalation.
 		expect(proc.signals).toContain("SIGTERM");
+		const exit = events[events.length - 1] as {
+			type: string;
+			overflow: boolean;
+		};
+		expect(exit.type).toBe("exit");
+		expect(exit.overflow).toBe(true);
+	}, 5_000);
+
+	it("counts stderr toward the output cap", async () => {
+		const proc = new FakeProc();
+		const spawned = waitForSpawn();
+
+		const session = baseBackend(makeSpawn(proc, spawned.onSpawn), {
+			maxOutputBytes: 16,
+		}).run({ prompt: "Task: test", cwd: "/tmp" });
+		const child = await spawned.promise;
+
+		child.stderr.emit("data", Buffer.from("e".repeat(64)));
+		const events = await collectEvents(session);
+
+		expect(proc.signals).toContain("SIGTERM");
+		expect(events).toContainEqual({
+			type: "error",
+			message: expect.stringContaining("exceeded"),
+		});
 		const exit = events[events.length - 1] as {
 			type: string;
 			overflow: boolean;

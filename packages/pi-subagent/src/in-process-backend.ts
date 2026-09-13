@@ -167,10 +167,14 @@ export function createInProcessBackend(
 
 					const { model, thinkingLevel: resolvedThinkingLevel } =
 						await resolveModel(task, runtime, options);
+					// Precedence: an explicit task level wins, then the level
+					// parsed from the task's model string, then the inherited
+					// parent level. Parent defaults apply only when the task
+					// carries none.
 					const thinkingLevel =
 						task.thinkingLevel ??
-						options?.onThinkingLevel?.() ??
-						resolvedThinkingLevel;
+						resolvedThinkingLevel ??
+						options?.onThinkingLevel?.();
 
 					const { session: child } = await createSession({
 						cwd: task.cwd,
@@ -233,6 +237,10 @@ export function createInProcessBackend(
 									? err.message
 									: String(err),
 						});
+						// A prompt failure is a session error (code 1); keep the
+						// timeout (-1) and abort (0) semantics.
+						finish(timedOut ? -1 : aborted ? 0 : 1);
+						return;
 					}
 
 					finish();

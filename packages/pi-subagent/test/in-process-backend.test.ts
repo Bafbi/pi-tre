@@ -17,6 +17,7 @@ import { createInProcessBackend } from "../src/index.js";
 class FakeSession {
 	listeners: Array<(event: never) => void> = [];
 	promptCalls: string[] = [];
+	promptError: Error | undefined;
 	abortCalls = 0;
 	disposeCalls = 0;
 	private settleResolve: (() => void) | undefined;
@@ -33,6 +34,7 @@ class FakeSession {
 
 	prompt(text: string): Promise<void> {
 		this.promptCalls.push(text);
+		if (this.promptError) return Promise.reject(this.promptError);
 		return this.settlePromise;
 	}
 
@@ -168,6 +170,24 @@ describe("createInProcessBackend session wiring", () => {
 		// A `:thinking` suffix on the CLI string parses a thinking level.
 		expect(created[2].options.model).toBe(runtimeModel);
 		expect(created[2].options.thinkingLevel).toBe("high");
+	});
+
+	it("prefers a thinking suffix parsed from the task model over the inherited level", async () => {
+		const runtimeModel = { id: "m2", provider: "p2" } as Model<any>;
+		const { createSession, created } = fakeSessionFactory();
+		const backend = createInProcessBackend({
+			modelRuntime: stubRuntime([runtimeModel]),
+			onThinkingLevel: () => "low",
+			createSession:
+				createSession as unknown as typeof import("@earendil-works/pi-coding-agent").createAgentSession,
+		});
+
+		void collectEvents(
+			backend.run({ prompt: "a", cwd: "/tmp", model: "p2/m2:high" }),
+		);
+		await new Promise((r) => setTimeout(r, 20));
+
+		expect(created[0].options.thinkingLevel).toBe("high");
 	});
 
 	it("gives each call a fresh session with no history leak", async () => {
@@ -312,6 +332,34 @@ describe("createInProcessBackend event mapping", () => {
 		expect(events).toContainEqual({
 			type: "error",
 			message: "no auth configured",
+		});
+		const exit = events[events.length - 1] as {
+			type: string;
+			code: number;
+		};
+		expect(exit.type).toBe("exit");
+		expect(exit.code).toBe(1);
+	});
+
+	it("reports a code-1 exit when the prompt rejects", async () => {
+		const session = new FakeSession();
+		session.promptError = new Error("prompt exploded");
+		const backend = createInProcessBackend({
+			modelRuntime: stubRuntime([]),
+			createSession: (() =>
+				Promise.resolve({
+					session: session as unknown as AgentSession,
+					extensionsResult: { extensions: [], errors: [] },
+				})) as unknown as typeof import("@earendil-works/pi-coding-agent").createAgentSession,
+		});
+
+		const events = await collectEvents(
+			backend.run({ prompt: "hello", cwd: "/tmp" }),
+		);
+
+		expect(events).toContainEqual({
+			type: "error",
+			message: "prompt exploded",
 		});
 		const exit = events[events.length - 1] as {
 			type: string;

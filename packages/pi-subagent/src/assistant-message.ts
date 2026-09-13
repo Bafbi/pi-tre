@@ -19,21 +19,36 @@ export interface AssistantMessageInfo {
 	errorMessage?: string;
 }
 
+/** True for a protocol content part that carries assistant text. */
+function isTextPart(part: unknown): part is { type: string; text: string } {
+	return (
+		typeof part === "object" &&
+		part !== null &&
+		(part as { type?: unknown }).type === "text" &&
+		typeof (part as { text?: unknown }).text === "string"
+	);
+}
+
 /**
  * Map one complete assistant message onto the subagent event stream: emit
- * its text parts, accumulate usage, then report the stop reason or LLM
- * error. Both backends share this so the mapping cannot drift between the
- * process and in-process transports.
+ * its text, accumulate usage, then report the stop reason or LLM error.
+ * Both backends share this so the mapping cannot drift between the process
+ * and in-process transports.
  */
 export function emitAssistantMessage(
 	message: AssistantMessageInfo,
 	emit: (event: SubagentEvent) => void,
 	usage: SubagentUsage,
 ): void {
-	for (const part of message.content) {
-		if (part.type === "text" && typeof part.text === "string") {
-			emit({ type: "text", text: part.text, kind: "full" });
-		}
+	// `kind: "full"` means the complete message, so join every text part into
+	// one event. Emitting a part at a time makes an accumulator treat the
+	// second part as a rewrite and drop the first.
+	const text = message.content
+		.filter(isTextPart)
+		.map((part) => part.text)
+		.join("");
+	if (text) {
+		emit({ type: "text", text, kind: "full" });
 	}
 	usage.turns++;
 	if (message.usage) {
