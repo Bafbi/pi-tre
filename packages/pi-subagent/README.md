@@ -79,7 +79,9 @@ parent and its subagents or between subagents. The backend builds its own
 model runtime with auth resolved from the agent directory. No caller-side
 runtime wiring. Options: `onModel` and `onThinkingLevel` callbacks inherit
 the parent's model and thinking level; `excludeTools` keeps the spawning
-extension's own tools out of the child (recursion guard).
+extension's own tools out of the child (recursion guard). A task
+`systemPrompt` is appended to the child's system prompt through a resource
+loader, matching the process backend.
 
 Abort is cooperative; a wall-clock deadline reports `timedOut` when a run
 outlasts `timeoutMs`. Model strings resolve through pi's `resolveCliModel`.

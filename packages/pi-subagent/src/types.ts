@@ -16,7 +16,7 @@ export interface SubagentTask {
 	tools?: string[];
 	/** Tool denylist. Use it to keep the spawning extension's own tools out of the child. */
 	excludeTools?: string[];
-	/** Instructions prepended to the child's system prompt. The process backend delivers it via a temp file and `--append-system-prompt`. */
+	/** Instructions appended to the child's system prompt. The process backend delivers it via a temp file and `--append-system-prompt`; the in-process backend appends it through a resource loader. */
 	systemPrompt?: string;
 	/** Abort signal. Aborting kills the subagent run. */
 	signal?: AbortSignal;

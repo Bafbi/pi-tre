@@ -7,8 +7,10 @@ import {
 	type CreateAgentSessionOptions,
 	type CreateAgentSessionResult,
 	createAgentSession,
+	DefaultResourceLoader,
 	getAgentDir,
 	ModelRuntime,
+	type ResourceLoader,
 	resolveCliModel,
 	SessionManager,
 	type SessionStartEvent,
@@ -54,6 +56,30 @@ export interface InProcessBackendOptions {
 	createSession?: (
 		options?: CreateAgentSessionOptions,
 	) => Promise<CreateAgentSessionResult>;
+	/**
+	 * Resource-loader override for tests. Default: a
+	 * `DefaultResourceLoader` that appends the task's `systemPrompt`.
+	 */
+	createResourceLoader?: (options: {
+		cwd: string;
+		agentDir: string;
+		appendSystemPrompt: string[];
+	}) => Promise<ResourceLoader> | ResourceLoader;
+}
+
+/** Build the default resource loader, appending the task's system prompt. */
+async function defaultCreateResourceLoader(options: {
+	cwd: string;
+	agentDir: string;
+	appendSystemPrompt: string[];
+}): Promise<ResourceLoader> {
+	const loader = new DefaultResourceLoader({
+		cwd: options.cwd,
+		agentDir: options.agentDir,
+		appendSystemPrompt: options.appendSystemPrompt,
+	});
+	await loader.reload();
+	return loader;
 }
 
 type MessageLike = AssistantMessageInfo & { role: string };
@@ -67,7 +93,10 @@ type MessageLike = AssistantMessageInfo & { role: string };
  * session; put the spawning extension's own tool names into
  * `excludeTools` so the child cannot recurse into them. The parent's
  * model and thinking level are inherited through the `onModel` and
- * `onThinkingLevel` callbacks when the task carries none.
+ * `onThinkingLevel` callbacks when the task carries none. A task
+ * `systemPrompt` is appended to the child's system prompt through a
+ * resource loader, matching the process backend's
+ * `--append-system-prompt`.
  *
  * Abort is cooperative: `abort()`, `signal`, and the timeout deadline
  * call `session.abort()` and wait for the agent to settle. The deadline
@@ -80,6 +109,8 @@ export function createInProcessBackend(
 ): SubagentBackend {
 	const agentDir = getAgentDir();
 	const createSession = options?.createSession ?? createAgentSession;
+	const createResourceLoader =
+		options?.createResourceLoader ?? defaultCreateResourceLoader;
 
 	// The runtime is always required, so the backend owns it: built once,
 	// lazily, from the agent directory's auth.json and models.json.
@@ -176,6 +207,17 @@ export function createInProcessBackend(
 						resolvedThinkingLevel ??
 						options?.onThinkingLevel?.();
 
+					// The process backend appends `systemPrompt` via
+					// `--append-system-prompt`; the in-process equivalent is a
+					// resource loader with `appendSystemPrompt`.
+					const resourceLoader = task.systemPrompt
+						? await createResourceLoader({
+								cwd: task.cwd,
+								agentDir,
+								appendSystemPrompt: [task.systemPrompt],
+							})
+						: undefined;
+
 					const { session: child } = await createSession({
 						cwd: task.cwd,
 						agentDir,
@@ -184,6 +226,7 @@ export function createInProcessBackend(
 						thinkingLevel,
 						tools: task.tools,
 						excludeTools: task.excludeTools,
+						resourceLoader,
 						sessionManager: SessionManager.inMemory(),
 						sessionStartEvent: DEFAULT_SESSION_START_EVENT,
 					});

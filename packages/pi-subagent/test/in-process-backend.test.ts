@@ -4,6 +4,7 @@ import type {
 	CreateAgentSessionOptions,
 	CreateAgentSessionResult,
 	ModelRuntime,
+	ResourceLoader,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
@@ -119,6 +120,48 @@ describe("createInProcessBackend session wiring", () => {
 		expect(options.cwd).toBe("/tmp/ws");
 		// Fresh, in-memory session: no session file.
 		expect(options.sessionManager?.sessionFile).toBeUndefined();
+	});
+
+	it("appends the task system prompt through a resource loader", async () => {
+		const { createSession, created } = fakeSessionFactory();
+		const loader = {
+			getAppendSystemPrompt: () => ["be safe"],
+		} as unknown as ResourceLoader;
+		const loaderCalls: Array<{
+			cwd: string;
+			agentDir: string;
+			appendSystemPrompt: string[];
+		}> = [];
+		const backend = createInProcessBackend({
+			modelRuntime: stubRuntime([]),
+			createResourceLoader: async (opts) => {
+				loaderCalls.push(opts);
+				return loader;
+			},
+			createSession:
+				createSession as unknown as typeof import("@earendil-works/pi-coding-agent").createAgentSession,
+		});
+
+		void collectEvents(
+			backend.run({
+				prompt: "a",
+				cwd: "/tmp/ws",
+				systemPrompt: "be safe",
+			}),
+		);
+		await new Promise((r) => setTimeout(r, 10));
+		void collectEvents(backend.run({ prompt: "b", cwd: "/tmp/ws" }));
+		await new Promise((r) => setTimeout(r, 10));
+
+		expect(loaderCalls).toEqual([
+			{
+				cwd: "/tmp/ws",
+				agentDir: expect.any(String),
+				appendSystemPrompt: ["be safe"],
+			},
+		]);
+		expect(created[0].options.resourceLoader).toBe(loader);
+		expect(created[1].options.resourceLoader).toBeUndefined();
 	});
 
 	it("inherits the parent model and thinking level when the task carries none", async () => {
