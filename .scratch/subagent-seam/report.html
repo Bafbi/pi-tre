@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subagent Seam — Feature Report</title>
+<style>
+  :root {
+    --ink: #14161a; --muted: #5b6470; --line: #dfe3e8; --bg: #f7f8fa;
+    --card: #ffffff; --accent: #2f5fd0; --green: #1a7f4b; --amber: #9a6700;
+    --red: #b42318; --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 48px 24px 96px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 44px 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--line); }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  p, li { color: var(--ink); }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 4px; }
+  .lede { font-size: 16px; color: var(--muted); margin: 10px 0 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin: 16px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 16px 0; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .stat .n { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; }
+  .stat .l { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; background: var(--card); }
+  th, td { text-align: left; padding: 9px 12px; border: 1px solid var(--line); vertical-align: top; font-size: 14px; }
+  th { background: #eef1f5; font-weight: 620; }
+  code { font-family: var(--mono); font-size: 12.5px; background: #eceff3; padding: 1px 5px; border-radius: 4px; }
+  pre { background: #1c2027; color: #e7ebf0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 650; letter-spacing: 0.03em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; }
+  .t-done { background: #dcf3e6; color: var(--green); }
+  .t-wip { background: #fdeccd; color: var(--amber); }
+  .t-open { background: #fbe0dd; color: var(--red); }
+  .t-info { background: #dde7fb; color: var(--accent); }
+  .ok::before { content: "✓ "; color: var(--green); font-weight: 700; }
+  .no::before { content: "✗ "; color: var(--red); font-weight: 700; }
+  .q::before { content: "? "; color: var(--amber); font-weight: 700; }
+  ul { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .muted { color: var(--muted); }
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+
+  <p class="sub">pi-tre monorepo · feature report</p>
+  <h1>Subagent Seam</h1>
+  <p class="lede">One <code>runSubagent</code> contract for headless pi subagents, with a pluggable backend seam and two implementations. Reviewed from <code>main</code> and triaged.</p>
+
+  <div class="grid">
+    <div class="stat"><div class="n">43</div><div class="l">files changed vs <code>main</code> (excl. this report)</div></div>
+    <div class="stat"><div class="n">+3807 / −752</div><div class="l">insertions / deletions (incl. this report)</div></div>
+    <div class="stat"><div class="n">1193</div><div class="l">lines in <code>packages/pi-subagent/src</code></div></div>
+    <div class="stat"><div class="n">541 → 276</div><div class="l">repo-query <code>explorer.ts</code> lines</div></div>
+    <div class="stat"><div class="n">pi 0.84.4</div><div class="l">pinned by the protocol fixture</div></div>
+    <div class="stat"><div class="n">34 + 302 + 114</div><div class="l">package / sillajje / repo-query tests</div></div>
+  </div>
+
+  <h2>1. The problem (baseline)</h2>
+  <p>Two extensions spawned headless pi subagents with copies of the same process plumbing. Every fix landed twice and drifted.</p>
+  <table>
+    <tr><th></th><th>repo-query — <code>runExplorer</code></th><th>sillajje — <code>sub-generator.ts</code></th></tr>
+    <tr><th>Runs</th><td>child <code>pi</code> process, tools enabled, long exploration</td><td>child <code>pi -p --no-session --no-tools</code>, text only</td></tr>
+    <tr><th>Timeout</th><td>300 s, SIGTERM → SIGKILL escalation with a grace period</td><td>plain <code>kill()</code>, no escalation</td></tr>
+    <tr><th>Abort</th><td>external <code>AbortSignal</code> with listener cleanup; partial answer kept</td><td>none</td></tr>
+    <tr><th>Streaming</th><td>answer and thinking streamed live during exploration</td><td>none</td></tr>
+    <tr><th>Usage</th><td>accumulated and mapped into <code>AgentToolResult.usage</code></td><td>ignored</td></tr>
+    <tr><th>Protocol</th><td>hand-parsed pi JSON-lines</td><td>hand-parsed pi JSON-lines (duplicate)</td></tr>
+  </table>
+  <p>The concrete costs: a fix to the kill/escalation path, the abort cleanup, or the event parser had to be made in two places; the JSON-lines coupling was maintained twice; and sillajje's cruder lifecycle could hang without escalation.</p>
+
+  <h2>2. Context and constraints</h2>
+  <ul>
+    <li><strong>Isolation vs latency.</strong> repo-query explores unknown repos — long, tool-heavy, untrusted work that needs hard isolation and SIGKILL. sillajje's stamping calls are short, tool-free text generations retried up to <code>maxAttempts</code>, where spawn latency is paid on every attempt.</li>
+    <li><strong>Policy stays per extension.</strong> Retries and fallbacks belong to sillajje; streaming, the partial-answer-on-abort notice, and usage mapping belong to repo-query. The shared layer must not absorb either.</li>
+    <li><strong>Existing seams must survive.</strong> repo-query's factory overrides and sillajje's <code>SpawnFn</code> are the test seams; the migration must keep their suites green without new harnesses.</li>
+    <li><strong>Dependency floor.</strong> The package stays dependency-free apart from <code>node:child_process</code>, with pi-coding-agent and the pi-ai/pi-agent-core types as peer dependencies.</li>
+    <li><strong>Protocol coupling is a liability.</strong> The process backend parses pi's JSON-lines protocol, which is coupled to the installed pi version. It needs a tripwire.</li>
+  </ul>
+
+  <h2>3. Decision</h2>
+  <div class="card">
+    <p><strong>One contract, two backends; the backend is chosen per call site, never auto-detected.</strong> The package <code>@pi-tre/pi-subagent</code> exposes <code>runSubagent(task, backend?)</code> returning a <code>SubagentSession</code> with an event stream, <code>usage()</code>, and <code>abort()</code>. The only new seam is <code>SubagentBackend</code>.</p>
+    <ul>
+      <li><strong>Process backend</strong> (<code>createProcessBackend</code>) — repo-query's proven child-process lifecycle, ported with its timeout, SIGTERM→SIGKILL escalation, abort, exit semantics, byte cap, and JSON-lines parser.</li>
+      <li><strong>In-process backend</strong> (<code>createInProcessBackend</code>) — wraps the pi SDK's <code>createAgentSession</code>; fresh in-memory session per call, tools allowlist and <code>excludeTools</code> recursion guard, parent model/thinking inheritance hooks, cooperative abort, wall-clock deadline.</li>
+    </ul>
+    <p>This is recorded in <code>docs/adr/0001-subagent-isolation.md</code>. The alternatives were rejected: process everywhere (spawn latency multiplies across sillajje's retries), in-process everywhere (cooperative abort fails on hung exploration), and auto-detection (a heuristic where the trade-off should be deliberate).</p>
+  </div>
+
+  <h2>4. What changed</h2>
+  <h3>New package — <code>packages/pi-subagent</code></h3>
+  <table>
+    <tr><th>Module</th><th>Role</th></tr>
+    <tr><td><code>src/types.ts</code></td><td><code>SubagentTask</code>, <code>SubagentEvent</code>, <code>SubagentSession</code>, <code>SubagentUsage</code>, <code>zeroUsage()</code>, <code>createSafeAccumulator()</code></td></tr>
+    <tr><td><code>src/run-subagent.ts</code></td><td><code>runSubagent(task, backend?)</code>; defaults to a shared in-process backend built once</td></tr>
+    <tr><td><code>src/process-backend.ts</code></td><td>child process, temp-file prompt, JSON-lines parser, timeout/escalation/abort, byte cap</td></tr>
+    <tr><td><code>src/in-process-backend.ts</code></td><td><code>createAgentSession</code> wrapper, session-option wiring, deadline + cooperative abort</td></tr>
+    <tr><td><code>src/stub-backend.ts</code></td><td>scripted fake turn for orchestration tests; fails on <code>"FAIL:"</code> prompts</td></tr>
+    <tr><td><code>src/push-stream.ts</code></td><td><code>createPushStream</code> for building event streams</td></tr>
+  </table>
+  <h3>Consumer adoption</h3>
+  <ul>
+    <li><strong>repo-query</strong> runs exploration over the process backend. Inline spawn, parsing, and usage accumulation were deleted: <code>explorer.ts</code> shrank 541 → 276 lines. Prompt building, live streaming, partial-answer-on-abort, truncation, and usage mapping stayed. <code>ExplorerProcess</code>/<code>SpawnFunction</code> survive as re-exports so the abort suite compiles unchanged.</li>
+    <li><strong>sillajje</strong> points its <code>SpawnFn</code> adapter at the in-process backend. The retry wrapper, fallback values, and <code>fellBack</code> flag are byte-for-byte unchanged; a <code>timedOut</code> exit maps to the same non-zero code + stderr the old timeout rejection produced. Prompts, <code>deriveSubject</code>, and generation output are unchanged.</li>
+  </ul>
+  <h3>Monorepo, docs, and the protocol tripwire</h3>
+  <ul>
+    <li><code>packages/*</code> added to the pnpm workspace, mise <code>config_roots</code>, and tsconfig, so the package gets the same lint/typecheck/test/check tasks.</li>
+    <li><code>test/fixtures/pi-session.jsonl</code> records and scrubs a real pi session; a replay test pins the parser's event shapes, and a meta file pins the fixture to pi 0.84.4. A version bump fails the test until the fixture is regenerated deliberately.</li>
+    <li>Package README documents the contract and both backends; ADR-0001 records isolation; sillajje's ADR-0002 carries a supersession note for the transport change.</li>
+  </ul>
+
+  <h2>5. Verification and current state</h2>
+  <p class="muted">State at review, before the triage fixes below.</p>
+  <table>
+    <tr><th>Check</th><th>Result</th></tr>
+    <tr><td><code>mise run //packages/pi-subagent:check</code></td><td><span class="tag t-done">pass</span> 34 tests</td></tr>
+    <tr><td><code>mise run //extensions/sillajje:check</code></td><td><span class="tag t-done">pass</span> 302 tests</td></tr>
+    <tr><td><code>mise run //extensions/repo-query:check</code></td><td><span class="tag t-done">pass</span> 114 tests</td></tr>
+  </table>
+  <p>Repo-query kept "zero assertion changes" — the adoption proof the PRD asked for. The process backend's kill/escalation/abort coverage moved into the package; the repo-query abort suite stayed and now exercises the re-exported types.</p>
+
+  <h2>6. Review outcome</h2>
+  <p>A two-axis review (Standards + Spec) ran against <code>main</code>. All 16 findings verified true in the tree. Four were fixed in this session; the rest are the decide set.</p>
+  <h3>Fixed now</h3>
+  <table>
+    <tr><th>#</th><th>Axis</th><th>Fix</th></tr>
+    <tr><td>S1</td><td>Standards</td><td><code>CONTEXT.md</code> Sub-generator redefined as in-process tool-less subagents, no child process.</td></tr>
+    <tr><td>S2</td><td>Standards</td><td><code>SpawnFn</code> comment rewritten — it adapts the backend, it does not spawn.</td></tr>
+    <tr><td>P5</td><td>Spec</td><td>In-process backend now reports exit code <code>-1</code> on timeout, matching the documented contract (the process backend already did). Test asserts it.</td></tr>
+    <tr><td>P6</td><td>Spec</td><td>Fixed the race that orphaned a session resolving after the abort grace; the late session is now disposed. New test covers it.</td></tr>
+  </table>
+  <h3>Decide set</h3>
+  <table>
+    <tr><th>#</th><th>Axis</th><th>Finding</th><th>Resolution</th></tr>
+    <tr><td>S3</td><td>Standards</td><td>Assistant-message handling duplicated across the two backends</td><td><span class="tag t-done">fixed</span> shared <code>emitAssistantMessage</code> in <code>assistant-message.ts</code></td></tr>
+    <tr><td>S4</td><td>Standards</td><td>Usage shape retyped in both backends</td><td><span class="tag t-done">fixed</span> one <code>AssistantMessageInfo</code> shared by both</td></tr>
+    <tr><td>S5</td><td>Standards</td><td><code>explorer.ts</code> hand-rolls the usage literal</td><td><span class="tag t-done">fixed</span> uses <code>zeroUsage()</code></td></tr>
+    <tr><td>S6</td><td>Standards</td><td>Repeated arg vector and first-line parsing in <code>sub-generator.ts</code></td><td><span class="tag t-done">fixed</span> <code>subGeneratorArgs()</code> + <code>firstLine()</code></td></tr>
+    <tr><td>S7</td><td>Standards</td><td>Test backends duplicated in <code>spawn-adapter.test.ts</code></td><td><span class="tag t-done">fixed</span> <code>scriptedBackend()</code> + <code>exitEvent()</code></td></tr>
+    <tr><td>S8</td><td>Standards</td><td><code>createSpawnFn</code> parses <code>--model</code>/<code>--no-tools</code> from <code>args</code></td><td><span class="tag t-info">kept</span> ticket 05 preserves the <code>SpawnFn</code> signature</td></tr>
+    <tr><td>S9</td><td>Standards</td><td><code>zeroUsageFn</code> alias; opaque <code>ReturnType&lt;…createPushStream…&gt;</code></td><td><span class="tag t-done">fixed</span> renamed; uses <code>PushStream</code></td></tr>
+    <tr><td>S10</td><td>Standards</td><td><code>SubagentEvent</code> switch in both consumers</td><td><span class="tag t-info">kept</span> event interpretation is per-extension policy (ADR-0001)</td></tr>
+    <tr><td>P1</td><td>Spec</td><td>US14 inheritance hooks never wired in production</td><td><span class="tag t-done">fixed</span> US14 amended to a capability the call sites may opt into</td></tr>
+    <tr><td>P2</td><td>Spec</td><td>PRD says abort coverage "moved"; it stayed</td><td><span class="tag t-done">fixed</span> Testing Decisions corrected</td></tr>
+    <tr><td>P3</td><td>Spec</td><td>README bullets added without a ticket</td><td><span class="tag t-info">kept</span> assessed below</td></tr>
+    <tr><td>P4</td><td>Spec</td><td><code>docs/subagent-seam-proposal.html</code> added without a ticket</td><td><span class="tag t-done">done</span> proposal removed</td></tr>
+  </table>
+
+  <h2>7. README assessment (Q2)</h2>
+  <p>The root README diff adds three things: a <strong>repo-query</strong> extension bullet with a docs link, a <strong>sillajje</strong> bullet with a one-line description and no link, and a new <strong>Packages in this repo</strong> section describing <code>@pi-tre/pi-subagent</code>.</p>
+  <table>
+    <tr><th>Change</th><th>Accurate?</th><th>Useful to a contributor?</th></tr>
+    <tr><td>repo-query bullet + link</td><td class="ok">yes — the extension exists, and <code>extensions/repo-query/README.md</code> exists</td><td class="ok">yes — the README previously listed one of four extensions; this starts closing that gap</td></tr>
+    <tr><td>sillajje bullet, no link</td><td class="q">partly — accurate description, but no <code>extensions/sillajje/README.md</code> exists to link</td><td class="q">mixed — a bare bullet is better than nothing, but the missing link is visible next to the other bullets</td></tr>
+    <tr><td>Packages section for <code>@pi-tre/pi-subagent</code></td><td class="ok">yes — the package exists with its own README</td><td class="ok">yes — the package is invisible to a contributor browsing the root README otherwise</td></tr>
+  </table>
+  <p><strong>Verdict:</strong> the README additions make sense and help. They remove real omissions and point at real docs. Two gaps remain: <code>leaf-copy</code> is in the <code>pi</code> manifest but still absent from the list, and sillajje has no per-extension README to link. Neither gap is caused by this change; both are one-line fixes if you want the list complete. Keep the README change; it is not scope creep in any costly sense — it documents what the branch already ships.</p>
+
+  <h2>8. Where we are now</h2>
+  <ul>
+    <li><span class="tag t-done">done</span> Implementation of tickets 01–06; all three suites green (34 + 114 + 302 tests).</li>
+    <li><span class="tag t-done">done</span> Two-axis review against <code>main</code>; 16 findings verified.</li>
+    <li><span class="tag t-done">done</span> Fix-now set applied and green (S1, S2, P5, P6).</li>
+    <li><span class="tag t-done">done</span> Decide set resolved: S3–S7 and S9 fixed; S8/S10 kept with rationale; P1/P2 spec records corrected; P4 proposal removed.</li>
+    <li><span class="tag t-info">kept</span> README change (P3). Optional: add the missing <code>leaf-copy</code> bullet and a sillajje docs link.</li>
+    <li><span class="tag t-open">open</span> Delete this report (and the proposal is already gone) before merge.</li>
+  </ul>
+
+  <footer>
+    Generated from the working tree on <code>sillajje/01a0910b</code>, reviewed from <code>main</code> at <code>2f55df11</code>.
+    Sources: <code>.scratch/subagent-seam/PRD.md</code>, issues 01–06, <code>docs/adr/0001-subagent-isolation.md</code>,
+    <code>packages/pi-subagent/README.md</code>, and the diff.
+  </footer>
+
+</main>
+</body>
+</html>

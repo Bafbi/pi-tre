@@ -1,10 +1,10 @@
 /**
- * Sub-generator: two focused headless pi processes for dual-prefix header
- * and compressed trace, running via `pi -p --no-session --no-tools`.
+ * Sub-generator: two focused headless pi subagents for dual-prefix header
+ * and compressed trace, run in-process through `@pi-tre/pi-subagent`.
  *
- * - `generateHeader()`: spawns one pi process to produce a dual-prefix
+ * - `generateHeader()`: runs one subagent to produce a dual-prefix
  *   subject line (<interaction-type>/<conventional-commit>: <description>).
- * - `generateTrace()`: spawns one pi process to produce a compressed
+ * - `generateTrace()`: runs one subagent to produce a compressed
  *   narrative of the agent's thinking-and-tool loop.
  *
  * Both share an injected `SpawnFn` adapter (test seam) and a retry wrapper
@@ -12,20 +12,45 @@
  * on total exhaustion.
  */
 
-import { spawn } from "node:child_process";
+import {
+	createInProcessBackend,
+	createSafeAccumulator,
+	runSubagent,
+	type SubagentBackend,
+	type SubagentEvent,
+} from "@pi-tre/pi-subagent";
 import { deriveSubject } from "./metadata.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** Adapter for spawning a subprocess with stdin input. */
+/**
+ * Adapter over the subagent backend, shaped like the old subprocess spawn
+ * (command, args, stdin input) so call sites and the retry wrapper stay
+ * unchanged. It does not spawn a process.
+ */
 export type SpawnFn = (
 	command: string,
 	args: string[],
 	input: string,
 	timeoutMs?: number,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
+
+/**
+ * Legacy CLI arg vector handed to `SpawnFn`. The in-process adapter reads
+ * only `--model` and `--no-tools` from it; `-p` and `--no-session` are kept
+ * so the adapter matches the old child-process invocation.
+ */
+function subGeneratorArgs(model: string): string[] {
+	return ["-p", "--no-session", "--no-tools", "--model", model];
+}
+
+/** First line of a sub-generator's output, trimmed. */
+function firstLine(text: string): string {
+	const newline = text.indexOf("\n");
+	return (newline === -1 ? text : text.slice(0, newline)).trim();
+}
 
 export interface SubGeneratorContext {
 	/** Session transcript: user messages + assistant messages (sans tool results). */
@@ -269,7 +294,7 @@ async function spawnWithRetry(
  * On total exhaustion, falls back to `deriveSubject(prompt)`.
  *
  * @param ctx - Context with transcript, diff, and prior descriptions.
- * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
+ * @param spawnFn - Adapter over the subagent backend (injected for testability).
  * @param options - Model, retry, timeout, and fallback prompt.
  * @returns The subject line (never empty) plus a `fellBack` flag reporting
  * sub-generator exhaustion.
@@ -285,17 +310,14 @@ export async function generateHeader(
 		const raw = await spawnWithRetry(
 			spawnFn,
 			"pi",
-			["-p", "--no-session", "--no-tools", "--model", options.model],
+			subGeneratorArgs(options.model),
 			input,
 			options.timeoutMs,
 			options.maxAttempts,
 		);
 
 		// First line is the subject, rest discarded.
-		const firstNewline = raw.indexOf("\n");
-		const subject =
-			firstNewline === -1 ? raw : raw.slice(0, firstNewline).trim();
-		return { text: subject, fellBack: false };
+		return { text: firstLine(raw), fellBack: false };
 	} catch {
 		// Fallback to deriveSubject on exhaustion.
 		return { text: deriveSubject(options.prompt), fellBack: true };
@@ -309,15 +331,15 @@ export async function generateHeader(
 /**
  * Generate a compressed agent-loop narrative (trace).
  *
- * Spawns `pi -p --no-session --no-tools -m <model>` via the injected
- * `spawnFn`, with a prompt tailored to the requested detail level.
+ * Runs the subagent through the injected `spawnFn`, with a prompt tailored
+ * to the requested detail level.
  *
  * Output: entire stdout is the trace (freeform, trimmed).
  *
  * On total exhaustion, returns empty string.
  *
  * @param ctx - Context with transcript, diff, and prior descriptions.
- * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
+ * @param spawnFn - Adapter over the subagent backend (injected for testability).
  * @param options - Model, retry, timeout, and detail level.
  * @returns The trace narrative (empty string on exhaustion) plus a `fellBack`
  * flag reporting sub-generator exhaustion.
@@ -334,7 +356,7 @@ export async function generateTrace(
 		const raw = await spawnWithRetry(
 			spawnFn,
 			"pi",
-			["-p", "--no-session", "--no-tools", "--model", options.model],
+			subGeneratorArgs(options.model),
 			input,
 			options.timeoutMs,
 			options.maxAttempts,
@@ -402,7 +424,7 @@ Respond with exactly one line, max 72 characters.`;
  * On total exhaustion, falls back to "chore: manual checkpoint".
  *
  * @param diff - The file diff from the workspace working copy.
- * @param spawnFn - Adapter for spawning the subprocess (injected for testability).
+ * @param spawnFn - Adapter over the subagent backend (injected for testability).
  * @param options - Model, retry, and timeout configuration.
  * @returns The subject line (never empty) plus a `fellBack` flag reporting
  * sub-generator exhaustion.
@@ -421,16 +443,13 @@ export async function generateManualHeader(
 		const raw = await spawnWithRetry(
 			spawnFn,
 			"pi",
-			["-p", "--no-session", "--no-tools", "--model", options.model],
+			subGeneratorArgs(options.model),
 			input,
 			options.timeoutMs,
 			options.maxAttempts,
 		);
 
-		const firstNewline = raw.indexOf("\n");
-		const subject =
-			firstNewline === -1 ? raw : raw.slice(0, firstNewline).trim();
-		return { text: subject, fellBack: false };
+		return { text: firstLine(raw), fellBack: false };
 	} catch {
 		return { text: "chore: manual checkpoint", fellBack: true };
 	}
@@ -441,52 +460,95 @@ export async function generateManualHeader(
 // ---------------------------------------------------------------------------
 
 /**
- * Create a real SpawnFn that spawns a child process with stdin input.
- * Uses Node.js `child_process.spawn` under the hood.
+ * Create the real SpawnFn used for change stamping.
+ *
+ * The adapter runs the subagent through `@pi-tre/pi-subagent`'s
+ * in-process backend: no child process, no spawn latency across retry
+ * attempts. It maps the seam's session events back onto the SpawnFn
+ * result shape the retry wrapper expects:
+ *
+ * - answer text → `stdout`
+ * - LLM errors, session-creation failures → non-zero `code` + `stderr`
+ * - a timed-out run → non-zero `code`, retried like the old timeout
+ *   rejection
+ *
+ * `backend` is injectable for tests; production uses the in-process
+ * backend, which builds its own model runtime from the agent directory.
  */
-export function createSpawnFn(): SpawnFn {
-	return (
-		command: string,
+export function createSpawnFn(backend?: SubagentBackend): SpawnFn {
+	const resolved = backend ?? createInProcessBackend();
+	return async (
+		_command: string,
 		args: string[],
 		input: string,
 		timeoutMs?: number,
 	): Promise<{ code: number; stdout: string; stderr: string }> => {
-		return new Promise((resolve, reject) => {
-			const proc = spawn(command, args, {
-				stdio: ["pipe", "pipe", "pipe"],
-			});
+		const modelFlag = args.indexOf("--model");
+		const model = modelFlag !== -1 ? args[modelFlag + 1] : undefined;
+		// The generator runs tool-less: the old command carried `--no-tools`,
+		// and the child must not load installed extensions' tools into the
+		// session (recursion guard). An empty allowlist disables all tools,
+		// built-in and extension.
+		const noTools = args.includes("--no-tools");
 
-			let stdout = "";
-			let stderr = "";
+		const session = runSubagent(
+			{
+				prompt: input,
+				cwd: process.cwd(),
+				model,
+				tools: noTools ? [] : undefined,
+				timeoutMs,
+			},
+			resolved,
+		);
 
-			proc.stdout?.on("data", (data: Buffer) => {
-				stdout += data.toString();
-			});
-			proc.stderr?.on("data", (data: Buffer) => {
-				stderr += data.toString();
-			});
+		const answer = createSafeAccumulator();
+		let errorMessage = "";
+		let exit: Extract<SubagentEvent, { type: "exit" }> | undefined;
 
-			proc.on("close", (code: number | null) => {
-				resolve({ code: code ?? 1, stdout, stderr });
-			});
-			proc.on("error", reject);
-
-			// Write input to stdin and close.
-			if (proc.stdin) {
-				proc.stdin.write(input);
-				proc.stdin.end();
+		for await (const event of session.events) {
+			switch (event.type) {
+				case "text":
+					answer.append(event.text, event.kind);
+					break;
+				case "error":
+					errorMessage = event.message;
+					break;
+				case "exit":
+					exit = event;
+					break;
+				default:
+					break;
 			}
+		}
 
-			// Timeout handler.
-			if (timeoutMs !== undefined) {
-				const timer = setTimeout(() => {
-					proc.kill();
-					reject(new Error(`timeout: ${timeoutMs}ms`));
-				}, timeoutMs);
-				// Clean up timer on process end.
-				proc.on("close", () => clearTimeout(timer));
-				proc.on("error", () => clearTimeout(timer));
-			}
-		});
+		// The final assistant text only, matching the old text-mode stdout.
+		const stdout = exit?.timedOut || errorMessage ? "" : answer.get();
+
+		if (!exit) {
+			return {
+				code: 1,
+				stdout,
+				stderr: errorMessage || "subagent ended without an exit event",
+			};
+		}
+		if (exit.timedOut) {
+			return { code: 1, stdout, stderr: `timeout: ${timeoutMs}ms` };
+		}
+		if (exit.aborted) {
+			return { code: 1, stdout, stderr: errorMessage || "aborted" };
+		}
+		if (exit.code !== 0 || errorMessage) {
+			return {
+				code: exit.code || 1,
+				stdout,
+				stderr:
+					errorMessage ||
+					exit.stderr ||
+					exit.spawnError ||
+					"subagent failed",
+			};
+		}
+		return { code: 0, stdout, stderr: "" };
 	};
 }

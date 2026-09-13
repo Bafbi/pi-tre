@@ -1,7 +1,7 @@
 monorepo_root = true
 
 [monorepo]
-config_roots = ["extensions/*"]
+config_roots = ["extensions/*", "packages/*"]
 lockfile = true
 
 [tools]

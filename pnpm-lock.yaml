@@ -6,6 +6,9 @@ settings:
 
 catalogs:
   pi-dev:
+    '@earendil-works/pi-agent-core':
+      specifier: ^0.84.4
+      version: 0.84.4
     '@earendil-works/pi-ai':
       specifier: ^0.84.4
       version: 0.84.4
@@ -63,6 +66,9 @@ importers:
       '@octokit/rest':
         specifier: ^21.0.0
         version: 21.1.1
+      '@pi-tre/pi-subagent':
+        specifier: workspace:*
+        version: link:../../packages/pi-subagent
       '@sinclair/typebox':
         specifier: catalog:pi-dev
         version: 0.34.52
@@ -78,6 +84,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: catalog:pi-dev
         version: 0.84.4(ws@8.20.0)(zod@4.3.6)
+      '@pi-tre/pi-subagent':
+        specifier: workspace:*
+        version: link:../../packages/pi-subagent
       '@sinclair/typebox':
         specifier: catalog:pi-dev
         version: 0.34.52
@@ -90,6 +99,18 @@ importers:
       '@sinclair/typebox':
         specifier: catalog:pi-dev
         version: 0.34.52
+
+  packages/pi-subagent:
+    dependencies:
+      '@earendil-works/pi-agent-core':
+        specifier: catalog:pi-dev
+        version: 0.84.4(ws@8.20.0)(zod@4.3.6)
+      '@earendil-works/pi-ai':
+        specifier: catalog:pi-dev
+        version: 0.84.4(ws@8.20.0)(zod@4.3.6)
+      '@earendil-works/pi-coding-agent':
+        specifier: catalog:pi-dev
+        version: 0.84.4(ws@8.20.0)(zod@4.3.6)
 
 packages:
 

@@ -1,0 +1,15 @@
+[tasks.lint]
+extends = "ext:lint"
+
+[tasks.test]
+extends = "ext:test"
+
+[tasks.typecheck]
+extends = "ext:typecheck"
+
+[tasks.generate-fixture]
+description = "Record a fresh pi protocol fixture from the installed pi"
+run = "node scripts/generate-fixture.ts"
+
+[tasks.check]
+extends = "ext:check"

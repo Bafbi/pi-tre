@@ -1,3 +1,5 @@
+import type { SubagentUsage } from "@pi-tre/pi-subagent";
+
 /**
  * Shared types for repo-query extension.
  */
@@ -52,16 +54,8 @@ export type RepoQueryPhase =
 	| "exploring"
 	| "complete";
 
-/** Token/cost usage accumulated across the subagent's LLM turns. */
-export interface SubagentUsage {
-	turns: number;
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	cost: number;
-	totalTokens: number;
-}
+/** Token/cost usage accumulated across a subagent run. */
+export type { SubagentUsage } from "@pi-tre/pi-subagent";
 
 export interface RepoQueryDetails {
 	query: string;
