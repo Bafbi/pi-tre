@@ -48,9 +48,9 @@ pi -e ./extensions/stale-write-guard/src/index.ts
 ## Local development
 
 ```bash
-mise run install
+mise deps
 mise run check
-mise run dev
+pi
 ```
 
 ## Security note

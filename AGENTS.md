@@ -1,5 +1,3 @@
-# AGENTS.md (repo-wide)
-
 ## Philosophy
 - Build small, focused Pi extensions with clear boundaries.
 - Optimize for fast local iteration and excellent developer experience (DevX).
@@ -78,7 +76,3 @@ Five canonical triage roles using default label strings. See `docs/agents/triage
 ### Domain docs
 
 Multi-context monorepo — `CONTEXT-MAP.md` at root maps to per-extension `CONTEXT.md` files under `extensions/<name>/`. See `docs/agents/domain.md`.
-
-### Writing guide
-
-Any writing you do and will be doing is following `/ste-writing`. 
