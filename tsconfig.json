@@ -12,6 +12,9 @@
 		},
 		{
 			"path": "./extensions/sillajje"
+		},
+		{
+			"path": "./packages/pi-subagent"
 		}
 	]
 }

@@ -47,7 +47,7 @@ _Avoid_: Telemetry, stats
 The full jj description: dual-prefix subject line (header) + trace narrative + optional sections (user prompt, change metadata, agent response). Everything reviewable in `jj show`. Section visibility is controlled by `message.body.*` in the sillajje config.
 
 **Sub-generator**:
-Two headless Pi processes (`pi -p --no-session --no-tools`) invoked in parallel by the extension — one produces the dual-prefix subject line (header), the other produces the compressed agent-loop narrative (trace). Inputs: session transcript (user messages + extracted assistant text), the diff, and previous change descriptions.
+Two tool-less pi subagents invoked in parallel by the extension through `@pi-tre/pi-subagent`'s in-process backend (no child process) — one produces the dual-prefix subject line (header), the other produces the compressed agent-loop narrative (trace). Inputs: session transcript (user messages + extracted assistant text), the diff, and previous change descriptions.
 _Avoid_: Summarizer, sub-agent
 
 **Header**:

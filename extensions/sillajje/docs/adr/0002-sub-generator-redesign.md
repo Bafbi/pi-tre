@@ -1,5 +1,7 @@
 # Redesign sub-generator: dual parallel calls, dual-prefix taxonomy, configurable body
 
+> 2026-09 update: the transport changed. The two calls now run in-process through `@pi-tre/pi-subagent`'s in-process backend instead of spawning `pi -p` child processes; the dual-call design, taxonomy, and body structure below are unchanged. See `docs/adr/0001-subagent-isolation.md` at the repo root.
+
 The original sub-generator was a single `pi -p` call producing a conventional-commit subject and summary. It had three problems: (1) conventional-commit prefixes assume file changes and don't describe interaction-only sessions, (2) the model struggled to produce a useful summary when asked to do both classification and narration in one output, (3) the body structure was hardcoded with no per-section toggles.
 
 We redesigned it into two focused sub-generator calls running in parallel — one for the dual-prefix subject line (header), one for the compressed agent-loop narrative (trace) — with a configurable body structure.

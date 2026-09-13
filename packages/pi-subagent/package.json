@@ -1,0 +1,17 @@
+{
+	"name": "@pi-tre/pi-subagent",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"scripts": {
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-agent-core": "catalog:pi-dev",
+		"@earendil-works/pi-ai": "catalog:pi-dev",
+		"@earendil-works/pi-coding-agent": "catalog:pi-dev"
+	}
+}

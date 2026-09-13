@@ -10,8 +10,16 @@ Built for fast local iteration with:
 
 ## Extensions in this repo
 
-- **stale-write-guard**  
+- **stale-write-guard**
   Docs: [`extensions/stale-write-guard/README.md`](./extensions/stale-write-guard/README.md)
+- **repo-query**
+  Docs: [`extensions/repo-query/README.md`](./extensions/repo-query/README.md)
+- **sillajje**: automatic jj change stamping per agent session
+
+## Packages in this repo
+
+- **@pi-tre/pi-subagent**: one `runSubagent` contract for headless pi subagents with a process backend and an in-process backend.
+  Docs: [`packages/pi-subagent/README.md`](./packages/pi-subagent/README.md)
 
 ## Install from GitHub
 
@@ -40,9 +48,9 @@ pi -e ./extensions/stale-write-guard/src/index.ts
 ## Local development
 
 ```bash
-mise run install
+mise deps
 mise run check
-mise run dev
+pi "test the new feature"
 ```
 
 ## Security note
