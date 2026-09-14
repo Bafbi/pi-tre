@@ -130,6 +130,10 @@
 					"type": "integer"
 				}
 			}
+		},
+		"vcsGuard": {
+			"default": true,
+			"type": "boolean"
 		}
 	}
 }

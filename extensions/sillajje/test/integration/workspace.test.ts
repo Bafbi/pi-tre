@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { createRunner, describeJj, makeRunnerCwd, tempDirs } from "./_helpers";
 
@@ -200,5 +201,60 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		expect(result?.systemPrompt).toContain("node_modules");
 		expect(result?.systemPrompt).toContain("install");
 		expect(result?.systemPrompt).toContain("relative paths");
+	});
+
+	it("system prompt reserves VCS commands for the user by default", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const result = await runner.emitBeforeAgentStart(
+			"do something",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+
+		expect(result?.systemPrompt).toContain(
+			"Ask the user before you run any",
+		);
+		expect(result?.systemPrompt).toContain("jj or git command");
+	});
+
+	it("vcsGuard false omits the VCS instruction from the system prompt", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+
+		const configDir = join(cwd, ".pi/configs");
+		mkdirSync(configDir, { recursive: true });
+		writeFileSync(
+			join(configDir, "sillajje.json"),
+			JSON.stringify({ vcsGuard: false }),
+		);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const result = await runner.emitBeforeAgentStart(
+			"do something",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], prompts: [] },
+		);
+
+		expect(result?.systemPrompt).toContain("## Sillajje Workspace");
+		expect(result?.systemPrompt).not.toContain("jj or git command");
 	});
 });

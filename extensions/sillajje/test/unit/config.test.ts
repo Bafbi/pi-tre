@@ -57,6 +57,7 @@ describe("loadSillajjeConfig", () => {
 		expect(config.debug).toBe(false);
 		expect(config.workspacesRoot).toBe(`${homedir()}/.pi/sillajje`);
 		expect(config.subGeneratorModel).toBe("openai/gpt-4o-mini");
+		expect(config.vcsGuard).toBe(true);
 	});
 
 	it("returns defaults when no config files exist with repoRoot", () => {
@@ -66,6 +67,7 @@ describe("loadSillajjeConfig", () => {
 		expect(config.debug).toBe(false);
 		expect(config.workspacesRoot).toBe(`${homedir()}/.pi/sillajje`);
 		expect(config.subGeneratorModel).toBe("openai/gpt-4o-mini");
+		expect(config.vcsGuard).toBe(true);
 	});
 
 	// -------------------------------------------------------------------
@@ -91,6 +93,13 @@ describe("loadSillajjeConfig", () => {
 		writeGlobalConfig(configDir, { subGeneratorModel: "claude-sonnet" });
 		const config = loadSillajjeConfig(undefined, configDir);
 		expect(config.subGeneratorModel).toBe("claude-sonnet");
+	});
+
+	it("reads vcsGuard from global config", () => {
+		const configDir = makeConfigDir();
+		writeGlobalConfig(configDir, { vcsGuard: false });
+		const config = loadSillajjeConfig(undefined, configDir);
+		expect(config.vcsGuard).toBe(false);
 	});
 
 	it("reads postInit from global config", () => {

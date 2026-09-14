@@ -432,7 +432,7 @@ export default function (pi: ExtensionAPI) {
 			await setSessionBookmark(sessionKey, wsPath);
 		}
 
-		const workspaceBlock = [
+		const workspaceLines = [
 			"",
 			"## Sillajje Workspace",
 			"",
@@ -447,8 +447,22 @@ export default function (pi: ExtensionAPI) {
 			"Use **relative paths** for all file operations. Absolute paths that point",
 			"back at the original repository will be blocked and instructed to use a",
 			"relative path instead.",
-			"",
-		].join("\n");
+		];
+
+		// `vcsGuard` (default on) reserves VCS commands for the user. An
+		// unrequested jj command can move bookmarks or rewrite history, which
+		// breaks the session's stamp chain.
+		if (activeConfig?.vcsGuard ?? true) {
+			workspaceLines.push(
+				"",
+				"Sillajje owns the session's jj state. Ask the user before you run any",
+				"jj or git command. An unrequested command can move bookmarks or",
+				"rewrite history.",
+			);
+		}
+
+		workspaceLines.push("");
+		const workspaceBlock = workspaceLines.join("\n");
 
 		return {
 			systemPrompt: event.systemPrompt + workspaceBlock,

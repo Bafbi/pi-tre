@@ -147,6 +147,13 @@ export const SillajjeConfigSchema = Type.Object(
 		 * Controls retry count, timeout, and other behavioural knobs.
 		 */
 		subGenerator: Type.Optional(SubGeneratorSchema),
+		/**
+		 * Whether the workspace block tells the agent to ask before running jj
+		 * or git commands. Defaults to `true`: sillajje owns the session's jj
+		 * state, and an unrequested VCS command can move bookmarks or rewrite
+		 * history.
+		 */
+		vcsGuard: Type.Optional(Type.Boolean({ default: true })),
 	},
 	{ additionalProperties: false },
 );
