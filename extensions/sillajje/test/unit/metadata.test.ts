@@ -3,8 +3,17 @@ import {
 	buildCommitBody,
 	buildMetadata,
 	deriveSubject,
+	type Provenance,
 	smartWrap,
 } from "../../src/metadata";
+
+const prov = (over: Partial<Provenance> = {}): Provenance => ({
+	trigger: "interaction",
+	model: "openai/gpt-4o-mini",
+	fallbacks: [],
+	env: { piVersion: "test-pi", sillajjeVersion: "test-sillajje" },
+	...over,
+});
 
 // ---------------------------------------------------------------------------
 // deriveSubject
@@ -47,71 +56,71 @@ describe("deriveSubject", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildMetadata", () => {
+	const meta = {
+		toolNames: ["read", "write", "bash"],
+		toolCallCount: 14,
+		elapsedMs: 45200,
+		thinkingBlocks: 3,
+	};
+
 	it("produces the compact metadata block", () => {
-		const result = buildMetadata({
-			toolNames: ["read", "write", "bash"],
-			toolCallCount: 14,
-			elapsedMs: 45200,
-			thinkingBlocks: 3,
-			sessionId: "abc123",
-		});
+		const result = buildMetadata(meta, prov());
 
 		expect(result).toContain("Meta: read, write, bash | 14 calls | 45.2s");
-		expect(result).toContain("  3 blocks | sillajje/abc123");
+		expect(result).toContain("trigger: interaction");
+		expect(result).toContain("  3 blocks | model:");
+		expect(result).toContain("pi: test-pi | sillajje: test-sillajje");
 	});
 
 	it("handles zero tool calls", () => {
-		const result = buildMetadata({
-			toolNames: [],
-			toolCallCount: 0,
-			elapsedMs: 1200,
-			thinkingBlocks: 0,
-			sessionId: "sess-1",
-		});
+		const result = buildMetadata(
+			{
+				toolNames: [],
+				toolCallCount: 0,
+				elapsedMs: 1200,
+				thinkingBlocks: 0,
+			},
+			prov({ sessionKey: "sess-1" }),
+		);
 
 		expect(result).toContain("Meta:  | 0 calls | 1.2s");
 		expect(result).toContain("  0 blocks | sillajje/sess-1");
 	});
 
 	it("formats elapsed time with one decimal", () => {
-		const meta = {
-			toolNames: ["bash"],
-			toolCallCount: 1,
-			elapsedMs: 15234,
-			thinkingBlocks: 0,
-			sessionId: "x",
-		};
-
-		expect(buildMetadata(meta)).toContain("15.2s");
+		expect(
+			buildMetadata(
+				{
+					toolNames: ["bash"],
+					toolCallCount: 1,
+					elapsedMs: 15234,
+					thinkingBlocks: 0,
+				},
+				prov(),
+			),
+		).toContain("15.2s");
 	});
 
 	it("formats sub-second elapsed time", () => {
-		const meta = {
-			toolNames: [],
-			toolCallCount: 0,
-			elapsedMs: 450,
-			thinkingBlocks: 0,
-			sessionId: "x",
-		};
-
-		expect(buildMetadata(meta)).toContain("0.5s");
+		expect(
+			buildMetadata(
+				{
+					toolNames: [],
+					toolCallCount: 0,
+					elapsedMs: 450,
+					thinkingBlocks: 0,
+				},
+				prov(),
+			),
+		).toContain("0.5s");
 	});
 
-	// -------------------------------------------------------------------
-	// Field toggles
-	// -------------------------------------------------------------------
+	// -----------------------------------------------------------------
+	// Interaction field toggles
+	// -----------------------------------------------------------------
 
 	it("omits tools when tools field is false", () => {
-		const result = buildMetadata(
-			{
-				toolNames: ["read", "write", "bash"],
-				toolCallCount: 14,
-				elapsedMs: 45200,
-				thinkingBlocks: 3,
-				sessionId: "abc123",
-			},
-			{ tools: false },
-		);
+		const result = buildMetadata(meta, prov(), { tools: false });
 
 		expect(result).not.toContain("read, write, bash");
 		expect(result).toContain("14 calls");
@@ -119,72 +128,97 @@ describe("buildMetadata", () => {
 	});
 
 	it("omits call_count when call_count field is false", () => {
-		const result = buildMetadata(
-			{
-				toolNames: ["bash"],
-				toolCallCount: 5,
-				elapsedMs: 10000,
-				thinkingBlocks: 1,
-				sessionId: "s1",
-			},
-			{ call_count: false },
-		);
+		const result = buildMetadata(meta, prov(), { call_count: false });
 
 		expect(result).toContain("bash");
-		expect(result).not.toContain("5 calls");
-		expect(result).toContain("10.0s");
+		expect(result).not.toContain("14 calls");
+		expect(result).toContain("45.2s");
 	});
 
 	it("omits elapsed when elapsed field is false", () => {
-		const result = buildMetadata(
-			{
-				toolNames: ["bash"],
-				toolCallCount: 3,
-				elapsedMs: 5000,
-				thinkingBlocks: 0,
-				sessionId: "s1",
-			},
-			{ elapsed: false },
-		);
+		const result = buildMetadata(meta, prov(), { elapsed: false });
 
 		expect(result).toContain("bash");
-		expect(result).toContain("3 calls");
-		expect(result).not.toContain("5.0s");
+		expect(result).toContain("14 calls");
+		expect(result).not.toContain("45.2s");
 	});
 
 	it("omits thinking_blocks when thinking_blocks field is false", () => {
-		const result = buildMetadata(
-			{
-				toolNames: ["bash"],
-				toolCallCount: 1,
-				elapsedMs: 1000,
-				thinkingBlocks: 3,
-				sessionId: "s1",
-			},
-			{ thinking_blocks: false },
-		);
+		const result = buildMetadata(meta, prov(), { thinking_blocks: false });
 
-		expect(result).toContain("bash");
 		expect(result).not.toContain("3 blocks");
-		expect(result).toContain("sillajje/s1");
 	});
 
 	it("omits multiple fields when multiple toggles are off", () => {
+		const result = buildMetadata(meta, prov(), {
+			tools: false,
+			elapsed: false,
+		});
+
+		expect(result).not.toContain("read, write, bash");
+		expect(result).toContain("14 calls");
+		expect(result).not.toContain("45.2s");
+		expect(result).toContain("3 blocks");
+	});
+
+	// -----------------------------------------------------------------
+	// Provenance facts (always render; not individually toggleable)
+	// -----------------------------------------------------------------
+
+	it("renders the trigger and fallbacks on line 1", () => {
+		const result = buildMetadata(meta, prov({ fallbacks: ["header"] }));
+
+		expect(result).toContain("trigger: interaction | fallback: header");
+	});
+
+	it("omits the fallback field when nothing fell back", () => {
+		const result = buildMetadata(meta, prov());
+
+		expect(result).not.toContain("fallback");
+	});
+
+	it("renders a provenance-only block for a diff-only stamp", () => {
 		const result = buildMetadata(
-			{
-				toolNames: ["bash", "read"],
-				toolCallCount: 7,
-				elapsedMs: 25000,
-				thinkingBlocks: 2,
-				sessionId: "s1",
-			},
-			{ tools: false, elapsed: false },
+			undefined,
+			prov({
+				trigger: "rev",
+				rev: "abc123",
+			}),
 		);
 
-		expect(result).not.toContain("bash, read");
-		expect(result).toContain("7 calls");
-		expect(result).not.toContain("25.0s");
-		expect(result).toContain("2 blocks");
+		expect(result).toBe(
+			[
+				"Meta: trigger: rev",
+				"  rev: abc123 | model: openai/gpt-4o-mini | pi: test-pi | sillajje: test-sillajje",
+			].join("\n"),
+		);
+		expect(result).not.toContain("blocks");
+		expect(result).not.toContain("calls");
+	});
+
+	it("renders the stamped session on a manual session stamp", () => {
+		const result = buildMetadata(
+			undefined,
+			prov({
+				trigger: "manual-session",
+				sessionKey: "test-session",
+			}),
+		);
+
+		expect(result).toContain("Meta: trigger: manual-session");
+		expect(result).toContain("  sillajje/test-session | model:");
+		expect(result).not.toContain("rev:");
+	});
+
+	it("keeps the interaction block unchanged by provenance rev", () => {
+		// A rev on the provenance is a Rev stamp; an interaction stamp never
+		// carries one. The renderer renders whatever facts it is given.
+		const result = buildMetadata(
+			meta,
+			prov({ sessionKey: "s1", rev: "r1" }),
+		);
+
+		expect(result).toContain("  3 blocks | sillajje/s1 | rev: r1 | model:");
 	});
 });
 

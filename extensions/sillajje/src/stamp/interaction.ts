@@ -1,28 +1,27 @@
 /**
- * Interaction stamp path.
+ * Interaction stamp path — the Session stamp with a transcript.
  *
  * Derives interaction data from the transcript, builds the Sub-generator
- * context, runs header + trace in parallel, assembles the commit body,
- * and seals the working copy.
+ * context, runs header + trace in parallel, assembles the commit body with
+ * provenance, and seals the working copy. Always seals: a session stamp is
+ * bound to its session's `@`.
  */
 
-import type { InteractionMeta } from "../metadata.js";
+import type { Message } from "@earendil-works/pi-ai";
 import {
 	buildCommitBody,
-	buildMetadata,
 	deriveSubject,
+	renderMetadata,
 	smartWrap,
 } from "../metadata.js";
 import type { SubGeneratorContext } from "../sub-generator.js";
 import { generateHeader, generateTrace } from "../sub-generator.js";
-import { sessionBookmark } from "./bookmark.js";
 import { deriveInteractionData } from "./derive.js";
-import { describeRevision, emit, sealWorkingCopy } from "./internal.js";
+import { emit, sealWorkingCopy } from "./internal.js";
 import type {
 	DerivedInteractionData,
 	StampConfig,
 	StampDeps,
-	StampInput,
 	StampResult,
 } from "./types.js";
 
@@ -42,31 +41,22 @@ function buildTranscript(data: DerivedInteractionData): string {
 }
 
 // ---------------------------------------------------------------------------
-// stub — the main Interaction stamp path
+// stampInteractionPath — the Interaction stamp path (private)
 // ---------------------------------------------------------------------------
 
 /**
- * Execute the Interaction stamp path.
+ * Execute the Interaction stamp path: transcript + diff → header and trace,
+ * then the full seal.
  */
-export async function stampInteraction(
-	input: StampInput,
+export async function stampInteractionPath(
+	workspace: { sessionKey: string; wsPath: string },
+	interaction: Message[],
 	deps: StampDeps,
 	cfg: StampConfig,
 ): Promise<StampResult> {
-	if (!input.interaction) {
-		emit(
-			{
-				kind: "error",
-				code: "missing_interaction_input",
-				message:
-					"interaction stamp called without a transcript — no commit body was written",
-			},
-			deps,
-		);
-		return { ok: false, reason: "failed" };
-	}
+	const { wsPath, sessionKey } = workspace;
+	const messages = interaction;
 
-	const messages = input.interaction;
 	const data = deriveInteractionData(messages);
 	if (!data) {
 		emit(
@@ -81,9 +71,6 @@ export async function stampInteraction(
 		return { ok: false, reason: "failed" };
 	}
 
-	const { wsPath, sessionKey } = input.workspace;
-	const rev = input.rev ?? "@";
-
 	// Phase: collecting-diff
 	emit({ kind: "phase", code: "collecting-diff" }, deps);
 
@@ -91,7 +78,7 @@ export async function stampInteraction(
 	// degrades to an empty diff — it must not fail the stamp.
 	let diff = "";
 	try {
-		const diffResult = await deps.exec("jj", ["diff", "-r", rev], {
+		const diffResult = await deps.exec("jj", ["diff", "-r", "@"], {
 			cwd: wsPath,
 		});
 		diff = diffResult.code === 0 ? diffResult.stdout : "";
@@ -107,7 +94,7 @@ export async function stampInteraction(
 			[
 				"log",
 				"-r",
-				`ancestors(${sessionBookmark(sessionKey)})`,
+				`ancestors(sillajje/${sessionKey})`,
 				"--no-graph",
 				"-T",
 				"description.first_line()",
@@ -161,7 +148,9 @@ export async function stampInteraction(
 
 	// Emit a warning only when a sub-generator actually exhausted its retries
 	// (signalled by the generator's fallback flag, not by text comparison).
+	const fallbacks: string[] = [];
 	if (header.fellBack) {
+		fallbacks.push("header");
 		emit(
 			{
 				kind: "warning",
@@ -173,6 +162,7 @@ export async function stampInteraction(
 		);
 	}
 	if (trace.fellBack) {
+		fallbacks.push("trace");
 		emit(
 			{
 				kind: "warning",
@@ -185,22 +175,27 @@ export async function stampInteraction(
 	}
 
 	// Build metadata and commit body.
-	const interactionMeta: InteractionMeta = {
+	const interactionMeta = {
 		toolNames: data.toolNames,
 		toolCallCount: data.toolCallCount,
 		elapsedMs: data.elapsedMs,
 		thinkingBlocks: data.thinkingBlocks,
-		sessionId: sessionKey,
 	};
-	const metaStr = cfg.metaEnabled
-		? buildMetadata(interactionMeta, cfg.metaFields)
-		: "";
+	const metadata = renderMetadata({
+		enabled: cfg.metaEnabled,
+		fields: cfg.metaFields,
+		model: cfg.model,
+		fallbacks,
+		env: deps.env,
+		facts: { trigger: "interaction", sessionKey },
+		meta: interactionMeta,
+	});
 
 	const body = buildCommitBody({
 		subject,
 		trace: cfg.traceEnabled ? smartWrap(trace.text, 72) : "",
 		prompt: cfg.showUserPrompt ? data.prompt : "",
-		metadata: cfg.metaEnabled ? metaStr : "",
+		metadata,
 		response: cfg.showResponse ? data.response : "",
 	});
 
@@ -208,16 +203,7 @@ export async function stampInteraction(
 	emit({ kind: "phase", code: "sealing-change" }, deps);
 
 	try {
-		if (rev === "@") {
-			return await sealWorkingCopy(
-				deps,
-				wsPath,
-				sessionKey,
-				body,
-				subject,
-			);
-		}
-		return await describeRevision(deps, wsPath, rev, body, subject);
+		return await sealWorkingCopy(deps, wsPath, sessionKey, body, subject);
 	} catch (err) {
 		emit(
 			{

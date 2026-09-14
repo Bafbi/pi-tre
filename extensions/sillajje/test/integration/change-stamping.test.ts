@@ -1,85 +1,25 @@
 import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, expect, it, vi } from "vitest";
 import { setTestSpawnFn } from "../../src/index.js";
 import type { SpawnFn } from "../../src/sub-generator.js";
 import {
+	assistantMsg,
 	createRunner,
 	describeJj,
+	getSessionId,
+	initRepo,
 	installDefaultSubGeneratorMock,
+	jj,
 	makeRunnerCwd,
 	tempDirs,
+	wsPath,
 } from "./_helpers";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Run jj in the given repo. Uses shell form because execSync with array args ignores the cwd option. */
-function jj(args: string[], cwd: string): string {
-	// Build a shell-safe command string. Wrap args in single quotes, escaping internal quotes.
-	const quoted = args.map((a) => `'${a.replace(/'/g, "'\\''")}'`);
-	const cmd = ["jj", ...quoted].join(" ");
-	return String(
-		execSync(cmd, {
-			cwd,
-			encoding: "utf-8",
-			stdio: "pipe",
-		}),
-	).trim();
-}
-
-/** Get the session ID, throwing if undefined (it should always be set after session_start). */
-function getSessionId(
-	runner: Awaited<ReturnType<typeof createRunner>>,
-): string {
-	const id = runner.createContext().sessionManager.getSessionId();
-	if (!id) throw new Error("sessionId should be defined after session_start");
-	return id;
-}
-
-function assistantMsg(
-	text: string,
-	opts?: {
-		toolCalls?: Array<{ id: string; name: string }>;
-		thinking?: boolean;
-		stopReason?: string;
-		errorMessage?: string;
-	},
-) {
-	const content: Array<{
-		type: string;
-		text?: string;
-		thinking?: string;
-		id?: string;
-		name?: string;
-	}> = [];
-	if (opts?.thinking) {
-		content.push({
-			type: "thinking",
-			thinking: "Let me think about this...",
-		});
-	}
-	if (opts?.toolCalls) {
-		for (const tc of opts.toolCalls) {
-			content.push({ type: "toolCall", id: tc.id, name: tc.name });
-		}
-	}
-	content.push({ type: "text", text });
-	return {
-		role: "assistant" as const,
-		content,
-		api: "anthropic-messages" as const,
-		provider: "anthropic" as const,
-		model: "test",
-		usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
-		stopReason: opts?.stopReason ?? "stop",
-		errorMessage: opts?.errorMessage,
-		timestamp: Date.now(),
-	};
-}
 
 /** Assistant message representing a failed LLM run (e.g. provider timeout). */
 function errorMsg(errorText: string) {
@@ -87,12 +27,6 @@ function errorMsg(errorText: string) {
 		stopReason: "error",
 		errorMessage: errorText,
 	});
-}
-
-/** Default workspace path for a given session (config workspacesRoot default). */
-function wsPath(repoRoot: string, sessionId: string): string {
-	const repoSlug = repoRoot.split("/").pop();
-	return `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
 }
 
 async function simulateInteraction(
@@ -132,27 +66,11 @@ function writeSillajjeConfig(
 	writeFileSync(join(dir, "sillajje.json"), JSON.stringify(config));
 }
 
-/** Create a fresh jj repo for testing, returning the repo path. */
-function initRepo(): string {
-	const cwd = makeRunnerCwd();
-	tempDirs.push(cwd);
-
-	execSync("jj git init --config signing.backend=none", {
-		cwd,
-		stdio: "pipe",
-	});
-	writeFileSync(join(cwd, "README.md"), "# Test\n");
-	execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
-	execSync("jj new -m 'work'", { cwd, stdio: "pipe" });
-
-	return cwd;
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-// Stamping must never spawn a real `pi -p` subprocess in tests. Install a
+// Stamping must never run a real sub-generator in tests. Install a
 // canned sub-generator by default; tests that exercise failure fallback
 // override the seam inside their own body.
 beforeEach(() => {
@@ -216,6 +134,10 @@ describeJj("sillajje change stamping", () => {
 		const show = jj(["show", `sillajje/${sessionId}`], cwd);
 		expect(show).toContain("Add a login page");
 		expect(show).toContain("Meta: write, bash | 2 calls");
+		// Provenance: interaction trigger, model, and versions.
+		expect(show).toContain("trigger: interaction");
+		expect(show).toMatch(/model: /);
+		expect(show).toMatch(/pi: /);
 		expect(show).toContain("sillajje/");
 		expect(show).toContain("I created the login page.");
 		expect(show).toMatch(/\d+\.\ds/);
@@ -446,6 +368,79 @@ describeJj("sillajje change stamping", () => {
 		expect(log).toContain("First task");
 		expect(log).toContain("Follow-up task");
 	}, 30_000);
+
+	it("manual /sillajje stamp -s @ records the manual-session trigger in the provenance", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		// Work happens in the workspace, then the user stamps -s @ manually.
+		writeFileSync(join(workspace, "manual.ts"), "// manual\n");
+
+		const cmd = runner.getCommand("sillajje");
+		expect(cmd).toBeDefined();
+		await cmd!.handler("stamp -s @", runner.createCommandContext());
+
+		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		expect(show).toContain("Meta: trigger: manual-session");
+		expect(show).toContain(`sillajje/${sessionId}`);
+		// No interaction sections — the message generated from the diff alone.
+		expect(show).not.toContain("Prompt:");
+		expect(show).not.toContain("Response:");
+	}, 15_000);
+
+	it("a target-less /sillajje stamp shows help and seals nothing", async () => {
+		const cwd = initRepo();
+		const notifications: Array<[string, string]> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push([msg, type]),
+		});
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+		writeFileSync(join(workspace, "manual.ts"), "// manual\n");
+		const headBefore = jj(
+			["log", "-r", "@", "--no-graph", "-T", "change_id"],
+			workspace,
+		);
+
+		const cmd = runner.getCommand("sillajje");
+		expect(cmd).toBeDefined();
+		await cmd!.handler("stamp", runner.createCommandContext());
+
+		expect(
+			notifications.some(
+				(n) =>
+					n[1] === "info" && n[0].includes("usage: /sillajje stamp"),
+			),
+		).toBe(true);
+		// Nothing was sealed.
+		expect(
+			jj(["log", "-r", "@", "--no-graph", "-T", "change_id"], workspace),
+		).toBe(headBefore);
+	}, 15_000);
+
+	it("stamp -h shows the same help as a target-less stamp", async () => {
+		const cwd = initRepo();
+		const notifications: Array<[string, string]> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push([msg, type]),
+		});
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const cmd = runner.getCommand("sillajje");
+		expect(cmd).toBeDefined();
+		await cmd!.handler("stamp -h", runner.createCommandContext());
+
+		expect(
+			notifications.some(
+				(n) =>
+					n[1] === "info" && n[0].includes("usage: /sillajje stamp"),
+			),
+		).toBe(true);
+	}, 15_000);
 
 	// -------------------------------------------------------------------
 	// Config-gated body sections

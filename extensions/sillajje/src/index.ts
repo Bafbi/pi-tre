@@ -12,17 +12,24 @@ import { loadSillajjeConfig } from "./config.js";
 import { createDebugLogger } from "./debug-log.js";
 import { redirect } from "./path-redirect.js";
 import { parseRebaseFoldArgs } from "./rebase-fold.js";
-import type { StampInput, StampStatus } from "./stamp/index.js";
+import { resolveSessionTarget } from "./session-target.js";
+import type {
+	RevStampInput,
+	SessionStampInput,
+	StampStatus,
+} from "./stamp/index.js";
 import {
-	stamp,
+	stampRev,
+	stampSession,
 	setSessionBookmark as stampSetBookmark,
 } from "./stamp/index.js";
+import { parseStampArgs, STAMP_HELP } from "./stamp-args.js";
 import { SessionState } from "./state.js";
 import { formatPill } from "./status-pill.js";
 import type { SpawnFn } from "./sub-generator.js";
 import { createSpawnFn, generateManualHeader } from "./sub-generator.js";
+import { piVersion, sillajjeVersion } from "./versions.js";
 import {
-	bookmarkExists,
 	cleanupWorkspace,
 	createWorkspace,
 	type ExecFn,
@@ -106,6 +113,43 @@ function resolveSpawnFn(): SpawnFn {
 	);
 }
 
+/**
+ * @internal Test seam — wrap the ExecFn used for jj calls. When set, every
+ * jj call goes through this wrapper first, which delegates to the real
+ * `pi.exec` — tests inject failures for single commands while all other
+ * steps run against real jj. Mirrored on `globalThis` like the spawn seam.
+ */
+const EXEC_SEAM_KEY = "__sillajje_test_exec_fn__";
+
+let _testExecWrapper: ExecFn | undefined;
+export function setTestExecWrapper(fn: ExecFn | undefined): void {
+	_testExecWrapper = fn;
+	const g = globalThis as Record<string, unknown>;
+	if (fn === undefined) {
+		delete g[EXEC_SEAM_KEY];
+	} else {
+		g[EXEC_SEAM_KEY] = fn;
+	}
+}
+
+/**
+ * Resolve the ExecFn used for jj calls: `pi.exec`, routed through the test
+ * wrapper when one is installed. The wrapper is looked up per call — the
+ * extension binds `exec` once at activation, before tests install the seam.
+ */
+function resolveExecFn(pi: ExtensionAPI): ExecFn {
+	const real: ExecFn = (command, args, options) =>
+		pi.exec(command, args, options);
+	return (command, args, options) => {
+		const g = globalThis as Record<string, unknown>;
+		const wrapper =
+			_testExecWrapper ?? (g[EXEC_SEAM_KEY] as ExecFn | undefined);
+		return wrapper
+			? wrapper(command, args, options)
+			: real(command, args, options);
+	};
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -123,9 +167,16 @@ export default function (pi: ExtensionAPI) {
 
 	debug.event("extension_loaded");
 
-	// Wrap pi.exec as an ExecFn adapter for the workspace module.
-	const exec: ExecFn = (command, args, options) =>
-		pi.exec(command, args, options);
+	// Versions for the stamp provenance block — read once at activation.
+	const env = {
+		piVersion: piVersion(),
+		sillajjeVersion: sillajjeVersion(),
+	};
+
+	// Wrap pi.exec as an ExecFn adapter for the workspace module. The test
+	// wrapper (when installed) sees every jj call and delegates to the real
+	// exec.
+	const exec: ExecFn = resolveExecFn(pi);
 
 	// -------------------------------------------------------------------
 	// setSessionBookmark — point the session bookmark at the working copy
@@ -516,20 +567,20 @@ export default function (pi: ExtensionAPI) {
 
 		debug.event("stamp_change", { messageCount: messages.length });
 
-		const input: StampInput = {
+		const input: SessionStampInput = {
 			interaction: messages as Message[],
 			workspace: { sessionKey, wsPath },
-			rev: "@",
 		};
 
 		const deps = {
 			exec,
 			spawn: resolveSpawnFn(),
 			config: activeConfig ?? loadSillajjeConfig(),
+			env,
 			onStatus: createStatusSink(ctx),
 		};
 
-		const result = await stamp(input, deps);
+		const result = await stampSession(input, deps);
 
 		if (result.ok) {
 			debug.event("stamp_done", {
@@ -578,20 +629,19 @@ export default function (pi: ExtensionAPI) {
 		// (error-ended) interaction — nothing left to finalize later.
 		state.clearPendingFinalize();
 
-		const input: StampInput = {
-			interaction: null,
+		const input: SessionStampInput = {
 			workspace: { sessionKey, wsPath },
-			rev: "@",
 		};
 
 		const deps = {
 			exec,
 			spawn: resolveSpawnFn(),
 			config: activeConfig ?? loadSillajjeConfig(),
+			env,
 			onStatus: createStatusSink(ctx),
 		};
 
-		const result = await stamp(input, deps);
+		const result = await stampSession(input, deps);
 
 		if (result.ok) {
 			debug.event("stamp_manual_done", {
@@ -897,44 +947,25 @@ export default function (pi: ExtensionAPI) {
 			return undefined;
 		}
 
-		// Resolve the workspace path: stored for the current session, looked up
-		// from `jj workspace list` for any other session.
-		let wsPath: string | undefined;
-		if (sessionKey === state.getSessionKey() && state.getWorkspacePath()) {
-			wsPath = state.getWorkspacePath();
-		} else {
-			try {
-				wsPath = await getWorkspacePathByName(exec, wsName(sessionKey));
-			} catch {
-				// getWorkspacePathByName catches errors internally
-			}
-		}
-
-		// Three-state session detection (PRD): no bookmark → not a sillajje
-		// session; bookmark without a workspace → archived; both → active, proceed.
-		if (!wsPath) {
-			const hasBookmark = await bookmarkExists(
-				exec,
-				`sillajje/${sessionKey}`,
-				repoRoot,
-			);
-			if (!hasBookmark) {
-				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`[sillajje] session ${sessionKey} is not a sillajje session — no bookmark sillajje/${sessionKey}`,
-						"error",
-					);
-				}
-				return undefined;
-			}
+		// Three-state session detection, shared with stamp (PRD): no bookmark
+		// → not a sillajje session; bookmark without a workspace → archived;
+		// both → active, proceed.
+		const target = await resolveSessionTarget(exec, repoRoot, sessionKey, {
+			sessionKey: state.getSessionKey(),
+			wsPath: state.getWorkspacePath(),
+		});
+		if (!target.ok) {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
-					`[sillajje] session ${sessionKey} is archived — unarchive it first`,
+					target.reason === "not-a-session"
+						? `[sillajje] session ${sessionKey} is not a sillajje session — no bookmark sillajje/${sessionKey}`
+						: `[sillajje] session ${sessionKey} is archived — unarchive it first`,
 					"error",
 				);
 			}
 			return undefined;
 		}
+		const wsPath = target.wsPath;
 
 		debug.event(`${subcommand}_preamble`, { rev, sessionKey, wsPath });
 
@@ -1142,8 +1173,228 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				case "stamp": {
-					await stampManual(ctx);
-					syncPill(ctx);
+					// `args` includes the subcommand token itself (matching the other
+					// cases) — hand the parser only what follows `/sillajje stamp`.
+					const parsed = parseStampArgs(
+						args
+							.trim()
+							.split(/\s+/)
+							.slice(1)
+							.filter(Boolean)
+							.join(" "),
+					);
+					if (parsed.error) {
+						debug.event("stamp_usage_error", {
+							error: parsed.error,
+						});
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								`[sillajje] ${parsed.error}`,
+								"warning",
+							);
+						}
+						break;
+					}
+
+					if (parsed.help) {
+						// Bare `/sillajje stamp`, `-h`, and `--help` all show the
+						// targets and take no action.
+						debug.event("stamp_help");
+						if (ctx.hasUI) {
+							ctx.ui.notify(`[sillajje] ${STAMP_HELP}`, "info");
+						}
+						break;
+					}
+
+					if (parsed.rev !== undefined) {
+						// Rev stamp: describe the target change and nothing else.
+						// Works with or without a live sillajje session — jj runs
+						// from the current session's workspace when one is active,
+						// otherwise from the repo root.
+						const activeWsPath =
+							state.isActive() && !state.isStale()
+								? state.getWorkspacePath()
+								: undefined;
+						const wsPath =
+							activeWsPath ??
+							state.getRepoRoot() ??
+							findJjRepoRoot(ctx.cwd);
+						if (!wsPath) {
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									"[sillajje] cannot stamp: no jj repo detected",
+									"error",
+								);
+							}
+							break;
+						}
+
+						const revInput: RevStampInput = {
+							wsPath,
+							rev: parsed.rev,
+						};
+						const revDeps = {
+							exec,
+							spawn: resolveSpawnFn(),
+							config: activeConfig ?? loadSillajjeConfig(),
+							env,
+							onStatus: createStatusSink(ctx),
+						};
+
+						debug.event("stamp_rev_start", {
+							rev: parsed.rev,
+							wsPath,
+						});
+
+						// Side-effect scope: a Rev stamp touches no session state —
+						// the pending interaction survives and still auto-stamps.
+						const revResult = await stampRev(revInput, revDeps);
+
+						if (revResult.ok) {
+							debug.event("stamp_rev_done", {
+								subject: revResult.subject,
+								rev: revResult.rev,
+							});
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									`[sillajje] change ${parsed.rev} stamped: ${revResult.subject}`,
+									"info",
+								);
+							}
+						} else if (revResult.reason === "no-changes") {
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									`[sillajje] nothing to stamp at ${parsed.rev} — no changes`,
+									"info",
+								);
+							}
+						} else {
+							// The stamp module emits an error status before returning
+							// `failed`; createStatusSink already notified the user.
+							debug.error(
+								"stamp_rev_failed",
+								new Error("stampRev returned failed"),
+							);
+						}
+						break;
+					}
+
+					if (parsed.sessionId !== undefined) {
+						if (parsed.sessionId === "@") {
+							// `-s @` targets the current session: today's bare
+							// `/sillajje stamp` behavior.
+							await stampManual(ctx);
+							syncPill(ctx);
+							break;
+						}
+
+						// Cross-session stamp: a Session stamp on another
+						// sillajje session's @, resolved and validated with
+						// the same three-state check rebase and fold use.
+						const repoRoot =
+							state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
+						if (!repoRoot) {
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									"[sillajje] cannot stamp: no jj repo detected",
+									"error",
+								);
+							}
+							break;
+						}
+
+						const target = await resolveSessionTarget(
+							exec,
+							repoRoot,
+							parsed.sessionId,
+							{
+								sessionKey: state.getSessionKey(),
+								wsPath: state.getWorkspacePath(),
+							},
+						);
+						if (!target.ok) {
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									target.reason === "not-a-session"
+										? `[sillajje] session ${parsed.sessionId} is not a sillajje session — no bookmark sillajje/${parsed.sessionId}`
+										: `[sillajje] session ${parsed.sessionId} is archived — unarchive it first`,
+									"error",
+								);
+							}
+							break;
+						}
+
+						// The foreign transcript is never borrowed: a session
+						// stamp on another session generates from the diff
+						// alone. Stamping the current session keeps today's
+						// state resets (it covers any pending interaction).
+						const stampingCurrent =
+							target.sessionKey === state.getSessionKey();
+						if (stampingCurrent) {
+							state.clearPendingFinalize();
+						}
+
+						debug.event("stamp_session_start", {
+							sessionKey: target.sessionKey,
+							wsPath: target.wsPath,
+							stampingCurrent,
+						});
+
+						const sessionDeps = {
+							exec,
+							spawn: resolveSpawnFn(),
+							config: activeConfig ?? loadSillajjeConfig(),
+							env,
+							onStatus: createStatusSink(ctx),
+						};
+						const sessionResult = await stampSession(
+							{
+								workspace: {
+									sessionKey: target.sessionKey,
+									wsPath: target.wsPath,
+								},
+							},
+							sessionDeps,
+						);
+
+						if (sessionResult.ok) {
+							debug.event("stamp_session_done", {
+								subject: sessionResult.subject,
+								sessionKey: target.sessionKey,
+							});
+							if (stampingCurrent) {
+								// Sealing the working copy covers the pending
+								// interaction — clear its transcript.
+								state.resetInteraction();
+							}
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									`[sillajje] session ${target.sessionKey} stamped: ${sessionResult.subject}`,
+									"info",
+								);
+							}
+							if (stampingCurrent) {
+								syncPill(ctx);
+							}
+						} else if (sessionResult.reason === "no-changes") {
+							if (ctx.hasUI) {
+								ctx.ui.notify(
+									`[sillajje] nothing to stamp at session ${target.sessionKey} — no changes`,
+									"info",
+								);
+							}
+						} else {
+							// The stamp module emits an error status before
+							// returning `failed`; createStatusSink already
+							// notified the user.
+							debug.error(
+								"stamp_session_failed",
+								new Error("stampSession returned failed"),
+							);
+						}
+						break;
+					}
+
 					break;
 				}
 

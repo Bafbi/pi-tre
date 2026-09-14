@@ -1,5 +1,7 @@
 # Stamp module: one entry point, injected seams, streamed status, value-based results
 
+> **Partly superseded by ADR 0004** (`0004-two-entry-points-transactional-seal.md`): the single entry point `stamp()` is now the two entry points `stampSession` / `stampRev`, and the Rev targeting paragraph below (`rev?: string` with `rev === "@"` selecting the full seal) no longer holds — a rev stamp is always describe-only, and the seal is transactional. This document remains the record for the shape, source axis, error policy, and config decisions.
+
 The stamp flow (Interaction stamp + Diff stamp) moves out of the pi adapter into a self-contained engine module with a single entry point — `stamp(input, deps): Promise<StampResult>`. Statuses stream during execution through an injected `onStatus` sink; expected failures (jj non-zero exits, sub-generator exhaustion) are returned as `ok: false` values, never thrown. This makes the whole pipeline unit-testable across the same seams the pi adapter crosses — the interface is the test surface.
 
 ## Considered Options
