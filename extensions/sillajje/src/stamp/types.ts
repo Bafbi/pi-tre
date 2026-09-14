@@ -4,7 +4,7 @@
 
 import type { Message } from "@earendil-works/pi-ai";
 import type { SillajjeConfig } from "../config.js";
-import type { MetadataFieldToggles } from "../metadata.js";
+import type { MetadataFieldToggles, ProvenanceVersions } from "../metadata.js";
 import type { SpawnFn } from "../sub-generator.js";
 import type { ExecFn } from "../workspace.js";
 
@@ -12,31 +12,39 @@ import type { ExecFn } from "../workspace.js";
 // Public types
 // ---------------------------------------------------------------------------
 
-/** Input for the stamp operation. */
-export interface StampInput {
+/** Input for the Session stamp operation. */
+export interface SessionStampInput {
 	/**
-	 * Pi's own transcript (Message[] from @earendil-works/pi-ai).
-	 * `null` for a Diff stamp (derived from a diff, not an Interaction).
+	 * The pending interaction's transcript (pi's own Message[]). With a
+	 * transcript the header and trace generate from interaction + diff;
+	 * without one the message generates from the diff alone.
 	 */
-	interaction: Message[] | null;
-	/** Session workspace info. */
+	interaction?: Message[];
+	/** Session workspace info: the stamped session's key and its workspace. */
 	workspace: { sessionKey: string; wsPath: string };
-	/**
-	 * Revision to target. Default `"@"`.
-	 * `"@"` → full seal (update-stale → describe → bookmark set → jj new).
-	 * Any other rev → describe-only.
-	 */
-	rev?: string;
 }
+
+/** Input for the Rev stamp operation (diff-only describe, no seal). */
+export interface RevStampInput {
+	/** Absolute path of the jj working directory to run jj in. */
+	wsPath: string;
+	/** Any revset jj resolves: change ID, commit prefix, bookmark, `@`. */
+	rev: string;
+}
+
+/** Versions the adapter reads once at activation, for the provenance block. */
+export type StampEnv = ProvenanceVersions;
 
 /** Dependencies injected into the stamp module. */
 export interface StampDeps {
 	/** jj execution adapter (existing seam from the workspace module). */
 	exec: ExecFn;
-	/** Sub-generator subprocess adapter (existing seam). */
+	/** Sub-generator backend adapter (existing seam). */
 	spawn: SpawnFn;
 	/** Fully-populated sillajje config. The module extracts its own options. */
 	config: SillajjeConfig;
+	/** pi and sillajje versions, rendered into the provenance metadata block. */
+	env: StampEnv;
 	/**
 	 * Status sink — called during execution for phases, warnings, and errors.
 	 * Treated as infallible: a throwing sink is caught and never corrupts the stamp.
@@ -52,7 +60,7 @@ export type StampStatus =
 	  }
 	| {
 			kind: "warning";
-			code: "header-fallback" | "trace-fallback";
+			code: string;
 			message: string;
 	  }
 	| { kind: "error"; code: string; message: string };

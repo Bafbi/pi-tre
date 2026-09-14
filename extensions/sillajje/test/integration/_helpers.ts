@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -12,14 +12,15 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect } from "vitest";
-import { setTestSpawnFn } from "../../src/index.js";
+import { setTestExecWrapper, setTestSpawnFn } from "../../src/index.js";
 import type { SpawnFn } from "../../src/sub-generator.js";
 
 export const tempDirs: string[] = [];
 
 afterEach(async () => {
-	// Reset the sub-generator test seam so it never leaks into later tests.
+	// Reset the test seams so they never leak into later tests.
 	setTestSpawnFn(undefined);
+	setTestExecWrapper(undefined);
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -36,7 +37,13 @@ export function resolveExtensionPath(): string {
 	return resolve(testDir, "../../src/index.ts");
 }
 
-export async function createRunner(cwd: string): Promise<ExtensionRunner> {
+export async function createRunner(
+	cwd: string,
+	opts?: {
+		/** Record UI notifications: each call appends `[message, type]`. */
+		onNotify?: (msg: string, type: "info" | "warning" | "error") => void;
+	},
+): Promise<ExtensionRunner> {
 	const extensionPath = resolveExtensionPath();
 	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
 	expect(loaded.errors).toHaveLength(0);
@@ -61,7 +68,7 @@ export async function createRunner(cwd: string): Promise<ExtensionRunner> {
 	runner.setUIContext(
 		{
 			setStatus: () => {},
-			notify: () => {},
+			notify: opts?.onNotify ?? (() => {}),
 			setEditorText: () => {},
 			getEditorText: () => "",
 		} as unknown as Parameters<typeof runner.setUIContext>[0],
@@ -83,13 +90,108 @@ export function describeJj(name: string, fn: () => void): void {
 	(jjAvailable ? describe : describe.skip)(name, fn);
 }
 
+// ---------------------------------------------------------------------------
+// Shared jj / session helpers
+// ---------------------------------------------------------------------------
+
+/** Run jj in the given directory (shell form so execSync honors the cwd). */
+export function jj(args: string[], cwd: string): string {
+	const quoted = args.map((a) => `'${a.replace(/'/g, "'\\''")}'`);
+	const cmd = ["jj", ...quoted].join(" ");
+	return String(
+		execSync(cmd, {
+			cwd,
+			encoding: "utf-8",
+			stdio: "pipe",
+		}),
+	).trim();
+}
+
+/** Get the session ID, throwing if undefined (it should always be set after session_start). */
+export function getSessionId(runner: ExtensionRunner): string {
+	const id = runner.createContext().sessionManager.getSessionId();
+	if (!id) throw new Error("sessionId should be defined after session_start");
+	return id;
+}
+
+/** Default workspace path for a given session (config workspacesRoot default). */
+export function wsPath(repoRoot: string, sessionId: string): string {
+	const repoSlug = repoRoot.split("/").pop();
+	return `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
+}
+
+/** Create a fresh jj repo with one described root change and an empty `@`. */
+export function initRepo(): string {
+	const cwd = makeRunnerCwd();
+	execSync("jj git init --config signing.backend=none", {
+		cwd,
+		stdio: "pipe",
+	});
+	writeFileSync(join(cwd, "README.md"), "# Test\n");
+	execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+	execSync("jj new -m 'work'", { cwd, stdio: "pipe" });
+	return cwd;
+}
+
+/** Invoke the /sillajje command with the given args string. */
+export async function runSillajje(
+	runner: ExtensionRunner,
+	args: string,
+): Promise<void> {
+	const cmd = runner.getCommand("sillajje");
+	expect(cmd).toBeDefined();
+	await cmd?.handler(args, runner.createCommandContext());
+}
+
+/** Assistant message fixture, optionally with tool calls, thinking, or an error stop. */
+export function assistantMsg(
+	text: string,
+	opts?: {
+		toolCalls?: Array<{ id: string; name: string }>;
+		thinking?: boolean;
+		stopReason?: string;
+		errorMessage?: string;
+	},
+) {
+	const content: Array<{
+		type: string;
+		text?: string;
+		thinking?: string;
+		id?: string;
+		name?: string;
+	}> = [];
+	if (opts?.thinking) {
+		content.push({
+			type: "thinking",
+			thinking: "Let me think about this...",
+		});
+	}
+	if (opts?.toolCalls) {
+		for (const tc of opts.toolCalls) {
+			content.push({ type: "toolCall", id: tc.id, name: tc.name });
+		}
+	}
+	content.push({ type: "text", text });
+	return {
+		role: "assistant" as const,
+		content,
+		api: "anthropic-messages" as const,
+		provider: "anthropic" as const,
+		model: "test",
+		usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+		stopReason: opts?.stopReason ?? "stop",
+		errorMessage: opts?.errorMessage,
+		timestamp: Date.now(),
+	};
+}
+
 /**
  * Canned sub-generator output for integration tests.
  *
  * The header sub-generator reads the first stdout line as the subject; the
  * trace sub-generator reads the whole stdout. Installed by default (see
- * `installDefaultSubGeneratorMock`) so change stamping never spawns a real
- * `pi -p` subprocess during tests.
+ * `installDefaultSubGeneratorMock`) so change stamping never runs a real
+ * sub-generator during tests.
  */
 export const defaultSubGeneratorMock: SpawnFn = async () => ({
 	code: 0,

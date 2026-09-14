@@ -1,49 +1,77 @@
 /**
- * Stamp module — self-contained engine for sealing Interactions and diffs into
- * jj Changes. Single entry point: `stamp(input, deps)`.
+ * Stamp module — self-contained engine for stamping jj Changes.
+ *
+ * Two-layer seam. Layer 1 (session link) is the function name:
+ * - `stampSession(input, deps)` — bound to a sillajje session, always seals
+ *   its `@` (update-stale → describe → bookmark set → jj new).
+ * - `stampRev(input, deps)` — bound to a revision, describes the change and
+ *   nothing else.
+ *
+ * Layer 2 (context) is `interaction` presence on `stampSession`'s input:
+ * with a transcript the message generates from interaction + diff; without
+ * one, from the diff alone. Rev stamps never carry transcripts.
  *
  * Public API:
- * - `stamp(input, deps)` — the main entry point
+ * - `stampSession(input, deps)` — the Session stamp entry point
+ * - `stampRev(input, deps)` — the Rev stamp entry point
  * - `setSessionBookmark(exec, sessionKey, wsPath)` — for before_agent_start reuse
- * - `deriveInteractionData(messages)` — derives data from pi's Message[]
- * - `extractAssistantText(msg)` — extracts text from assistant content blocks
  *
- * Types: `StampInput`, `StampDeps`, `StampStatus`, `StampResult`
+ * Types: `SessionStampInput`, `RevStampInput`, `StampDeps`, `StampStatus`,
+ * `StampResult`, `StampEnv`
  */
 
-import { getStampConfig } from "./internal.js";
-import type { StampDeps, StampInput, StampResult } from "./types.js";
+import type {
+	RevStampInput,
+	SessionStampInput,
+	StampDeps,
+	StampResult,
+} from "./types.js";
 
 /**
- * Stamp a jj Change from an Interaction or a Diff.
+ * Stamp the session's working copy from an Interaction or from the diff
+ * alone.
  *
- * When `input.interaction` is a `Message[]` transcript, the Interaction stamp
- * path executes. When `input.interaction` is `null`, the Diff stamp path executes.
+ * With `input.interaction` (the pending transcript) the header and trace
+ * generate from interaction + diff; without one the message generates from
+ * the diff alone. Both seal the session's `@`.
  *
  * Statuses stream through the injected `onStatus` sink during execution.
- * Expected failures are returned as `ok: false` values — the module never throws
- * for them.
+ * Expected failures are returned as `ok: false` values — the module never
+ * throws for them.
  */
-export async function stamp(
-	input: StampInput,
+export async function stampSession(
+	input: SessionStampInput,
 	deps: StampDeps,
 ): Promise<StampResult> {
-	const cfg = getStampConfig(deps.config);
+	const { stampSession: session } = await import("./session.js");
+	return session(input, deps);
+}
 
-	if (input.interaction !== null) {
-		const { stampInteraction } = await import("./interaction.js");
-		return stampInteraction(input, deps, cfg);
-	}
-	const { stampDiff } = await import("./diff.js");
-	return stampDiff(input, deps, cfg);
+/**
+ * Stamp any jj-resolvable revision with a generated diff-only header plus
+ * provenance metadata. A Rev stamp is bound to a revision, not to a session:
+ * it describes the change and nothing else — no bookmark, no `jj new`, no
+ * update-stale, and no session state of any kind.
+ *
+ * Statuses stream through the injected `onStatus` sink during execution.
+ * Expected failures are returned as `ok: false` values — the module never
+ * throws for them.
+ */
+export async function stampRev(
+	input: RevStampInput,
+	deps: StampDeps,
+): Promise<StampResult> {
+	const { stampRev: run } = await import("./rev.js");
+	return run(input, deps);
 }
 
 // Re-exports
 export { setSessionBookmark } from "./bookmark.js";
-export { deriveInteractionData, extractAssistantText } from "./derive.js";
 export type {
+	RevStampInput,
+	SessionStampInput,
 	StampDeps,
-	StampInput,
+	StampEnv,
 	StampResult,
 	StampStatus,
 } from "./types.js";

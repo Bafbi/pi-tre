@@ -12,7 +12,34 @@ export interface InteractionMeta {
 	toolCallCount: number;
 	elapsedMs: number;
 	thinkingBlocks: number;
-	sessionId: string;
+}
+
+/** What triggered the stamp. */
+export type StampTrigger = "interaction" | "manual-session" | "rev";
+
+/** The pi/sillajje version pair the adapter reads once at activation. */
+export interface ProvenanceVersions {
+	piVersion: string;
+	sillajjeVersion: string;
+}
+
+/**
+ * Provenance facts — how the stamped change came to be. Every stamp path
+ * carries them; the caller supplies only the versions (read once by the
+ * adapter), trigger, session, rev, model, and fallbacks come from the stamp
+ * call itself. They always render — they are the audit record.
+ */
+export interface Provenance {
+	trigger: StampTrigger;
+	/** Stamped session's key — the trail the change joins. */
+	sessionKey?: string;
+	/** Target rev (Rev stamp). */
+	rev?: string;
+	/** Sub-generator model used for the generated message. */
+	model: string;
+	/** Sub-generator fallbacks that fired, e.g. `["header"]`. */
+	fallbacks: string[];
+	env: ProvenanceVersions;
 }
 
 /** Optional field toggles for the metadata block. All default to `true`. */
@@ -66,15 +93,25 @@ export function deriveSubject(prompt: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Build the programmatic metadata block for the commit body.
- * Returns a compact two-line block.
+ * Build the metadata block for the commit body — one canonical `Meta:`
+ * block shared by every stamp path.
  *
- * @param meta - Interaction metadata.
- * @param fields - Optional field toggles. When a field is `false`, it is
- *   omitted from the output. Defaults to all enabled.
+ * Line 1: the interaction-loop fields (tools, calls, elapsed) when an
+ * interaction sits behind the stamp, then the trigger and any fallbacks.
+ * Line 2: thinking blocks, the stamped session, the target rev, the model,
+ * and the pi/sillajje versions. Any field with nothing behind it is
+ * omitted. Provenance facts are not individually toggleable — they are the
+ * audit record; the four interaction-field toggles govern line 1's
+ * interaction fields and `thinking_blocks`.
+ *
+ * @param meta - Interaction metadata, absent on diff-only stamp paths.
+ * @param provenance - Stamp provenance, present on every path.
+ * @param fields - Optional interaction-field toggles. When a field is
+ *   `false`, it is omitted. Defaults to all enabled.
  */
 export function buildMetadata(
-	meta: InteractionMeta,
+	meta: InteractionMeta | undefined,
+	provenance: Provenance,
 	fields?: MetadataFieldToggles,
 ): string {
 	const f = {
@@ -85,21 +122,71 @@ export function buildMetadata(
 		...fields,
 	};
 
-	const fieldStrings: string[] = [];
-	if (f.tools) fieldStrings.push(meta.toolNames.join(", "));
-	if (f.call_count) fieldStrings.push(`${meta.toolCallCount} calls`);
-	if (f.elapsed) fieldStrings.push(`${(meta.elapsedMs / 1000).toFixed(1)}s`);
-
-	const line1 =
-		fieldStrings.length > 0 ? `Meta: ${fieldStrings.join(" | ")}` : "Meta:";
-
-	let line2 = "  ";
-	if (f.thinking_blocks) {
-		line2 += `${meta.thinkingBlocks} blocks | `;
+	const line1Fields: string[] = [];
+	if (meta && f.tools) line1Fields.push(meta.toolNames.join(", "));
+	if (meta && f.call_count) line1Fields.push(`${meta.toolCallCount} calls`);
+	if (meta && f.elapsed) {
+		line1Fields.push(`${(meta.elapsedMs / 1000).toFixed(1)}s`);
 	}
-	line2 += `sillajje/${meta.sessionId}`;
+	line1Fields.push(`trigger: ${provenance.trigger}`);
+	if (provenance.fallbacks.length > 0) {
+		line1Fields.push(`fallback: ${provenance.fallbacks.join(",")}`);
+	}
 
-	return `${line1}\n${line2}`;
+	const line2Fields: string[] = [];
+	if (meta && f.thinking_blocks) {
+		line2Fields.push(`${meta.thinkingBlocks} blocks`);
+	}
+	if (provenance.sessionKey !== undefined) {
+		line2Fields.push(`sillajje/${provenance.sessionKey}`);
+	}
+	if (provenance.rev !== undefined) {
+		line2Fields.push(`rev: ${provenance.rev}`);
+	}
+	line2Fields.push(`model: ${provenance.model}`);
+	line2Fields.push(`pi: ${provenance.env.piVersion}`);
+	line2Fields.push(`sillajje: ${provenance.env.sillajjeVersion}`);
+
+	return `Meta: ${line1Fields.join(" | ")}\n  ${line2Fields.join(" | ")}`;
+}
+
+/**
+ * Everything a stamp path knows when it renders its metadata block.
+ */
+export interface MetadataRequest {
+	/** Master gate `message.body.meta.enabled`; when false, render nothing. */
+	enabled: boolean;
+	/** Interaction-loop field toggles; absent on diff-only paths. */
+	fields?: MetadataFieldToggles;
+	/** Sub-generator model used for the generated message. */
+	model: string;
+	/** Sub-generator fallbacks that fired. */
+	fallbacks: string[];
+	/** pi and sillajje versions. */
+	env: ProvenanceVersions;
+	/** Provenance facts derived from the call crossing the seam. */
+	facts: {
+		trigger: StampTrigger;
+		sessionKey?: string;
+		rev?: string;
+	};
+	/** Interaction metadata; absent on diff-only paths. */
+	meta?: InteractionMeta;
+}
+
+/**
+ * Render a stamp's metadata block, applying the master gate in one place.
+ * Returns an empty string when the gate is off.
+ */
+export function renderMetadata(req: MetadataRequest): string {
+	if (!req.enabled) return "";
+	const provenance: Provenance = {
+		...req.facts,
+		model: req.model,
+		fallbacks: req.fallbacks,
+		env: req.env,
+	};
+	return buildMetadata(req.meta, provenance, req.fields);
 }
 
 // ---------------------------------------------------------------------------

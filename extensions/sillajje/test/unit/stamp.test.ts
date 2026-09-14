@@ -10,13 +10,16 @@ import { Default } from "@sinclair/typebox/value";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SillajjeConfig } from "../../src/config";
 import { SillajjeConfigSchema } from "../../src/config";
-import type { StampInput, StampStatus } from "../../src/stamp";
+import type {
+	RevStampInput,
+	SessionStampInput,
+	StampStatus,
+} from "../../src/stamp";
+import { setSessionBookmark, stampRev, stampSession } from "../../src/stamp";
 import {
 	deriveInteractionData,
 	extractAssistantText,
-	setSessionBookmark,
-	stamp,
-} from "../../src/stamp";
+} from "../../src/stamp/derive";
 import type { ExecFn, ExecResult } from "../../src/workspace";
 
 // ---------------------------------------------------------------------------
@@ -121,10 +124,32 @@ function userMsgBlocks(
 	} as Message;
 }
 
+/**
+ * The head operation id the mock `jj op log` reports. Full hex, matching
+ * the format jj 0.44 prints for `-T 'id'`.
+ */
+const HEAD_OP_ID =
+	"e2cc9967a9be45acbc064cfb4d8556c530cacafc43f6e18dcf22e8ff754d4c703";
+
+/** Deterministic 12-hex operation id for the mock's deferred steps. */
+function mockOpId(n: number): string {
+	return n.toString(16).padStart(12, "0");
+}
+
+/**
+ * The line jj 0.44 prints for a deferred (`--no-integrate-operation`) step,
+ * captured verbatim in a scratch repo. The seal's parser reads the op id
+ * from this line; the test suite pins the format.
+ */
+function deferredOpLine(n: number): string {
+	return `Operation left uncommitted because --no-integrate-operation was requested: ${mockOpId(n)}`;
+}
+
 /** Create a mock ExecFn that returns success for all commands. */
 function mockExec(
 	overrides?: Partial<Record<string, ExecResult | Error>>,
 ): ExecFn {
+	let deferredCount = 0;
 	return vi
 		.fn<ExecFn>()
 		.mockImplementation(
@@ -138,6 +163,21 @@ function mockExec(
 							return Promise.resolve(result);
 						}
 					}
+				}
+				if (key === "jj op log -n 1 --no-graph -T id") {
+					return Promise.resolve({
+						code: 0,
+						stdout: `${HEAD_OP_ID}\n`,
+						stderr: "",
+					});
+				}
+				if (args.includes("--no-integrate-operation")) {
+					deferredCount += 1;
+					return Promise.resolve({
+						code: 0,
+						stdout: "",
+						stderr: `${deferredOpLine(deferredCount)}\n`,
+					});
 				}
 				return Promise.resolve({ code: 0, stdout: "", stderr: "" });
 			},
@@ -167,18 +207,25 @@ function collectingSink(): {
 	};
 }
 
+/** The env dependency the adapter reads once at activation. */
+const TEST_ENV = { piVersion: "test-pi", sillajjeVersion: "test-sillajje" };
+
+/** Build a Rev stamp input. */
+function revInput(rev: string, wsPath = "/tmp/ws"): RevStampInput {
+	return { wsPath, rev };
+}
+
 /** Build a standard Interaction stamp input. */
 function interactionInput(
 	messages: Message[],
-	opts?: { sessionKey?: string; wsPath?: string; rev?: string },
-): StampInput {
+	opts?: { sessionKey?: string; wsPath?: string },
+): SessionStampInput {
 	return {
 		interaction: messages,
 		workspace: {
 			sessionKey: opts?.sessionKey ?? "test-session",
 			wsPath: opts?.wsPath ?? "/tmp/ws",
 		},
-		rev: opts?.rev,
 	};
 }
 
@@ -353,7 +400,7 @@ describe("setSessionBookmark", () => {
 // Tests: stamp (Interaction path)
 // ---------------------------------------------------------------------------
 
-describe("stamp (Interaction path)", () => {
+describe("stampSession (interaction context)", () => {
 	let defaultCfg: SillajjeConfig;
 
 	beforeEach(() => {
@@ -377,10 +424,11 @@ describe("stamp (Interaction path)", () => {
 			}),
 		];
 
-		const result = await stamp(interactionInput(msgs), {
+		const result = await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -398,10 +446,11 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done")];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -419,10 +468,11 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done")];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -436,35 +486,15 @@ describe("stamp (Interaction path)", () => {
 		expect(calls[1][0]).toBe("jj");
 		expect(calls[1][1][0]).toBe("log");
 
-		// Third: update-stale
-		const updateCall = calls.find(
-			(c) =>
-				c[0] === "jj" &&
-				c[1][0] === "workspace" &&
-				c[1][1] === "update-stale",
-		);
-		expect(updateCall).toBeDefined();
-
-		// Fourth: describe
+		// The transactional seal follows, chained on captured op ids.
 		const descCall = calls.find(
 			(c) => c[0] === "jj" && c[1][0] === "describe",
 		);
 		expect(descCall).toBeDefined();
-
-		// Fifth: bookmark set
 		const bmCall = calls.find(
 			(c) => c[0] === "jj" && c[1][0] === "bookmark",
 		);
 		expect(bmCall).toBeDefined();
-		expect(bmCall![1]).toEqual([
-			"bookmark",
-			"set",
-			"sillajje/test-session",
-			"-r",
-			"@",
-		]);
-
-		// Sixth: jj new
 		const newCall = calls.find((c) => c[0] === "jj" && c[1][0] === "new");
 		expect(newCall).toBeDefined();
 	});
@@ -483,17 +513,15 @@ describe("stamp (Interaction path)", () => {
 			assistantMsg("The assistant response."),
 		];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
-		const descCall = (exec as ReturnType<typeof vi.fn>).mock.calls.find(
-			(c: unknown[]) => c[0] === "jj" && c[1]?.[0] === "describe",
-		);
-		const body = descCall?.[1]?.[2] as string;
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
 
 		expect(body).toContain("Prompt:");
 		expect(body).toContain("The user prompt");
@@ -518,17 +546,15 @@ describe("stamp (Interaction path)", () => {
 			}),
 		];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
-		const descCall = (exec as ReturnType<typeof vi.fn>).mock.calls.find(
-			(c: unknown[]) => c[0] === "jj" && c[1]?.[0] === "describe",
-		);
-		const body = descCall?.[1]?.[2] as string;
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
 
 		// Metadata block.
 		expect(body).toContain("Meta:");
@@ -563,17 +589,15 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
-		const descCall = (exec as ReturnType<typeof vi.fn>).mock.calls.find(
-			(c: unknown[]) => c[0] === "jj" && c[1]?.[0] === "describe",
-		);
-		const body = descCall?.[1]?.[2] as string;
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
 		expect(body).toContain("Trace:");
 		expect(body).toContain("The agent did several things.");
 	});
@@ -592,10 +616,11 @@ describe("stamp (Interaction path)", () => {
 			assistantMsg("Done."),
 		];
 
-		const result = await stamp(interactionInput(msgs), {
+		const result = await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -631,10 +656,11 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -643,10 +669,7 @@ describe("stamp (Interaction path)", () => {
 		expect(warnings.some((w) => w.code === "trace-fallback")).toBe(true);
 
 		// Trace should not be in the body.
-		const descCall = (exec as ReturnType<typeof vi.fn>).mock.calls.find(
-			(c: unknown[]) => c[0] === "jj" && c[1]?.[0] === "describe",
-		);
-		const body = descCall?.[1]?.[2] as string;
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
 		expect(body).not.toContain("Trace:");
 	});
 
@@ -667,17 +690,17 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
 
-		const result = await stamp(interactionInput(msgs), {
+		const result = await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
 		expect(result).toMatchObject({
 			ok: false,
 			reason: "failed",
-			lastCompletedStep: "none",
 		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "update_stale_failed")).toBe(true);
@@ -692,17 +715,17 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
 
-		const result = await stamp(interactionInput(msgs), {
+		const result = await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
 		expect(result).toMatchObject({
 			ok: false,
 			reason: "failed",
-			lastCompletedStep: "update-stale",
 		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "describe_failed")).toBe(true);
@@ -721,17 +744,17 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
 
-		const result = await stamp(interactionInput(msgs), {
+		const result = await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
 		expect(result).toMatchObject({
 			ok: false,
 			reason: "failed",
-			lastCompletedStep: "describe",
 		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "bookmark_set_failed")).toBe(true);
@@ -746,17 +769,17 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
 
-		const result = await stamp(interactionInput(msgs), {
+		const result = await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
 		expect(result).toMatchObject({
 			ok: false,
 			reason: "failed",
-			lastCompletedStep: "bookmark-set",
 		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "jj_new_failed")).toBe(true);
@@ -775,10 +798,11 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
 
-		const result = await stamp(interactionInput(msgs), {
+		const result = await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: defaultCfg,
+			env: TEST_ENV,
 			onStatus: throwingSink,
 		});
 
@@ -806,10 +830,11 @@ describe("stamp (Interaction path)", () => {
 			assistantMsg("Done."),
 		];
 
-		const result = await stamp(interactionInput(msgs), {
+		const result = await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: cfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -831,10 +856,11 @@ describe("stamp (Interaction path)", () => {
 			assistantMsg("Done."),
 		];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: cfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -865,17 +891,15 @@ describe("stamp (Interaction path)", () => {
 			assistantMsg("Done."),
 		];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: cfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
-		const descCall = (exec as ReturnType<typeof vi.fn>).mock.calls.find(
-			(c: unknown[]) => c[0] === "jj" && c[1]?.[0] === "describe",
-		);
-		const body = descCall?.[1]?.[2] as string;
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
 		expect(body).not.toContain("Prompt:");
 	});
 
@@ -893,17 +917,15 @@ describe("stamp (Interaction path)", () => {
 			assistantMsg("Should be hidden."),
 		];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: cfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
-		const descCall = (exec as ReturnType<typeof vi.fn>).mock.calls.find(
-			(c: unknown[]) => c[0] === "jj" && c[1]?.[0] === "describe",
-		);
-		const body = descCall?.[1]?.[2] as string;
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
 		expect(body).not.toContain("Response:");
 	});
 
@@ -918,17 +940,15 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: cfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
-		const descCall = (exec as ReturnType<typeof vi.fn>).mock.calls.find(
-			(c: unknown[]) => c[0] === "jj" && c[1]?.[0] === "describe",
-		);
-		const body = descCall?.[1]?.[2] as string;
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
 		expect(body).not.toContain("Meta:");
 	});
 
@@ -943,60 +963,37 @@ describe("stamp (Interaction path)", () => {
 
 		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
 
-		await stamp(interactionInput(msgs), {
+		await stampSession(interactionInput(msgs), {
 			exec,
 			spawn,
 			config: cfg,
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
-		const descCall = (exec as ReturnType<typeof vi.fn>).mock.calls.find(
-			(c: unknown[]) => c[0] === "jj" && c[1]?.[0] === "describe",
-		);
-		const body = descCall?.[1]?.[2] as string;
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
 		expect(body).not.toContain("Trace:");
 	});
 
 	// -------------------------------------------------------------------
 	// Rev targeting
 	// -------------------------------------------------------------------
-
-	it("returns rev: '@' in the result for an Interaction stamp", async () => {
-		const exec = mockExec();
-		const spawn = mockSpawn();
-		const { sink } = collectingSink();
-
-		const msgs: Message[] = [userMsg("Query"), assistantMsg("Done.")];
-
-		const result = await stamp(interactionInput(msgs, { rev: "@" }), {
-			exec,
-			spawn,
-			config: defaultCfg,
-			onStatus: sink,
-		});
-
-		expect(result.ok).toBe(true);
-		expect((result as { ok: true; rev: string }).rev).toBe("@");
-	});
 });
 
 // ---------------------------------------------------------------------------
 // Tests: stamp (Diff path)
 // ---------------------------------------------------------------------------
 
-/** Build a Diff stamp input. */
+/** Build a manual (diff-only) session stamp input. */
 function diffInput(opts?: {
 	sessionKey?: string;
 	wsPath?: string;
-	rev?: string;
-}): StampInput {
+}): SessionStampInput {
 	return {
-		interaction: null,
 		workspace: {
 			sessionKey: opts?.sessionKey ?? "test-session",
 			wsPath: opts?.wsPath ?? "/tmp/ws",
 		},
-		rev: opts?.rev,
 	};
 }
 
@@ -1011,7 +1008,7 @@ function findDescribeBody(exec: ReturnType<typeof vi.fn>): string | undefined {
 	return args[args.length - 1] as string | undefined;
 }
 
-describe("stamp (Diff path)", () => {
+describe("stampSession (manual context)", () => {
 	const diffContent = "diff --git a/file b/file\n+added line\n";
 
 	// -------------------------------------------------------------------
@@ -1025,10 +1022,11 @@ describe("stamp (Diff path)", () => {
 		const spawn = mockSpawn();
 		const { sink } = collectingSink();
 
-		const result = await stamp(diffInput(), {
+		const result = await stampSession(diffInput(), {
 			exec,
 			spawn,
 			config: defaultConfig(),
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -1053,10 +1051,11 @@ describe("stamp (Diff path)", () => {
 		const spawn = mockSpawn();
 		const { sink, statuses } = collectingSink();
 
-		const result = await stamp(diffInput(), {
+		const result = await stampSession(diffInput(), {
 			exec,
 			spawn,
 			config: defaultConfig(),
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -1066,10 +1065,14 @@ describe("stamp (Diff path)", () => {
 			rev: "@",
 		});
 
-		// Body contains subject and Meta line.
+		// Body contains subject and the provenance block naming the
+		// stamped session's trail.
 		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
 		expect(body).toContain("act/feat: test interaction");
-		expect(body).toContain("Meta: sillajje/test-session");
+		expect(body).toContain("Meta: trigger: manual-session");
+		expect(body).toContain("sillajje/test-session");
+		expect(body).toContain("pi: test-pi");
+		expect(body).toContain("sillajje: test-sillajje");
 
 		// Full seal sequence: diff, update-stale, describe, bookmark, new.
 		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
@@ -1099,68 +1102,6 @@ describe("stamp (Diff path)", () => {
 	});
 
 	// -------------------------------------------------------------------
-	// Non-"@" rev: describe-only
-	// -------------------------------------------------------------------
-
-	it("does describe-only for a non-@ rev (no update-stale, no bookmark, no new)", async () => {
-		const exec = mockExec({
-			"jj diff -r abc123": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
-		});
-		const spawn = mockSpawn();
-		const { sink } = collectingSink();
-
-		const result = await stamp(diffInput({ rev: "abc123" }), {
-			exec,
-			spawn,
-			config: defaultConfig(),
-			onStatus: sink,
-		});
-
-		expect(result).toEqual({
-			ok: true,
-			subject: "act/feat: test interaction",
-			rev: "abc123",
-		});
-
-		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
-
-		// Should have describe -r abc123 -m <body>
-		const descCall = calls.find(
-			(c: unknown[]) =>
-				c[0] === "jj" && c[1]?.[0] === "describe" && c[1]?.[1] === "-r",
-		);
-		expect(descCall).toBeDefined();
-		expect(descCall?.[1][2]).toBe("abc123");
-
-		// Should NOT have update-stale, bookmark, or new.
-		expect(
-			calls.some(
-				(c: unknown[]) =>
-					c[0] === "jj" &&
-					c[1][0] === "workspace" &&
-					c[1][1] === "update-stale",
-			),
-		).toBe(false);
-		expect(
-			calls.some(
-				(c: unknown[]) => c[0] === "jj" && c[1][0] === "bookmark",
-			),
-		).toBe(false);
-		expect(
-			calls.some((c: unknown[]) => c[0] === "jj" && c[1][0] === "new"),
-		).toBe(false);
-
-		// Body still contains subject and Meta.
-		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
-		expect(body).toContain("act/feat: test interaction");
-		expect(body).toContain("Meta: sillajje/test-session");
-	});
-
-	// -------------------------------------------------------------------
 	// Sub-generator fallback
 	// -------------------------------------------------------------------
 
@@ -1175,10 +1116,11 @@ describe("stamp (Diff path)", () => {
 		const spawn = vi.fn().mockRejectedValue(new Error("unavailable"));
 		const { sink, statuses } = collectingSink();
 
-		const result = await stamp(diffInput(), {
+		const result = await stampSession(diffInput(), {
 			exec,
 			spawn,
 			config: defaultConfig(),
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -1202,25 +1144,30 @@ describe("stamp (Diff path)", () => {
 	// jj failures
 	// -------------------------------------------------------------------
 
-	it("treats a failed jj diff as no-changes", async () => {
+	it("relays a failed jj diff as diff_fetch_failed", async () => {
 		const exec = mockExec({
 			"jj diff -r @": { code: 1, stdout: "", stderr: "diff error" },
 		});
 		const spawn = mockSpawn();
-		const { sink } = collectingSink();
+		const { sink, statuses } = collectingSink();
 
-		// A non-zero `jj diff` exit reads as an empty diff — the stamp module
-		// intentionally maps it to no-changes rather than exposing a
-		// command-failure reason (the diff decides whether there is anything
-		// to seal).
-		const result = await stamp(diffInput(), {
+		// A non-zero `jj diff` exit is jj's call to explain — the module
+		// relays its stderr instead of reading the failure as empty (a
+		// corrupt workspace or missing jj is not "nothing to stamp").
+		const result = await stampSession(diffInput(), {
 			exec,
 			spawn,
 			config: defaultConfig(),
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({ ok: false, reason: "no-changes" });
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(statuses).toContainEqual({
+			kind: "error",
+			code: "diff_fetch_failed",
+			message: expect.stringContaining("diff error"),
+		});
 	});
 
 	it("returns failed when the jj diff fetch rejects", async () => {
@@ -1232,10 +1179,11 @@ describe("stamp (Diff path)", () => {
 		const { sink, statuses } = collectingSink();
 
 		// A rejected diff fetch is a real failure — distinct from no-changes.
-		const result = await stamp(diffInput(), {
+		const result = await stampSession(diffInput(), {
 			exec,
 			spawn,
 			config: defaultConfig(),
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
@@ -1263,17 +1211,17 @@ describe("stamp (Diff path)", () => {
 		const spawn = mockSpawn();
 		const { sink, statuses } = collectingSink();
 
-		const result = await stamp(diffInput(), {
+		const result = await stampSession(diffInput(), {
 			exec,
 			spawn,
 			config: defaultConfig(),
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
 		expect(result).toMatchObject({
 			ok: false,
 			reason: "failed",
-			lastCompletedStep: "none",
 		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "update_stale_failed")).toBe(true);
@@ -1295,19 +1243,1000 @@ describe("stamp (Diff path)", () => {
 		const spawn = mockSpawn();
 		const { sink, statuses } = collectingSink();
 
-		const result = await stamp(diffInput(), {
+		const result = await stampSession(diffInput(), {
 			exec,
 			spawn,
 			config: defaultConfig(),
+			env: TEST_ENV,
 			onStatus: sink,
 		});
 
 		expect(result).toMatchObject({
 			ok: false,
 			reason: "failed",
-			lastCompletedStep: "update-stale",
 		});
 		const errors = statuses.filter((s) => s.kind === "error");
 		expect(errors.some((e) => e.code === "describe_failed")).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Tests: stampRev (Rev stamp entry point)
+// ---------------------------------------------------------------------------
+
+describe("stampRev", () => {
+	const diffContent = "diff --git a/file b/file\n+added line\n";
+
+	// -------------------------------------------------------------------
+	// Happy path
+	// -------------------------------------------------------------------
+
+	it("describes the target rev with a generated header and provenance", async () => {
+		const exec = mockExec({
+			"jj diff -r abc123": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampRev(revInput("abc123"), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		// Value result carries the subject and the rev.
+		expect(result).toEqual({
+			ok: true,
+			subject: "act/feat: test interaction",
+			rev: "abc123",
+		});
+
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+
+		// Exactly two jj calls: the diff fetch and the describe. No seal —
+		// no update-stale, no bookmark set, no jj new.
+		expect(calls).toHaveLength(2);
+		expect(calls[0][0]).toBe("jj");
+		expect(calls[0][1]).toEqual(["diff", "-r", "abc123"]);
+
+		const descCall = calls[1];
+		expect(descCall[0]).toBe("jj");
+		expect(descCall[1][0]).toBe("describe");
+		expect(descCall[1].slice(1, 4)).toEqual(["-r", "abc123", "-m"]);
+
+		// No seal-side calls exist.
+		expect(
+			calls.some(
+				(c: unknown[]) =>
+					c[0] === "jj" &&
+					(c[1][0] === "bookmark" ||
+						c[1][0] === "new" ||
+						(c[1][0] === "workspace" &&
+							c[1][1] === "update-stale")),
+			),
+		).toBe(false);
+
+		// Phase statuses stream in order.
+		const phases = statuses.filter((s) => s.kind === "phase");
+		expect(phases.map((p) => p.code)).toEqual([
+			"collecting-diff",
+			"generating-header",
+			"sealing-change",
+		]);
+	});
+
+	it("accepts -r @ and stays describe-only", async () => {
+		const exec = mockExec({
+			"jj diff -r @": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		const result = await stampRev(revInput("@"), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			subject: "act/feat: test interaction",
+			rev: "@",
+		});
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+		expect(
+			calls.some((c: unknown[]) => c[0] === "jj" && c[1][0] === "new"),
+		).toBe(false);
+		expect(
+			calls.some(
+				(c: unknown[]) => c[0] === "jj" && c[1][0] === "bookmark",
+			),
+		).toBe(false);
+	});
+
+	// -------------------------------------------------------------------
+	// Provenance metadata block
+	// -------------------------------------------------------------------
+
+	it("renders the provenance block from the call and deps.env", async () => {
+		const exec = mockExec({
+			"jj diff -r abc123": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		await stampRev(revInput("abc123"), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(body).toContain("Meta: trigger: rev");
+		expect(body).toContain("rev: abc123");
+		// Model from the sub-generator config default.
+		expect(body).toContain("model: openai/gpt-4o-mini");
+		// Versions from deps.env.
+		expect(body).toContain("pi: test-pi");
+		expect(body).toContain("sillajje: test-sillajje");
+	});
+
+	it("records the header fallback in the provenance block", async () => {
+		const exec = mockExec({
+			"jj diff -r abc123": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+		});
+		const spawn = vi.fn().mockRejectedValue(new Error("unavailable"));
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampRev(revInput("abc123"), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		// Still succeeds with the fallback subject.
+		expect(result.ok).toBe(true);
+		expect(
+			statuses.some(
+				(s) => s.kind === "warning" && s.code === "header-fallback",
+			),
+		).toBe(true);
+
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(body).toContain("fallback: header");
+	});
+
+	it("omits the provenance block when meta.enabled is false", async () => {
+		const exec = mockExec({
+			"jj diff -r abc123": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		const cfg = defaultConfig({
+			message: { body: { meta: { enabled: false } } },
+		});
+
+		await stampRev(revInput("abc123"), {
+			exec,
+			spawn,
+			config: cfg,
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(body).not.toContain("Meta:");
+	});
+
+	// -------------------------------------------------------------------
+	// Expected failures
+	// -------------------------------------------------------------------
+
+	it("returns no-changes on an empty diff before any mutation", async () => {
+		const exec = mockExec({
+			"jj diff -r abc123": { code: 0, stdout: "", stderr: "" },
+		});
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		const result = await stampRev(revInput("abc123"), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "no-changes" });
+		// The describe (the only mutating call) never happened.
+		const descBody = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(descBody).toBeUndefined();
+		// The sub-generator never ran either.
+		expect(spawn).not.toHaveBeenCalled();
+	});
+
+	it("relays jj's stderr when the rev does not resolve", async () => {
+		const exec = mockExec({
+			"jj diff -r nosuchrev": {
+				code: 1,
+				stdout: "",
+				stderr: 'Error: Revision "nosuchrev" doesn\'t exist',
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampRev(revInput("nosuchrev"), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		const errors = statuses.filter((s) => s.kind === "error");
+		expect(errors.some((e) => e.code === "diff_fetch_failed")).toBe(true);
+		expect(
+			errors.some((e) =>
+				e.message.includes('Revision "nosuchrev" doesn\'t exist'),
+			),
+		).toBe(true);
+		// No mutation followed.
+		expect(
+			findDescribeBody(exec as ReturnType<typeof vi.fn>),
+		).toBeUndefined();
+	});
+
+	it("returns failed when the diff fetch rejects", async () => {
+		const exec = mockExec();
+		(
+			exec as unknown as { mockRejectedValueOnce: (v: unknown) => void }
+		).mockRejectedValueOnce(new Error("exec adapter down"));
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampRev(revInput("@"), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(
+			statuses.some(
+				(s) => s.kind === "error" && s.code === "diff_fetch_failed",
+			),
+		).toBe(true);
+	});
+
+	it("relays jj's stderr and returns failed when describe fails", async () => {
+		const exec = mockExec({
+			"jj diff -r abc123": {
+				code: 0,
+				stdout: diffContent,
+				stderr: "",
+			},
+			"jj describe": {
+				code: 1,
+				stdout: "",
+				stderr: "Error: The change is immutable",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampRev(revInput("abc123"), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		const errors = statuses.filter((s) => s.kind === "error");
+		expect(errors.some((e) => e.code === "describe_failed")).toBe(true);
+		expect(
+			errors.some((e) => e.message.includes("The change is immutable")),
+		).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Tests: stampSession provenance (both layer-2 contexts)
+// ---------------------------------------------------------------------------
+
+describe("stampSession provenance", () => {
+	it("records the interaction trigger, session key, model, and versions", async () => {
+		const exec = mockExec();
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		const msgs: Message[] = [
+			userMsg("Provenance check", 1000),
+			assistantMsg("Done.", {
+				toolCalls: [{ id: "tc-1", name: "write" }],
+				timestamp: 2000,
+			}),
+		];
+
+		await stampSession(interactionInput(msgs), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(body).toContain("trigger: interaction");
+		expect(body).toContain("sillajje/test-session");
+		expect(body).toContain("model: openai/gpt-4o-mini");
+		expect(body).toContain("pi: test-pi");
+		expect(body).toContain("sillajje: test-sillajje");
+		// No fallbacks fired — the fallback field is absent.
+		expect(body).not.toContain("fallback:");
+	});
+
+	it("records the fired fallbacks in the interaction provenance", async () => {
+		const exec = mockExec();
+		const spawn = vi.fn().mockRejectedValue(new Error("unavailable"));
+		const { sink } = collectingSink();
+
+		const msgs: Message[] = [
+			userMsg("Fallback provenance"),
+			assistantMsg("Done."),
+		];
+
+		await stampSession(interactionInput(msgs), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(body).toContain("fallback: header,trace");
+	});
+
+	it("hides the provenance fields when meta.enabled is false", async () => {
+		const exec = mockExec();
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		const cfg = defaultConfig({
+			message: { body: { meta: { enabled: false } } },
+		});
+
+		const msgs: Message[] = [
+			userMsg("Hidden provenance"),
+			assistantMsg("Done."),
+		];
+
+		await stampSession(interactionInput(msgs), {
+			exec,
+			spawn,
+			config: cfg,
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		const body = findDescribeBody(exec as ReturnType<typeof vi.fn>);
+		expect(body).not.toContain("trigger:");
+		expect(body).not.toContain("pi: test-pi");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Tests: seal transaction (deferred integration)
+// ---------------------------------------------------------------------------
+
+describe("seal transaction", () => {
+	const DEFERRED = ["--ignore-working-copy", "--no-integrate-operation"];
+	const diffContent = "diff --git a/file b/file\n+added line\n";
+
+	/** The seal tests' mock: non-empty working-copy diff, deferred ops mint ids. */
+	function sealExec(overrides?: Record<string, ExecResult | Error>): ExecFn {
+		return mockExec({
+			"jj diff -r @": { code: 0, stdout: diffContent, stderr: "" },
+			...overrides,
+		});
+	}
+
+	it("chains describe → bookmark → new through deferred ops and integrates exactly once", async () => {
+		const exec = sealExec();
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			subject: "act/feat: test interaction",
+			rev: "@",
+		});
+
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+
+		// Exact argument sequences. The mock's deferred counter makes the
+		// op ids deterministic: describe mints ...01, bookmark ...02, new ...03.
+		expect(calls).toEqual(
+			expect.arrayContaining([
+				["jj", ["workspace", "update-stale"], expect.anything()],
+				[
+					"jj",
+					["op", "log", "-n", "1", "--no-graph", "-T", "id"],
+					expect.anything(),
+				],
+				[
+					"jj",
+					[
+						"describe",
+						"--at-op",
+						HEAD_OP_ID,
+						...DEFERRED,
+						"-m",
+						expect.stringContaining("act/feat: test interaction"),
+					],
+					expect.anything(),
+				],
+				[
+					"jj",
+					[
+						"bookmark",
+						"set",
+						"sillajje/test-session",
+						"-r",
+						"@",
+						"--at-op",
+						mockOpId(1),
+						...DEFERRED,
+					],
+					expect.anything(),
+				],
+				[
+					"jj",
+					["new", "--at-op", mockOpId(2), ...DEFERRED],
+					expect.anything(),
+				],
+				["jj", ["op", "integrate", mockOpId(3)], expect.anything()],
+			]),
+		);
+
+		// Exactly one integrate.
+		expect(
+			calls.filter(
+				(c) =>
+					c[0] === "jj" &&
+					c[1][0] === "op" &&
+					c[1][1] === "integrate",
+			),
+		).toHaveLength(1);
+	});
+
+	it("parses the op id from jj 0.44's printed line format", async () => {
+		// The mock's deferred line is captured verbatim from jj 0.44; this
+		// test pins that the parser reads the id from that exact shape and
+		// chains the next step on it.
+		const exec = sealExec();
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+		const bmCall = calls.find(
+			(c) => c[0] === "jj" && c[1][0] === "bookmark",
+		);
+		// The bookmark's --at-op is the id jj printed for the describe step.
+		expect(bmCall?.[1]).toContain(mockOpId(1));
+		const newCall = calls.find((c) => c[0] === "jj" && c[1][0] === "new");
+		expect(newCall?.[1]).toContain(mockOpId(2));
+	});
+
+	it.each([
+		[
+			"describe fails",
+			{ "jj describe": { code: 1, stdout: "", stderr: "describe boom" } },
+			"describe_failed",
+			0, // nothing dangling — nothing to abandon
+		],
+		[
+			"bookmark set fails",
+			{
+				"jj bookmark set": {
+					code: 1,
+					stdout: "",
+					stderr: "bookmark boom",
+				},
+			},
+			"bookmark_set_failed",
+			1, // the describe op is dangling
+		],
+		[
+			"jj new fails",
+			{ "jj new": { code: 1, stdout: "", stderr: "new boom" } },
+			"jj_new_failed",
+			1, // describe + bookmark dangling; abandon the first
+		],
+	])(
+		"never integrates when the %s; abandons the dangling chain",
+		async (_label, overrides, errorCode, expectedAbandons) => {
+			const exec = sealExec(
+				overrides as Record<string, ExecResult | Error>,
+			);
+			const spawn = mockSpawn();
+			const { sink, statuses } = collectingSink();
+
+			const result = await stampSession(diffInput(), {
+				exec,
+				spawn,
+				config: defaultConfig(),
+				env: TEST_ENV,
+				onStatus: sink,
+			});
+
+			expect(result).toEqual({ ok: false, reason: "failed" });
+
+			const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+			// The failure status names the step.
+			expect(
+				statuses.some(
+					(s) => s.kind === "error" && s.code === errorCode,
+				),
+			).toBe(true);
+			expect(
+				statuses.some(
+					(s) =>
+						s.kind === "error" &&
+						s.code === errorCode &&
+						s.message.includes("boom"),
+				),
+			).toBe(true);
+
+			// No integrate — the seal never became visible.
+			expect(
+				calls.some(
+					(c) =>
+						c[0] === "jj" &&
+						c[1][0] === "op" &&
+						c[1][1] === "integrate",
+				),
+			).toBe(false);
+
+			// Best-effort abandon of the dangling chain, starting at its
+			// first op.
+			const abandons = calls.filter(
+				(c) =>
+					c[0] === "jj" && c[1][0] === "op" && c[1][1] === "abandon",
+			);
+			expect(abandons).toHaveLength(expectedAbandons);
+			if (expectedAbandons > 0) {
+				expect(abandons[0][1]).toEqual(["op", "abandon", mockOpId(1)]);
+			}
+		},
+	);
+
+	it("does not abandon when a no-op describe leaves nothing dangling", async () => {
+		// The re-describe changes nothing, so no operation is minted. The
+		// failed bookmark must not abandon the integrated head the chain
+		// chained on.
+		const exec = sealExec({
+			"jj describe": {
+				code: 0,
+				stdout: "",
+				stderr: "Nothing changed.\n",
+			},
+			"jj bookmark set": {
+				code: 1,
+				stdout: "",
+				stderr: "bookmark boom",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(
+			statuses.some(
+				(s) => s.kind === "error" && s.code === "bookmark_set_failed",
+			),
+		).toBe(true);
+
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+		const abandons = calls.filter(
+			(c) => c[0] === "jj" && c[1][0] === "op" && c[1][1] === "abandon",
+		);
+		expect(abandons).toHaveLength(0);
+	});
+
+	it("abandons the first minted op when a later step fails after a no-op describe", async () => {
+		// describe mints nothing; bookmark mints ...01; jj new fails. The
+		// first dangling op is the bookmark's, not the integrated head.
+		const exec = sealExec({
+			"jj describe": {
+				code: 0,
+				stdout: "",
+				stderr: "Nothing changed.\n",
+			},
+			"jj new": { code: 1, stdout: "", stderr: "new boom" },
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(
+			statuses.some(
+				(s) => s.kind === "error" && s.code === "jj_new_failed",
+			),
+		).toBe(true);
+
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+		const abandons = calls.filter(
+			(c) => c[0] === "jj" && c[1][0] === "op" && c[1][1] === "abandon",
+		);
+		expect(abandons).toHaveLength(1);
+		expect(abandons[0][1]).toEqual(["op", "abandon", mockOpId(1)]);
+	});
+
+	it("abandons the chain when a later step's operation id is unparseable", async () => {
+		// describe mints ...01; the bookmark step succeeds but prints no op
+		// id, so the runner cannot chain on it. The describe op is still
+		// dangling and must be abandoned.
+		const exec = sealExec({
+			"jj bookmark set": {
+				code: 0,
+				stdout: "unexpected output\n",
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(
+			statuses.some(
+				(s) =>
+					s.kind === "error" &&
+					s.code === "bookmark_set_failed" &&
+					s.message.includes("could not parse"),
+			),
+		).toBe(true);
+
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+		const abandons = calls.filter(
+			(c) => c[0] === "jj" && c[1][0] === "op" && c[1][1] === "abandon",
+		);
+		expect(abandons).toHaveLength(1);
+		expect(abandons[0][1]).toEqual(["op", "abandon", mockOpId(1)]);
+	});
+
+	it("chains from the previous op id when a step is a no-op ('Nothing changed.')", async () => {
+		// The session bookmark already points at @ — jj mints no operation.
+		const exec = sealExec({
+			"jj bookmark set": {
+				code: 0,
+				stdout: "",
+				stderr: "Nothing changed.\n",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			subject: "act/feat: test interaction",
+			rev: "@",
+		});
+
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+		// `jj new` chains on the describe op (the bookmark minted nothing).
+		const newCall = calls.find((c) => c[0] === "jj" && c[1][0] === "new");
+		expect(newCall?.[1]).toContain("--at-op");
+		expect(newCall?.[1]).toContain(mockOpId(1));
+		// The seal still integrates exactly once, on the new op.
+		expect(
+			calls.some(
+				(c) =>
+					c[0] === "jj" &&
+					c[1].join(" ") === `op integrate ${mockOpId(2)}`,
+			),
+		).toBe(true);
+	});
+
+	it("treats a failed abandon as a non-fatal warning", async () => {
+		const exec = sealExec({
+			"jj bookmark set": { code: 1, stdout: "", stderr: "bookmark boom" },
+			"jj op abandon": { code: 1, stdout: "", stderr: "abandon boom" },
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		// The stamp still reports failure — the abandon only cleans up.
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(
+			statuses.some(
+				(s) => s.kind === "warning" && s.code === "abandon_failed",
+			),
+		).toBe(true);
+	});
+
+	it("reports an integrate failure with the operation id and keeps the chain for manual recovery", async () => {
+		const exec = sealExec({
+			"jj op integrate": {
+				code: 1,
+				stdout: "",
+				stderr: "integrate boom",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		const errors = statuses.filter((s) => s.kind === "error");
+		expect(errors.some((e) => e.code === "integrate_failed")).toBe(true);
+		// The error carries the op id — the documented manual fix.
+		expect(
+			errors.some(
+				(e) =>
+					e.message.includes(mockOpId(3)) &&
+					e.message.includes("jj op integrate"),
+			),
+		).toBe(true);
+		// The dangling chain is NOT abandoned — it is the manual recovery.
+		const calls = (exec as ReturnType<typeof vi.fn>).mock.calls;
+		expect(
+			calls.some(
+				(c) =>
+					c[0] === "jj" && c[1][0] === "op" && c[1][1] === "abandon",
+			),
+		).toBe(false);
+	});
+
+	it("runs header generation before the transaction opens", async () => {
+		const events: string[] = [];
+		const exec = sealExec();
+		(exec as ReturnType<typeof vi.fn>).mockImplementation(
+			(cmd: string, args: string[], _opts?: { cwd?: string }) => {
+				events.push(["exec", [cmd, ...args].join(" ")]);
+				const key = [cmd, ...args].join(" ");
+				if (key === "jj diff -r @") {
+					return Promise.resolve({
+						code: 0,
+						stdout: "diff --git a/file b/file\n+added line\n",
+						stderr: "",
+					});
+				}
+				if (key === "jj op log -n 1 --no-graph -T id") {
+					return Promise.resolve({
+						code: 0,
+						stdout: `${HEAD_OP_ID}\n`,
+						stderr: "",
+					});
+				}
+				if (args.includes("--no-integrate-operation")) {
+					return Promise.resolve({
+						code: 0,
+						stdout: `${deferredOpLine(1)}\n`,
+						stderr: "",
+					});
+				}
+				return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+			},
+		);
+		const spawn = vi.fn().mockImplementation(() => {
+			events.push(["spawn", ""]);
+			return Promise.resolve({
+				code: 0,
+				stdout: "act/feat: test interaction\n(some extra output)",
+				stderr: "",
+			});
+		});
+		const { sink } = collectingSink();
+
+		await stampSession(diffInput(), {
+			exec: exec as ExecFn,
+			spawn: spawn as unknown as SpawnFn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		const spawnIndex = events.findIndex((e) => e[0] === "spawn");
+		const firstDeferredIndex = events.findIndex((e) =>
+			e[1].includes("--at-op"),
+		);
+		expect(spawnIndex).toBeGreaterThanOrEqual(0);
+		expect(spawnIndex).toBeLessThan(firstDeferredIndex);
+	});
+
+	// ---------------------------------------------------------------
+	// Divergence aftermath (ADR 0004: report, never auto-repair)
+	// ---------------------------------------------------------------
+
+	it("reports divergent variants of the stamped change after integrate", async () => {
+		const exec = sealExec({
+			"jj log -r @- --no-graph -T change_id": {
+				code: 0,
+				stdout: "qmvzrsyt\n",
+				stderr: "",
+			},
+			"jj log -r divergent() --no-graph -T change_id": {
+				code: 0,
+				stdout: "qmvzrsyt\nzzrkspww\n",
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		// The seal itself succeeded — the report is a warning on top.
+		expect(result).toEqual({
+			ok: true,
+			subject: "act/feat: test interaction",
+			rev: "@",
+		});
+		expect(statuses).toContainEqual({
+			kind: "warning",
+			code: "divergence-after-integrate",
+			message: expect.stringContaining("qmvzrsyt"),
+		});
+	});
+
+	it("does not warn when the stamped change has no divergent variants", async () => {
+		const exec = sealExec({
+			"jj log -r @- --no-graph -T change_id": {
+				code: 0,
+				stdout: "qmvzrsyt\n",
+				stderr: "",
+			},
+			"jj log -r divergent() --no-graph -T change_id": {
+				code: 0,
+				stdout: "zzrkspww\n",
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(statuses).not.toContainEqual(
+			expect.objectContaining({ code: "divergence-after-integrate" }),
+		);
+	});
+
+	it("skips the divergence probe silently when the probe fails", async () => {
+		const exec = sealExec({
+			"jj log -r @- --no-graph -T change_id": {
+				code: 1,
+				stdout: "",
+				stderr: "boom",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			exec,
+			spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		// The committed seal must never be masked by a reporting failure.
+		expect(result.ok).toBe(true);
+		expect(statuses).not.toContainEqual(
+			expect.objectContaining({ code: "divergence-after-integrate" }),
+		);
 	});
 });

@@ -19,6 +19,10 @@ _Avoid_: Sandbox, clone, checkout
 A manual lifecycle action that keeps the jj branch but deletes the workspace directory (via `jj workspace forget` + `rm`). An archived session cannot accept prompts until unarchived.
 _Avoid_: Close, delete, prune
 
+**Session target**:
+The sillajje session a subcommand acts on: the current session by default, or the session named by `--session <id>`. A target equal to the current session uses its stored workspace path without a bookmark check. Any other target is validated by the three-state rule: no `sillajje/<key>` bookmark is not a sillajje session; a bookmark without a workspace is archived.
+_Avoid_: Session (the target is which session, not the session itself)
+
 **Rebase**:
 A `/sillajje rebase <rev>` subcommand that syncs the session: rebases the session working copy onto a target revision, creating a merge commit that brings the target into the session's ancestry. The session remains active afterward.
 _Avoid_: Merge, sync-update (rebase is precise and matches the jj operation name)
@@ -28,20 +32,32 @@ A `/sillajje fold <rev>` subcommand that collapses all session changes into a si
 _Avoid_: Squash (jj's `jj squash` is a different operation — fold is about collapsing session history, not descending into a parent)
 
 **Stamping**:
-The act of sealing a change with a generated commit message: the Sub-generator produces the Header (and Trace), the Commit body is assembled, and the change is described with the session bookmark pointed at it. Every Interaction becomes one stamped change.
+Sealing a change with a generated commit message: the Sub-generator produces the Header (and Trace), the Commit body is assembled, and the change is described. Two axes decide the shape. The session link (layer 1) decides the mechanics: a Session stamp performs the full seal at a workspace's working copy; a Rev stamp describes one revision and nothing else. The source (layer 2) decides generation: an Interaction transcript plus the diff, or the diff alone. Every Interaction becomes one stamped change.
 _Avoid_: Committing (stamping is the session-level act; the jj mechanics underneath are incidental)
 
+**Session stamp**:
+A stamp bound to a sillajje session. It always targets that session's working copy and performs the full seal — workspace prep, describe, session bookmark move, and a fresh empty change — as one transaction: either the whole seal appears or nothing does. The triggers are the `agent_end` auto-stamp (with the pending Interaction transcript), `/sillajje stamp -s @` on the current session, and `/sillajje stamp -s <id>` on another live session (both diff-only; a foreign transcript is never borrowed).
+_Avoid_: Manual stamp (the same entry point serves both triggers)
+
+**Rev stamp**:
+A stamp bound to a revision, not to a session. `/sillajje stamp -r <rev>` accepts any revision jj resolves and generates a conventional-commit header from `jj diff -r <rev>`, then describes that change only — no bookmark move, no `jj new`, no `update-stale`. A single `jj describe` is one jj operation, so the stamp is atomic. `--rev @` describes the caller's working copy without sealing it.
+_Avoid_: Diff stamp (that names the source axis, not the session link)
+
 **Interaction stamp**:
-A stamp derived from an Interaction — the automatic flow that seals the session's working copy after an Interaction ends.
-_Avoid_: Auto-stamp (the axis is the source, not the mode)
+A stamp whose message is generated from an Interaction transcript plus the diff. It is the layer-2 context of the `agent_end` Session stamp on the current session. A session stamp without a transcript, a cross-session stamp, and every Rev stamp generate from the diff alone.
+_Avoid_: Auto-stamp (what differs is the source, not who triggered it)
 
 **Diff stamp**:
-A stamp derived from a diff at a revision rather than an Interaction — the `/sillajje stamp` flow, also reused by the fold flow.
-_Avoid_: Manual stamp (the axis is the source, not the mode)
+A stamp whose message is generated from the diff alone — the `-s @` current-session stamp, the `-s <id>` cross-session stamp, and every Rev stamp. Its Header is a conventional commit without an interaction-type prefix.
+_Avoid_: Manual stamp (the `-s` form is equally diff-only)
 
 **Change metadata**:
-The programmatically-generated block in the commit body listing tools used, tool call count, elapsed time, thinking blocks, and other observability data.
+The programmatically-generated `Meta:` block in the commit body. It lists the interaction-loop observability data (tools used, tool call count, elapsed time, thinking blocks) plus the Provenance facts. One renderer in the metadata module builds it for every stamp path.
 _Avoid_: Telemetry, stats
+
+**Provenance**:
+The audit facts the metadata module renders on every stamp path, whether or not the interaction-loop fields are toggled: the trigger (Interaction, manual Session stamp, or Rev stamp), the stamped session key, the target rev of a Rev stamp, the sub-generator model, the sub-generator fallbacks that fired, and the pi and sillajje versions. The `message.body.meta.*` toggles govern the interaction-loop fields only.
+_Avoid_: Audit log, telemetry
 
 **Commit body**:
 The full jj description: dual-prefix subject line (header) + trace narrative + optional sections (user prompt, change metadata, agent response). Everything reviewable in `jj show`. Section visibility is controlled by `message.body.*` in the sillajje config.
@@ -69,7 +85,7 @@ Each Pi session gets its own jj workspace (`sillajje/<session-id>`), so concurre
 
 ## Bookmark lifecycle
 
-The `sillajje/<session-id>` bookmark is created at the start of the first interaction (`before_agent_start`) and updated on every stamp (`agent_end`, `/sillajje stamp`). Creating it early means the session's `sillajje/<id>` ref resolves from the very first interaction (e.g. for `jj show`, `jj diff`, or unarchive).
+The `sillajje/<session-id>` bookmark is created at the start of the first interaction (`before_agent_start`) and updated on every Session stamp: the `agent_end` auto-stamp, `/sillajje stamp -s @` on the current session, and `/sillajje stamp -s <id>` from another conversation. Creating it early means the session's `sillajje/<id>` ref resolves from the very first interaction (e.g. for `jj show`, `jj diff`, or unarchive). A Rev stamp (`-r <rev>`) never moves a bookmark.
 
 ## Log revsets
 
