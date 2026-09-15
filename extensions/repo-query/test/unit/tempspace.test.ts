@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { clearWorkspaceCache, getWorkspacePath } from "../../src/workspace.js";
+import { clearTempspaceCache, getTempspacePath } from "../../src/tempspace.js";
 
 let sessionCounter = 0;
 function makeSessionFile(): string {
@@ -31,18 +31,29 @@ function makeCtx(
 	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
 }
 
+function toolResultEntry(details: Record<string, unknown>) {
+	return {
+		type: "message",
+		message: {
+			role: "toolResult",
+			toolName: "repo_query",
+			details,
+		},
+	};
+}
+
 beforeEach(() => {
-	clearWorkspaceCache();
+	clearTempspaceCache();
 });
 
 afterEach(() => {
-	clearWorkspaceCache();
+	clearTempspaceCache();
 });
 
-describe("getWorkspacePath", () => {
-	it("creates a new workspace on first call with no session file", async () => {
+describe("getTempspacePath", () => {
+	it("creates a new tempspace on first call with no session file", async () => {
 		const ctx = makeCtx();
-		const path = await getWorkspacePath(ctx);
+		const path = await getTempspacePath(ctx);
 
 		expect(path.startsWith(join(tmpdir(), "pi-rq-"))).toBe(true);
 		expect(existsSync(path)).toBe(true);
@@ -53,8 +64,8 @@ describe("getWorkspacePath", () => {
 
 	it("returns the same path on repeated calls (in-memory cache)", async () => {
 		const ctx = makeCtx({ sessionFile: makeSessionFile() });
-		const path1 = await getWorkspacePath(ctx);
-		const path2 = await getWorkspacePath(ctx);
+		const path1 = await getTempspacePath(ctx);
+		const path2 = await getTempspacePath(ctx);
 
 		expect(path1).toBe(path2);
 		expect(existsSync(path1)).toBe(true);
@@ -63,16 +74,16 @@ describe("getWorkspacePath", () => {
 		rmSync(path1, { recursive: true, force: true });
 	});
 
-	it("recreates the workspace directory if it was deleted externally", async () => {
+	it("recreates the tempspace directory if it was deleted externally", async () => {
 		const ctx = makeCtx({ sessionFile: makeSessionFile() });
-		const path = await getWorkspacePath(ctx);
+		const path = await getTempspacePath(ctx);
 		expect(existsSync(path)).toBe(true);
 
 		// Simulate external cleanup (e.g. /tmp cleared)
 		rmSync(path, { recursive: true, force: true });
 		expect(existsSync(path)).toBe(false);
 
-		const path2 = await getWorkspacePath(ctx);
+		const path2 = await getTempspacePath(ctx);
 		expect(path2).toBe(path);
 		expect(existsSync(path2)).toBe(true);
 
@@ -80,23 +91,14 @@ describe("getWorkspacePath", () => {
 		rmSync(path2, { recursive: true, force: true });
 	});
 
-	it("reuses workspace from previous tool result in session branch", async () => {
+	it("reuses the tempspace from a previous tool result in the session branch", async () => {
 		const existingWs = mkdtempSync(join(tmpdir(), "pi-rq-prev-"));
 		mkdirSync(existingWs, { recursive: true });
 
-		const branch = [
-			{
-				type: "message",
-				message: {
-					role: "toolResult",
-					toolName: "repo_query",
-					details: { workspacePath: existingWs },
-				},
-			},
-		];
-
-		const ctx = makeCtx({ branch });
-		const path = await getWorkspacePath(ctx);
+		const ctx = makeCtx({
+			branch: [toolResultEntry({ tempspacePath: existingWs })],
+		});
+		const path = await getTempspacePath(ctx);
 
 		expect(path).toBe(existingWs);
 
@@ -104,7 +106,22 @@ describe("getWorkspacePath", () => {
 		rmSync(existingWs, { recursive: true, force: true });
 	});
 
-	it("ignores non-repo_query tool results when scanning session branch", async () => {
+	it("reuses the tempspace of a session recorded under the old details key", async () => {
+		const existingWs = mkdtempSync(join(tmpdir(), "pi-rq-legacy-"));
+		mkdirSync(existingWs, { recursive: true });
+
+		const ctx = makeCtx({
+			branch: [toolResultEntry({ workspacePath: existingWs })],
+		});
+		const path = await getTempspacePath(ctx);
+
+		expect(path).toBe(existingWs);
+
+		// cleanup
+		rmSync(existingWs, { recursive: true, force: true });
+	});
+
+	it("ignores non-repo_query tool results when scanning the session branch", async () => {
 		const existingWs = mkdtempSync(join(tmpdir(), "pi-rq-other-"));
 		mkdirSync(existingWs, { recursive: true });
 
@@ -114,15 +131,15 @@ describe("getWorkspacePath", () => {
 				message: {
 					role: "toolResult",
 					toolName: "other_tool",
-					details: { workspacePath: existingWs },
+					details: { tempspacePath: existingWs },
 				},
 			},
 		];
 
 		const ctx = makeCtx({ branch });
-		const path = await getWorkspacePath(ctx);
+		const path = await getTempspacePath(ctx);
 
-		// Should NOT reuse the other tool's workspace
+		// Should NOT reuse the other tool's tempspace
 		expect(path).not.toBe(existingWs);
 		expect(path.startsWith(join(tmpdir(), "pi-rq-"))).toBe(true);
 
@@ -136,25 +153,25 @@ describe("getWorkspacePath", () => {
 			{ type: "thinking_level_change", thinkingLevel: "high" },
 		];
 		const ctx = makeCtx({ branch });
-		const path = await getWorkspacePath(ctx);
+		const path = await getTempspacePath(ctx);
 
 		expect(path.startsWith(join(tmpdir(), "pi-rq-"))).toBe(true);
 		rmSync(path, { recursive: true, force: true });
 	});
 });
 
-describe("clearWorkspaceCache", () => {
-	it("resets the in-memory cache so the next call recreates the workspace", async () => {
+describe("clearTempspaceCache", () => {
+	it("resets the in-memory cache so the next call recreates the tempspace", async () => {
 		const ctx = makeCtx({ sessionFile: makeSessionFile() });
-		const path1 = await getWorkspacePath(ctx);
+		const path1 = await getTempspacePath(ctx);
 		expect(existsSync(path1)).toBe(true);
 
 		// Delete directory and clear cache
 		rmSync(path1, { recursive: true, force: true });
-		clearWorkspaceCache();
+		clearTempspaceCache();
 
-		// Without cache, getWorkspacePath recomputes from session file
-		const path2 = await getWorkspacePath(ctx);
+		// Without cache, getTempspacePath recomputes from session file
+		const path2 = await getTempspacePath(ctx);
 		expect(path2).toBe(path1);
 		expect(existsSync(path2)).toBe(true);
 

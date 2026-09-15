@@ -66,7 +66,7 @@ function waitForSpawn(): { promise: Promise<void>; onSpawn: () => void } {
 
 function baseOptions(overrides?: Partial<Parameters<typeof runExplorer>[0]>) {
 	return {
-		workspace: "/tmp/ws",
+		tempspace: "/tmp/ws",
 		repos: [REPO],
 		query: "test query",
 		signal: undefined,

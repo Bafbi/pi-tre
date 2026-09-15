@@ -35,11 +35,11 @@ afterEach(async () => {
 
 describe.skipIf(!gitAvailable || !liveTestsEnabled)("live subagent", () => {
 	it("explores a local repo and reports subagent usage", async (ctx) => {
-		const workspace = mkdtempSync(join(tmpdir(), "repo-query-live-"));
-		tempDirs.push(workspace);
+		const tempspace = mkdtempSync(join(tmpdir(), "repo-query-live-"));
+		tempDirs.push(tempspace);
 
 		// A tiny local git repo — the clone runs offline and fast.
-		const repoDir = join(workspace, "src-repo");
+		const repoDir = join(tempspace, "src-repo");
 		mkdirSync(repoDir, { recursive: true });
 		writeFileSync(
 			join(repoDir, "README.md"),
@@ -66,16 +66,16 @@ describe.skipIf(!gitAvailable || !liveTestsEnabled)("live subagent", () => {
 			displayName: "src-repo",
 			dirName: "live-repo",
 		};
-		const clone = await ensureRepoCloned(repo, workspace, undefined, {
+		const clone = await ensureRepoCloned(repo, tempspace, undefined, {
 			exec: testExec,
 		} as unknown as ExtensionAPI);
 		expect(clone.status).toBe("cloned");
-		expect(existsSync(join(workspace, repo.dirName, "greeting.ts"))).toBe(
+		expect(existsSync(join(tempspace, repo.dirName, "greeting.ts"))).toBe(
 			true,
 		);
 
 		const exploration = await runExplorer({
-			workspace,
+			tempspace,
 			repos: [repo],
 			query: "What files does this repository contain, and what does the code in them do? Answer briefly.",
 			model,

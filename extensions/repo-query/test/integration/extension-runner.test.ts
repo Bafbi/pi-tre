@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { clearWorkspaceCache } from "../../src/workspace.js";
+import { clearTempspaceCache } from "../../src/tempspace.js";
 import {
 	captureExtension,
 	cleanupDirs,
@@ -20,12 +20,12 @@ try {
 }
 
 const tempDirs: string[] = [];
-const workspacesToClean: string[] = [];
+const tempspacesToClean: string[] = [];
 
 afterEach(async () => {
 	await cleanupDirs(tempDirs);
-	await cleanupDirs(workspacesToClean);
-	clearWorkspaceCache();
+	await cleanupDirs(tempspacesToClean);
+	clearTempspaceCache();
 });
 
 describe("repo-query extension", () => {
@@ -103,19 +103,19 @@ describe("repo-query extension", () => {
 
 			const details = result.details as {
 				results: Array<{ status: string; localPath?: string }>;
-				workspacePath: string;
+				tempspacePath: string;
 				answer?: string;
 			};
 			expect(details.results[0]?.status).toBe("success");
 			expect(details.answer).toBe("Mock exploration result");
 
-			// The workspace holds a real clone of the local repo
+			// The tempspace holds a real clone of the local repo
 			const localPath = details.results[0]?.localPath;
 			expect(localPath).toBeDefined();
-			expect(localPath?.startsWith(details.workspacePath)).toBe(true);
+			expect(localPath?.startsWith(details.tempspacePath)).toBe(true);
 			expect(existsSync(join(localPath ?? "", ".git"))).toBe(true);
 
-			workspacesToClean.push(details.workspacePath);
+			tempspacesToClean.push(details.tempspacePath);
 		},
 		30000,
 	);

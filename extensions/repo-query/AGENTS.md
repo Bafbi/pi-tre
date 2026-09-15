@@ -2,7 +2,7 @@
 
 ## Extension purpose
 
-Allow Pi agents to query code across external git repositories by cloning them into a sandboxed workspace and delegating exploration to a focused subagent.
+Allow Pi agents to query code across external git repositories by cloning them into a sandboxed tempspace and delegating exploration to a focused subagent.
 
 ## Design principles
 
@@ -21,18 +21,18 @@ The resolver accepts:
 
 Branch suffix (`:`) is stripped before URL parsing.
 
-## Workspace lifecycle
+## Tempspace lifecycle
 
-1. **Discovery**: check session history for previous `repo_query` tool results; reuse existing workspace path
+1. **Discovery**: check session history for previous `repo_query` tool results; reuse existing tempspace path
 2. **Creation**: on first call, create `/tmp/pi-rq-<session-hash>/`
 3. **Clone**: shallow clone (`--depth 1 --single-branch`) into subdirectories
 4. **Reuse**: subsequent queries in the same session skip existing clones
-5. **Cleanup**: `session_shutdown` removes all tracked workspaces
+5. **Cleanup**: `session_shutdown` removes all tracked tempspaces
 
 ## Subagent behavior
 
 - Single repo: subagent cwd is the repo root
-- Multiple repos: subagent cwd is the workspace parent
+- Multiple repos: subagent cwd is the tempspace
 - Toolset: `read,grep,find,ls,bash` only (no edit/write)
 - Output limit: 8000 chars truncated with ellipsis notice
 - Timeout: 5 minutes
@@ -45,12 +45,12 @@ Tests are split by concern. Unit and integration tests mock external boundaries 
 
 ### Mocking (dependency injection)
 
-Because jiti (extension loader) and native ESM (test imports) create separate module instances, in-memory caches (e.g., `cachedWorkspace`) are not shared.
+Because jiti (extension loader) and native ESM (test imports) create separate module instances, in-memory caches (e.g., `cachedTempspace`) are not shared.
 
 The extension takes its seams as explicit parameters instead of global state:
 
 - `createRepoQueryExtension({ explorer, clone })` in `src/index.ts` replaces `runExplorer` and `ensureRepoCloned` for pipeline-level `execute` tests. Tests drive the captured tool with the helpers in `test/helpers/create-runner.ts`.
-- `runExplorer(options, impl)` and `ensureRepoCloned(repo, workspace, signal, pi, impl)` accept an optional last-parameter implementation for direct-call tests. `runExplorer`'s `impl` also takes a fake `spawn` and `killGraceMs` for the kill/abort paths.
+- `runExplorer(options, impl)` and `ensureRepoCloned(repo, tempspace, signal, pi, impl)` accept an optional last-parameter implementation for direct-call tests. `runExplorer`'s `impl` also takes a fake `spawn` and `killGraceMs` for the kill/abort paths.
 - Loader-based tests (`discoverAndLoadExtensions` via `createRunner`) cannot reach factory parameters; they mock `globalThis.fetch` for GitHub validation or use local-path repos, which clone without network.
 
 ### `REPO_QUERY_MODEL` environment variable
@@ -68,7 +68,7 @@ The extension takes its seams as explicit parameters instead of global state:
 The test uses `biomejs/biome` as the target repo and asserts:
 - `.git/shallow` exists (confirms shallow clone)
 - `package.json` exists (content sanity)
-- Second call reuses the same workspace path
+- Second call reuses the same tempspace path
 
 The test mocks the explorer through the factory overrides because subagent spawning requires a real pi process.
 

@@ -7,13 +7,17 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
-import { type CloneImpl, ensureRepoCloned } from "./clone.js";
+import {
+	type CloneImpl,
+	clearInFlightClones,
+	ensureRepoCloned,
+} from "./clone.js";
 import { loadRepoQueryConfig, resolveModel } from "./config.js";
 import {
 	addDebugEvent,
 	createDebugState,
 	registerDebugCommand,
-	setWorkspacePath,
+	setTempspacePath,
 	trackRepo,
 } from "./debug.js";
 import { type ExplorerImpl, runExplorer } from "./explorer.js";
@@ -26,6 +30,7 @@ import {
 } from "./output.js";
 import { renderCall, renderResult } from "./render.js";
 import { parseRepoIdentifier, redactCredentials } from "./resolver.js";
+import { clearTempspaceCache, getTempspacePath } from "./tempspace.js";
 import type {
 	RepoQueryDetails,
 	RepoQueryPhase,
@@ -34,7 +39,6 @@ import type {
 	ValidationResult,
 } from "./types.js";
 import { isSuccess } from "./types.js";
-import { clearWorkspaceCache, getWorkspacePath } from "./workspace.js";
 
 const MAX_REPOS = 5;
 
@@ -90,29 +94,36 @@ export function createRepoQueryExtension(
 ): ExtensionFactory {
 	return function repoQueryExtension(pi: ExtensionAPI) {
 		// Track active temp directories for emergency cleanup
-		const activeWorkspaces = new Set<string>();
+		const activeTempspaces = new Set<string>();
 		const debug = createDebugState();
 		const validationCache = new Map<string, ValidationResult>();
 
 		pi.on("session_start", async (_event, ctx) => {
 			debug.events.length = 0;
 			debug.trackedRepos.clear();
-			debug.workspacePath = null;
+			debug.tempspacePath = null;
 			validationCache.clear();
 			addDebugEvent(debug, "session_start: state reset", ctx);
 		});
 
 		pi.on("session_shutdown", async () => {
-			clearWorkspaceCache();
+			clearTempspaceCache();
+			const clearedClones = clearInFlightClones();
+			if (clearedClones > 0) {
+				addDebugEvent(
+					debug,
+					`session_shutdown: cleared ${clearedClones} in-flight clone(s)`,
+				);
+			}
 			validationCache.clear();
-			for (const ws of activeWorkspaces) {
+			for (const ws of activeTempspaces) {
 				try {
 					await rm(ws, { recursive: true, force: true });
 				} catch {
 					/* ignore cleanup errors */
 				}
 			}
-			activeWorkspaces.clear();
+			activeTempspaces.clear();
 		});
 
 		registerDebugCommand(pi, debug);
@@ -145,10 +156,10 @@ export function createRepoQueryExtension(
 
 				const config = loadRepoQueryConfig(ctx.cwd);
 
-				const workspace = await getWorkspacePath(ctx);
-				activeWorkspaces.add(workspace);
-				setWorkspacePath(debug, workspace);
-				addDebugEvent(debug, `workspace: ${workspace}`, ctx);
+				const tempspace = await getTempspacePath(ctx);
+				activeTempspaces.add(tempspace);
+				setTempspacePath(debug, tempspace);
+				addDebugEvent(debug, `tempspace: ${tempspace}`, ctx);
 
 				let resolvedModel: string | undefined;
 				let answer = "";
@@ -187,7 +198,7 @@ export function createRepoQueryExtension(
 					thoughtOverride?: string,
 				): RepoQueryDetails => ({
 					query: params.query,
-					workspacePath: workspace,
+					tempspacePath: tempspace,
 					results: [...results],
 					phase,
 					answer,
@@ -347,14 +358,14 @@ export function createRepoQueryExtension(
 					);
 					const cloneResult = await ensureRepoCloned(
 						parsed,
-						workspace,
+						tempspace,
 						signal,
 						pi,
 						overrides.clone,
 					);
 					addDebugEvent(
 						debug,
-						`clone result: ${parsed.raw} → ${cloneResult.status}${cloneResult.error ? ` (${cloneResult.error})` : ""}`,
+						`clone result: ${parsed.raw} → ${cloneResult.status}${cloneResult.status === "failed" ? ` (${cloneResult.error})` : ""}`,
 						ctx,
 					);
 
@@ -379,7 +390,7 @@ export function createRepoQueryExtension(
 						results.push({
 							identifier: parsed.raw,
 							status: "success",
-							localPath: `${workspace}/${parsed.dirName}`,
+							localPath: `${tempspace}/${parsed.dirName}`,
 							warnings: [],
 						});
 						trackRepo(debug, parsed.raw, {
@@ -391,7 +402,7 @@ export function createRepoQueryExtension(
 						if (existing.status !== "archived") {
 							existing.status = "success";
 						}
-						existing.localPath = `${workspace}/${parsed.dirName}`;
+						existing.localPath = `${tempspace}/${parsed.dirName}`;
 						trackRepo(debug, parsed.raw, {
 							status: existing.status,
 							cloned: true,
@@ -471,7 +482,7 @@ export function createRepoQueryExtension(
 				);
 				const exploration = await runExplorer(
 					{
-						workspace,
+						tempspace,
 						repos: readyRepos.map((r) => r.parsed),
 						query: params.query,
 						model: resolvedModel,

@@ -49,7 +49,7 @@ function makeResult(
 		content: [{ type: "text", text: "" }],
 		details: {
 			query: "test query",
-			workspacePath: "/tmp/ws",
+			tempspacePath: "/tmp/ws",
 			results: [],
 			phase: "complete",
 			...details,
