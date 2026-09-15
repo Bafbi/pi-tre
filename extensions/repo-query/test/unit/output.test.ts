@@ -13,7 +13,7 @@ function details(
 ): RepoQueryDetails {
 	return {
 		query: "query",
-		workspacePath: "/tmp/ws",
+		tempspacePath: "/tmp/ws",
 		results,
 		phase: "complete",
 		...extra,

@@ -5,7 +5,7 @@ import {
 	buildDebugDump,
 	createDebugState,
 	setDebugEnabled,
-	setWorkspacePath,
+	setTempspacePath,
 	syncDebugUi,
 	trackRepo,
 } from "../../src/debug.js";
@@ -36,7 +36,7 @@ describe("createDebugState", () => {
 		const state = createDebugState();
 		expect(state.enabled).toBe(false);
 		expect(state.events).toEqual([]);
-		expect(state.workspacePath).toBeNull();
+		expect(state.tempspacePath).toBeNull();
 		expect(state.trackedRepos.size).toBe(0);
 	});
 });
@@ -131,11 +131,11 @@ describe("trackRepo", () => {
 	});
 });
 
-describe("setWorkspacePath", () => {
-	it("sets the workspace path on state", () => {
+describe("setTempspacePath", () => {
+	it("sets the tempspace path on state", () => {
 		const state = createDebugState();
-		setWorkspacePath(state, "/tmp/workspace");
-		expect(state.workspacePath).toBe("/tmp/workspace");
+		setTempspacePath(state, "/tmp/tempspace");
+		expect(state.tempspacePath).toBe("/tmp/tempspace");
 	});
 });
 
@@ -143,7 +143,7 @@ describe("buildDebugDump", () => {
 	it("includes runtime, session, tracked repos, and recent events", () => {
 		const state = createDebugState();
 		setDebugEnabled(state, true);
-		setWorkspacePath(state, "/tmp/ws");
+		setTempspacePath(state, "/tmp/ws");
 		trackRepo(state, "a/b", { status: "cloned", cloned: true });
 		addDebugEvent(state, "event one");
 
@@ -159,7 +159,7 @@ describe("buildDebugDump", () => {
 
 		expect(dump).toContain("repo-query debug dump");
 		expect(dump).toContain("debugEnabled: true");
-		expect(dump).toContain("workspacePath: /tmp/ws");
+		expect(dump).toContain("tempspacePath: /tmp/ws");
 		expect(dump).toContain("a/b");
 		expect(dump).toContain("event one");
 		expect(dump).toContain("sessionFile: /tmp/session.json");

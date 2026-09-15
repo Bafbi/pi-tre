@@ -59,7 +59,7 @@ export type { SubagentUsage } from "@pi-tre/pi-subagent";
 
 export interface RepoQueryDetails {
 	query: string;
-	workspacePath: string;
+	tempspacePath: string;
 	results: RepoResult[];
 	phase: RepoQueryPhase;
 	/** The single answer produced by the subagent (absent until exploration completes). */

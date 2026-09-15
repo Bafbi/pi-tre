@@ -32,7 +32,7 @@ function truncateSubagentOutput(text: string): string {
 }
 
 export interface SubagentOptions {
-	workspace: string;
+	tempspace: string;
 	repos: ParsedRepo[];
 	query: string;
 	model?: string;
@@ -63,7 +63,7 @@ export interface ExplorerImpl {
  * Spawn a pi subagent to explore the cloned repositories and answer the query.
  *
  * For a single repo, the subagent's cwd is the repo directory.
- * For multiple repos, the subagent's cwd is the workspace parent.
+ * For multiple repos, the subagent's cwd is the tempspace parent.
  *
  * The child-process lifecycle (spawn, timeout, SIGTERM→SIGKILL escalation,
  * abort, JSON-lines parsing, usage accumulation) lives in the
@@ -80,9 +80,9 @@ export async function runExplorer(
 		return impl.run(options);
 	}
 
-	const { workspace, repos, query, model, signal, onUpdate } = options;
+	const { tempspace, repos, query, model, signal, onUpdate } = options;
 	const isSingle = repos.length === 1;
-	const cwd = isSingle ? join(workspace, repos[0].dirName) : workspace;
+	const cwd = isSingle ? join(tempspace, repos[0].dirName) : tempspace;
 
 	const backend = createProcessBackend({
 		spawn: impl?.spawn,
@@ -246,14 +246,14 @@ Query: ${query}`;
 	const repoList = repos
 		.map((r) => `- ${r.displayName} (in ./${r.dirName})`)
 		.join("\n");
-	return `You are a senior code exploration agent. You are in a workspace containing multiple repositories:
+	return `You are a senior code exploration agent. You are in a tempspace containing multiple repositories:
 
 ${repoList}
 
 Your task: answer this query by exploring across all repositories. You may find cross-repo references, shared patterns, or divergent implementations.
 
 Process:
-1. Use \`ls\` and \`find\` to understand the workspace structure
+1. Use \`ls\` and \`find\` to understand the tempspace structure
 2. Use \`grep\` with paths like \`./repo-name/...\` to search within specific repos
 3. Use \`read\` with \`offset\` and \`limit\` to read specific file sections
 4. Compare and contrast findings across repositories

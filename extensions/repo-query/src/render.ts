@@ -196,11 +196,11 @@ function rebuildRepoQueryResultComponent(
 			component.addChild(new Spacer(1));
 		}
 
-		// Workspace
-		if (details.workspacePath) {
-			component.addChild(new Text(theme.fg("muted", "Workspace:"), 0, 0));
+		// Tempspace
+		if (details.tempspacePath) {
+			component.addChild(new Text(theme.fg("muted", "Tempspace:"), 0, 0));
 			component.addChild(
-				new Text(theme.fg("dim", details.workspacePath), 0, 0),
+				new Text(theme.fg("dim", details.tempspacePath), 0, 0),
 			);
 			component.addChild(new Spacer(1));
 		}

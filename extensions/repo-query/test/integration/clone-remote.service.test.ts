@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { clearWorkspaceCache } from "../../src/workspace.js";
+import { clearTempspaceCache } from "../../src/tempspace.js";
 import {
 	captureExtension,
 	cleanupDirs,
@@ -14,12 +14,12 @@ import {
 const SERVICE_TIMEOUT_MS = 15_000;
 
 const tempDirs: string[] = [];
-const workspacesToClean: string[] = [];
+const tempspacesToClean: string[] = [];
 
 afterEach(async () => {
 	await cleanupDirs(tempDirs);
-	await cleanupDirs(workspacesToClean);
-	clearWorkspaceCache();
+	await cleanupDirs(tempspacesToClean);
+	clearTempspaceCache();
 });
 
 function makeTool() {
@@ -70,7 +70,7 @@ async function executeRemote(
 }
 
 describe("repo_query remote clone", () => {
-	it("clones biomejs/biome from GitHub into workspace", async (ctx) => {
+	it("clones biomejs/biome from GitHub into tempspace", async (ctx) => {
 		const cwd = makeTempDir("repo-query-remote-clone-");
 		tempDirs.push(cwd);
 
@@ -89,9 +89,9 @@ describe("repo_query remote clone", () => {
 
 		const details = result.details as {
 			results: Array<{ status: string; localPath?: string }>;
-			workspacePath: string;
+			tempspacePath: string;
 		};
-		workspacesToClean.push(details.workspacePath);
+		tempspacesToClean.push(details.tempspacePath);
 
 		expect(details.results[0]?.status).toBe("success");
 		expect(details.results[0]?.localPath).toBeDefined();
@@ -99,8 +99,8 @@ describe("repo_query remote clone", () => {
 		const localPath = details.results[0]?.localPath;
 		expect(localPath).toBeDefined();
 
-		// localPath must be inside workspace
-		expect(localPath?.startsWith(details.workspacePath)).toBe(true);
+		// localPath must be inside tempspace
+		expect(localPath?.startsWith(details.tempspacePath)).toBe(true);
 
 		// Real git repo present
 		expect(existsSync(join(localPath ?? "", ".git"))).toBe(true);
@@ -112,7 +112,7 @@ describe("repo_query remote clone", () => {
 		expect(existsSync(join(localPath ?? "", "package.json"))).toBe(true);
 	}, 30_000);
 
-	it("reuses workspace on second query for same repo", async (ctx) => {
+	it("reuses tempspace on second query for same repo", async (ctx) => {
 		const cwd = makeTempDir("repo-query-remote-clone-");
 		tempDirs.push(cwd);
 
@@ -131,9 +131,9 @@ describe("repo_query remote clone", () => {
 
 		const details1 = result1.details as {
 			results: Array<{ status: string; localPath?: string }>;
-			workspacePath: string;
+			tempspacePath: string;
 		};
-		workspacesToClean.push(details1.workspacePath);
+		tempspacesToClean.push(details1.tempspacePath);
 
 		expect(details1.results[0]?.status).toBe("success");
 
@@ -149,11 +149,11 @@ describe("repo_query remote clone", () => {
 
 		const details2 = result2.details as {
 			results: Array<{ status: string; localPath?: string }>;
-			workspacePath: string;
+			tempspacePath: string;
 		};
 
-		// Same workspace reused
-		expect(details2.workspacePath).toBe(details1.workspacePath);
+		// Same tempspace reused
+		expect(details2.tempspacePath).toBe(details1.tempspacePath);
 
 		// Same local path
 		expect(details2.results[0]?.localPath).toBe(

@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>repo-query: Clone Concurrency Report</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --ink: #e6e8ec;
+    --muted: #9aa3b2;
+    --line: #2a2f3a;
+    --accent: #6ea8fe;
+    --warn: #f0b86e;
+    --crit: #ff7a7a;
+    --code-bg: #0b0d11;
+    --ok: #8bd5a0;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 40px 24px 96px; }
+  header.hero {
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b2029, #141821);
+    border-radius: 16px;
+    padding: 32px 32px 28px;
+    margin-bottom: 28px;
+  }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.3px; }
+  .sub { color: var(--muted); font-size: 15px; margin: 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+  .pill {
+    font-size: 12.5px; color: var(--muted);
+    border: 1px solid var(--line); background: var(--panel);
+    padding: 4px 10px; border-radius: 999px;
+  }
+  .pill b { color: var(--ink); font-weight: 600; }
+  h2 {
+    font-size: 21px; margin: 44px 0 12px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--line); letter-spacing: -0.2px;
+  }
+  h3 { font-size: 16.5px; margin: 26px 0 8px; }
+  h4 { font-size: 14.5px; margin: 18px 0 6px; color: var(--ink); }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  code, pre, kbd { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font-size: 13.5px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.55;
+  }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+  .card {
+    border: 1px solid var(--line); background: var(--panel);
+    border-radius: 12px; padding: 18px 20px; margin: 14px 0;
+  }
+  .card.tight { padding: 14px 16px; }
+  .grid { display: grid; gap: 14px; }
+  .grid.two { grid-template-columns: 1fr 1fr; }
+  .grid.three { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 820px) { .grid.two, .grid.three { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 11px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.4px; }
+  tr:last-child td { border-bottom: 0; }
+  .badge { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .b-crit { background: rgba(255,122,122,0.14); color: var(--crit); border: 1px solid rgba(255,122,122,0.35); }
+  .b-high { background: rgba(240,184,110,0.14); color: var(--warn); border: 1px solid rgba(240,184,110,0.35); }
+  .b-med  { background: rgba(110,168,254,0.13); color: var(--accent); border: 1px solid rgba(110,168,254,0.33); }
+  .b-ok   { background: rgba(139,213,160,0.13); color: var(--ok); border: 1px solid rgba(139,213,160,0.33); }
+  .b-defer{ background: #202634; color: var(--muted); border: 1px solid var(--line); }
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 14px 0; }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.crit { border-left-color: var(--crit); }
+  .callout.ok { border-left-color: var(--ok); }
+  .timeline { list-style: none; padding: 0; margin: 10px 0; }
+  .timeline li { position: relative; padding: 6px 0 6px 22px; border-left: 2px solid var(--line); margin-left: 6px; }
+  .timeline li::before {
+    content: ""; position: absolute; left: -7px; top: 13px;
+    width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg);
+  }
+  .timeline li.fail::before { background: var(--crit); }
+  .timeline time { color: var(--muted); font-size: 12.5px; display: block; }
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin: 14px 0; }
+  .flow .step { border: 1px solid var(--line); background: var(--panel); padding: 12px 14px; border-radius: 10px; flex: 1 1 150px; min-width: 140px; }
+  .flow .arrow { align-self: center; color: var(--muted); padding: 0 10px; font-size: 20px; }
+  .flow .step .n { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 0.5px; }
+  .flow .step .t { font-weight: 600; margin-top: 3px; }
+  .flow .step .d { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .shape { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; background: var(--panel); }
+  .shape.reco { border-color: rgba(139,213,160,0.5); box-shadow: 0 0 0 1px rgba(139,213,160,0.15) inset; }
+  .shape h3 { margin-top: 0; display: flex; align-items: center; gap: 10px; }
+  .kbd { background: var(--code-bg); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; font-size: 12.5px; }
+  .toc { columns: 2; column-gap: 28px; }
+  @media (max-width: 700px) { .toc { columns: 1; } }
+  .toc a { display: block; padding: 3px 0; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+  .small { font-size: 13px; }
+  .nowrap { white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>repo-query: Clone Concurrency Report</h1>
+  <p class="sub">Why parallel <code>repo_query</code> calls failed on <code>herdrdev/herdr</code>, what the clone layer really guarantees, and the fix to land now.</p>
+  <div class="meta">
+    <span class="pill"><b>Status</b> diagnosis complete, fix designed, not implemented</span>
+    <span class="pill"><b>Area</b> extensions/repo-query</span>
+    <span class="pill"><b>Incident session</b> 01a08c39-cf1f-774d-b1a0-a1cc04f3cf12</span>
+    <span class="pill"><b>Date</b> 2026-09-10</span>
+  </div>
+</header>
+
+<div class="card tight">
+  <h4 style="margin-top:0">Contents</h4>
+  <nav class="toc">
+    <a href="#tldr">TL;DR</a>
+    <a href="#incident">1. The incident</a>
+    <a href="#today">2. How cloning works today</a>
+    <a href="#causes">3. Root causes</a>
+    <a href="#latent">4. Latent bugs the race exposed</a>
+    <a href="#shapes">5. Three ways to fix it</a>
+    <a href="#plan">6. The recommended fix</a>
+    <a href="#invariant">7. The invariant</a>
+    <a href="#tests">8. Test plan (TDD)</a>
+    <a href="#open">9. Open decisions</a>
+    <a href="#appendix">Appendix: evidence &amp; references</a>
+  </nav>
+</div>
+
+<h2 id="tldr">TL;DR</h2>
+<div class="callout crit">
+  <p style="margin:0"><b>Two <code>repo_query</code> calls for the same repo ran in parallel, cloned into the same directory, and one of them deleted the other's work.</b> The loser's failure cleanup did <code>rm -rf &lt;cloneTarget&gt;</code>, which removed the winner's in-progress clone. <i>Both</i> calls failed. The installed extension then discarded git's error text, so the agent saw only <code>Failed to clone herdrdev/herdr (default branch).</code></p>
+</div>
+<p>The fix has three parts, and they stack:</p>
+<ol>
+  <li><span class="badge b-crit">core</span> <b>Clone to a temp dir and publish by atomic rename.</b> A visible clone target is then always a <i>complete</i> clone or absent. It is never half-written. Cleanup only ever touches the caller's own temp dir.</li>
+  <li><span class="badge b-high">guard</span> <b>Verify an existing target is real</b> with <code>git rev-parse -q --verify HEAD</code> before reusing it, instead of trusting the mere presence of <code>.git</code>.</li>
+  <li><span class="badge b-med">optimize</span> <b>Dedupe clones per target on demand</b>, so N parallel callers do one clone, not N, without blocking the turn and without a batch hook.</li>
+</ol>
+
+<h2 id="incident">1. The incident</h2>
+<p>In one assistant turn the agent issued <b>two</b> <code>repo_query</code> calls for the same repo (two different questions). pi runs tool calls in one message <b>in parallel</b> by default. Both failed in under a second.</p>
+
+<div class="grid two">
+  <div class="card">
+    <h4 style="margin-top:0">Timeline</h4>
+    <ul class="timeline">
+      <li><time>16:51:42.510Z</time> two calls: <code>herdrdev/herdr</code>, two queries</li>
+      <li class="fail"><time>16:51:43.298Z</time> both return <code>clone_failed</code> (~0.79 s)</li>
+      <li><time>16:51:50.555Z</time> retry: two calls for <code>herdrdev/herdr:master</code></li>
+      <li class="fail"><time>16:51:51.465Z</time> both return <code>clone_failed</code> (~0.9 s)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">What the agent saw</h4>
+    <pre><code>No repositories could be explored.
+- herdrdev/herdr: Failed to clone herdrdev/herdr (default branch).
+
+No repositories could be explored.
+- herdrdev/herdr:master: Failed to clone
+  herdrdev/herdr:master (ref 'master').
+  Did you mean one of these branches:
+  master, akbash/1665-reject-large-paste, …</code></pre>
+    <p class="small muted">No git error text. The branch-suggestion call proves <code>git</code> and the network worked.</p>
+  </div>
+</div>
+
+<div class="callout warn">
+  <b>The timing shows a collision.</b> A single clone of this repo takes ~1.6 s. The parallel calls failed at ~0.8 s. That is fast enough to be a collision, not a network or timeout problem.
+</div>
+
+<h4>Evidence left on disk</h4>
+<ul>
+  <li>The session tempspace <code>/tmp/pi-rq-41da4099fe79adad</code> still existed and was <b>empty</b>, consistent with a failed clone followed by <code>rm -rf</code>.</li>
+  <li>Reproduced against pi's own <code>execCommand</code>: two concurrent clones into one target both exit 128. A single clone succeeds.</li>
+</ul>
+<pre><code>B  FAILED code=128  stderr="fatal: destination path '…/github_herdrdev_herdr'
+                        already exists and is not an empty directory."
+A  FAILED code=128  stderr="Cloning into '…/github_herdrdev_herdr'…
+                        error: could not lock config file …/.git/config: No such file or directory
+                        fatal: could not set 'core.repositoryformatversion' to '0'"</code></pre>
+
+<h2 id="today">2. How cloning works today</h2>
+<p>Three concepts carry the design. The race lives in the third.</p>
+
+<div class="grid three">
+  <div class="card tight">
+    <h4 style="margin-top:0">Tempspace</h4>
+    <p class="small">One temp root per session: <code>/tmp/pi-rq-&lt;sha256(sessionFile)[0:16]&gt;</code>. Created on first use, shared by every call, removed on <code>session_shutdown</code>.</p>
+  </div>
+  <div class="card tight">
+    <h4 style="margin-top:0">Clone target</h4>
+    <p class="small">The directory one repo identifier resolves to: <code>join(tempspace, dirName)</code>. For <code>herdrdev/herdr</code> it is <code>github_herdrdev_herdr</code>. It is the unit of reuse.</p>
+  </div>
+  <div class="card tight">
+    <h4 style="margin-top:0">Parallel by default</h4>
+    <p class="small">pi executes a message's tool calls concurrently unless <i>any</i> of them declares <code>executionMode: "sequential"</code>.</p>
+  </div>
+</div>
+
+<h4>Flow of one call (current code)</h4>
+<div class="flow">
+  <div class="step"><div class="n">PARSE</div><div class="t">Identifier → dirName</div><div class="d"><code>github_owner_repo[-branch]</code></div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="n">VALIDATE</div><div class="t">GitHub API check</div><div class="d">suggestions on 404</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="n">REUSE?</div><div class="t"><code>existsSync(target/.git)</code></div><div class="d">origin comparison</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="n">CLONE</div><div class="t"><code>git clone --depth 1</code></div><div class="d"><b>into the target, in place</b></div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="n">EXPLORE</div><div class="t">subagent</div><div class="d">read/grep/find/ls/bash</div></div>
+</div>
+
+<div class="callout">
+  <b>The lines that matter.</b> From <code>extensions/repo-query/src/clone.ts</code>:
+</div>
+<pre><code>119  if (existsSync(join(repoDir, ".git"))) {          // reuse test: presence only
+120      return checkExistingOrigin(repo, repoDir, pi);
+121  }
+123  await mkdir(repoDir, { recursive: true });          // create target first
+…
+   // clone into that existing directory
+   git clone --depth 1 --single-branch &lt;url&gt; &lt;repoDir&gt;
+…
+151/160/224/230  await removeRepoDir(repoDir);          // on failure: rm -rf the SHARED target</code></pre>
+
+<h2 id="causes">3. Root causes</h2>
+<p>Five things had to line up. The first two are the bug; the rest explain why it was opaque and why other sessions hit it too.</p>
+
+<table>
+  <thead><tr><th style="width:34px">#</th><th>Cause</th><th>Detail</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><b>Shared clone target, no coordination</b> <span class="badge b-crit">critical</span></td>
+      <td>Both parallel calls computed the same <code>dirName</code> and the same target under the shared tempspace. Two <code>git clone</code>s wrote into one directory at once.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><b>Failure cleanup deletes the shared target</b> <span class="badge b-crit">critical</span></td>
+      <td>The loser ran <code>rm -rf &lt;cloneTarget&gt;</code>. That removed the winner's in-progress clone, so both failed. Cleanup of shared state is only safe when you own it.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><b>Errors swallowed</b> <span class="badge b-high">high</span></td>
+      <td>The <b>installed</b> extension (a stale package checkout) ignored <code>result.stderr</code> and returned a fixed string. The working tree already captures stderr; the running copy did not.</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><b>No in-flight dedupe</b> <span class="badge b-med">medium</span></td>
+      <td>Duplicate calls for one repo do duplicate work. Even without the bug, N callers = N clones.</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><b>Presence-only reuse test</b> <span class="badge b-med">medium</span></td>
+      <td><code>existsSync(".git")</code> accepts a half-written clone, and <code>checkExistingOrigin</code> falls through to <i>reused</i> when the origin cannot be read. See §4.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="latent">4. Latent bugs the race exposed</h2>
+<div class="grid two">
+  <div class="card">
+    <h4 style="margin-top:0">Half-written clone treated as usable</h4>
+    <p class="small"><code>git clone</code> creates <code>.git</code> early. If a process is killed mid-clone, or two race, the next call sees <code>.git</code>, cannot read an origin, and returns <b>reused</b>. The subagent then explores a broken repo, and the failure surfaces one level down.</p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">Stuck target deadlock</h4>
+    <p class="small">A non-empty target with no valid <code>.git</code> (a crash, leftover junk, or a Windows empty dir) makes <code>rename</code> fail forever while <code>existsSync(".git")</code> is false. Every later call fails, and nothing repairs it.</p>
+  </div>
+</div>
+
+<h2 id="shapes">5. Three ways to fix it</h2>
+<p>The decision is narrow: <b>who starts a clone, and who stops two clones of one repo from colliding?</b></p>
+
+<div class="grid three">
+  <div class="shape reco">
+    <h3>A · Dedupe on demand <span class="badge b-ok">recommended</span></h3>
+    <p class="small">Each call clones what it needs. A small registry in <code>clone.ts</code> maps <i>clone target → running clone</i>, so a second caller waits for the first. Different repos still clone in parallel; explores start as soon as their clone is ready.</p>
+    <p class="small"><b>+</b> no new hook · no turn stall · clone logic stays in one file<br><b>−</b> a little bookkeeping (map lifecycle, abort)</p>
+  </div>
+  <div class="shape">
+    <h3>B · Batch pre-clone</h3>
+    <p class="small">On the assistant message's <code>message_end</code>, gather every repo named across all tool calls, clone each once, then let the calls consume them. This is the literal “aggregate then clone” idea.</p>
+    <p class="small"><b>+</b> faithful batch semantics<br><b>−</b> blocks the turn before any tool row appears · still needs the per-call fallback · reads as hidden magic</p>
+  </div>
+  <div class="shape">
+    <h3>C · One at a time</h3>
+    <p class="small">Declare <code>repo_query</code> as <code>executionMode: "sequential"</code>. pi serializes the batch, so the second call reuses the first's clone.</p>
+    <p class="small"><b>+</b> smallest change<br><b>−</b> serializes <i>every</i> tool in the batch and the subagents too</p>
+  </div>
+</div>
+
+<div class="callout ok">
+  <b>Why A.</b> It produces the “clone each repo once” outcome you want while keeping the good property, parallel subagents, and it needs no lifecycle hook. B's seam is real but expensive. C discounts the feature the extension exists for.
+</div>
+
+<h4>The batch seam, for the record</h4>
+<p>B is genuinely possible, which is worth knowing. In <code>pi-agent-core/dist/agent-loop.js</code>, <code>message_end</code> fires with the full assistant message (all tool calls) <b>before</b> tool execution. Handlers receive <code>ctx</code>, are awaited (<code>runner.js</code>), and their errors are caught. There is no <code>tool_batch</code> event. <code>message_end</code> is the only pre-execution view of the whole batch.</p>
+
+<h2 id="plan">6. The recommended fix</h2>
+<p>A · on-demand dedupe, layered on the atomic-publish clone. Staged so each stage is independently useful.</p>
+
+<table>
+  <thead><tr><th>Stage</th><th>Change</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="badge b-crit">1</span></td>
+      <td><b>Atomic publish.</b> Clone into <code>mkdtemp(tempspace/.tmp-&lt;dirName&gt;-)</code>, then <code>rename(tmp, target)</code>. Delete <code>mkdir(target)</code> and every <code>rm -rf target</code>.</td>
+      <td>The visible target becomes complete-or-absent. Cleanup only touches your own temp dir, so no caller can delete another's work.</td>
+    </tr>
+    <tr>
+      <td><span class="badge b-high">2</span></td>
+      <td><b>Validity probe.</b> In <code>checkExistingOrigin</code>, require <code>git -C target rev-parse -q --verify HEAD</code> to exit 0 before reuse.</td>
+      <td>A half-written, unborn, or missing repo can never reach the subagent. Local no-origin clones still pass (exit 0).</td>
+    </tr>
+    <tr>
+      <td><span class="badge b-med">3</span></td>
+      <td><b>Invalid-target recovery (R2).</b> On rename conflict with no valid target, try <code>rmdir(target)</code>, which succeeds only if empty, then retry once. Otherwise fail with an actionable message naming the path.</td>
+      <td>Repairs the Windows empty-dir case with no data-loss window; keeps the invariant under our control instead of force-resolving externally corrupted state.</td>
+    </tr>
+    <tr>
+      <td><span class="badge b-med">4</span></td>
+      <td><b>Dedupe map.</b> <code>Map&lt;cloneTarget, Promise&lt;CloneResult&gt;&gt;</code>; entries removed when settled so failures are retryable.</td>
+      <td>N parallel callers for one repo run one clone; distinct repos stay parallel. Cross-process safety is still carried by stage 1.</td>
+    </tr>
+    <tr>
+      <td><span class="badge b-ok">5</span></td>
+      <td><b>Robustness.</b> Cleanup with <code>rm(tmp, { recursive, force, maxRetries: 3, retryDelay: 100 })</code>; classify <code>signal.aborted || result.killed || result.code === null</code> as aborted or timed-out.</td>
+      <td>Windows read-only pack files; and a timeout should read as “timed out”, not a bogus git error.</td>
+    </tr>
+    <tr>
+      <td><span class="badge b-defer">6</span></td>
+      <td><b>Rename retry for Windows AV blips.</b></td>
+      <td>Deferred: on Linux the rename outcome is deterministic. Add on a report.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>New clone flow</h4>
+<pre><code>if validTarget(cloneTarget):                 // rev-parse probe + origin match
+	return checkExistingOrigin(cloneTarget)
+
+tmp = mkdtemp(join(tempspace, `.tmp-${dirName}-`))
+try {
+	r = await clone into tmp                    // caller's signal, 120 s timeout
+	if isAborted(r): return failed("aborted")
+	if r.code !== 0:  return failed(r.stderr)   // real git text, finally
+	try rename(tmp, cloneTarget)
+	catch:
+		if validTarget(cloneTarget): return checkExistingOrigin(cloneTarget)  // lost publish
+		if rmdir(cloneTarget) ok: retry rename once                            // repair empty dir
+		return failed("stale target at &lt;path&gt;; remove it")                     // actionable
+	return cloned
+} finally {
+	rm(tmp, { recursive, force, maxRetries: 3 })   // our temp only, never cloneTarget
+}</code></pre>
+
+<div class="callout warn">
+  <b>Platform note.</b> <code>fs.rename</code> onto a missing dest or an <i>empty</i> dir succeeds on Linux; onto a non-empty dir it fails with <code>ENOTEMPTY</code>; Windows rejects even the empty case. That is exactly why the loser is detected by re-probing the target, not by reading the rename error code.
+</div>
+
+<h2 id="invariant">7. The invariant</h2>
+<div class="callout ok">
+  <b>A clone target is complete or absent.</b> It is only ever created or replaced by an atomic rename. No code path deletes a target another caller may be using.
+</div>
+<p>Consequences that fall out for free:</p>
+<ul>
+  <li>Reuse is safe: if <code>.git</code> exists, it is a real clone (then the probe confirms HEAD resolves).</li>
+  <li>A crash leaves only a <code>.tmp-*</code> dir, never a corrupt target.</li>
+  <li>The dirName-collision case (two repos sanitizing to one target) still returns the collision error instead of silently reusing the wrong repo.</li>
+</ul>
+
+<h2 id="tests">8. Test plan (TDD)</h2>
+<p>Seams confirmed before writing anything, per the TDD discipline. No new seam is needed. The existing fake-<code>pi</code> unit seam and the tool seam cover it.</p>
+
+<table>
+  <thead><tr><th>Seam</th><th>How</th><th>What it proves</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>ensureRepoCloned(repo, tempspace, signal, pi)</code></td>
+      <td>fake <code>pi.exec</code>, real temp dir</td>
+      <td>the clone algorithm and the new invariants</td>
+    </tr>
+    <tr>
+      <td><code>getTempspacePath(ctx)</code></td>
+      <td>existing workspace tests</td>
+      <td>tempspace reuse per session</td>
+    </tr>
+    <tr>
+      <td><code>repo_query.execute</code></td>
+      <td><code>captureExtension</code></td>
+      <td>end-to-end parallel-call behavior</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>Vertical slices, smallest first</h4>
+<ol>
+  <li><b>Coalesce.</b> Two concurrent calls, same target, barrier-held clone: both usable, one complete target, no cross-deletion.</li>
+  <li><b>Collision.</b> Concurrent calls whose clones report different origins for one dirName: loser gets the collision error, and the winner's target is <b>still intact</b>.</li>
+  <li><b>Invalid target.</b> Pre-seed <code>.git</code> with no HEAD: must not be reported as <i>reused</i>.</li>
+  <li><b>Abort or timeout.</b> <code>killed:true, code:null</code> classifies as aborted, not as a git failure.</li>
+  <li><b>Stuck target.</b> Non-empty target without <code>.git</code>: fails with an actionable message (and the <code>rmdir</code> path repairs the empty case).</li>
+</ol>
+
+<p class="small muted">This table is the diagnosis-time snapshot. The PRD at <code>.scratch/repo-query-clone-race/PRD.md</code> settles the rows below.</p>
+
+<h2 id="open">9. Open decisions</h2>
+<table>
+  <thead><tr><th>Decision</th><th>Settled</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Contract under concurrency</td><td><span class="badge b-ok">coalesce</span></td><td>every caller ends with a usable clone</td></tr>
+    <tr><td>Mechanism</td><td><span class="badge b-ok">atomic publish</span></td><td>clone to temp, rename in</td></tr>
+    <tr><td>Cross-process</td><td><span class="badge b-ok">in scope</span></td><td>don't rely on single-process; rename gives it</td></tr>
+    <tr><td>Partial-clone reuse</td><td><span class="badge b-ok">fold in</span></td><td>validity probe</td></tr>
+    <tr><td>Invalid-target recovery</td><td><span class="badge b-ok">R2</span></td><td>fail actionable; <code>rmdir</code> empty then retry</td></tr>
+    <tr><td>Aggregation shape</td><td><span class="badge b-high">A (proposed)</span></td><td>dedupe on demand vs batch pre-clone vs sequential</td></tr>
+    <tr><td>Dedupe semantics</td><td><span class="badge b-med">open</span></td><td>shared in-flight promise vs serialize-and-recheck</td></tr>
+    <tr><td>Abort under sharing</td><td><span class="badge b-med">open</span></td><td>owner signal · ignore signals · abort when last waiter leaves</td></tr>
+    <tr><td>Rename retry (Windows)</td><td><span class="badge b-defer">drop for now</span></td><td>add on a report</td></tr>
+  </tbody>
+</table>
+
+<h2 id="appendix">Appendix: evidence &amp; references</h2>
+
+<h4>How it was reproduced</h4>
+<pre><code># single clone: succeeds in ~1.6 s
+git clone --depth 1 --single-branch https://github.com/herdrdev/herdr.git herdr
+
+# two concurrent clones into one target: both fail
+( git clone --depth 1 --single-branch &lt;url&gt; herdr ) &amp;
+( git clone --depth 1 --single-branch &lt;url&gt; herdr ) &amp;
+wait
+# one wins, one gets: fatal: destination path 'herdr' already exists …
+# with the extension's rm-on-failure, the winner's dir is then deleted too</code></pre>
+
+<h4>Platform probes</h4>
+<pre><code>rename → dest absent      : OK
+rename → dest empty dir   : OK (replaces)
+rename → dest non-empty   : ENOTEMPTY
+
+git -C &lt;t&gt; rev-parse -q --verify HEAD
+	empty .git dir          : exit 128
+	git init, no commit     : exit 1
+	valid shallow clone     : exit 0
+	missing dir             : exit 128
+	no-origin local clone   : exit 0</code></pre>
+
+<h4>Code references</h4>
+<table>
+  <thead><tr><th>What</th><th>Where</th></tr></thead>
+  <tbody>
+    <tr><td>Clone target, reuse, cleanup</td><td><code>extensions/repo-query/src/clone.ts</code> (L119, L123, L151/160/224/230)</td></tr>
+    <tr><td>Tempspace derivation</td><td><code>extensions/repo-query/src/workspace.ts</code></td></tr>
+    <tr><td>dirName derivation</td><td><code>extensions/repo-query/src/resolver.ts</code> (<code>sanitizeDirName</code>)</td></tr>
+    <tr><td>Parallel tool execution + batch rule</td><td><code>pi-agent-core/dist/agent-loop.js</code> (L287)</td></tr>
+    <tr><td>message_end batch seam</td><td><code>pi-agent-core/dist/agent-loop.js</code>; <code>pi-coding-agent/dist/core/extensions/runner.js</code></td></tr>
+    <tr><td>Installed (stale) extension</td><td><code>~/.pi/agent/git/github.com/Bafbi/pi-tre</code> · <code>settings.json → packages</code></td></tr>
+  </tbody>
+</table>
+
+<h4>Glossary</h4>
+<table>
+  <thead><tr><th>Term</th><th>Meaning</th><th>Avoid</th></tr></thead>
+  <tbody>
+    <tr><td><b>Tempspace</b></td><td>per-session temp root holding clones</td><td>workspace (taken by the jj extension)</td></tr>
+    <tr><td><b>Clone target</b></td><td><code>join(tempspace, dirName)</code>; the unit of reuse and concurrency</td><td>repo dir, checkout</td></tr>
+    <tr><td><b>Publish</b></td><td>the atomic <code>rename</code> that makes a finished clone visible at its target</td><td>move, install</td></tr>
+  </tbody>
+</table>
+
+<footer>
+  Report generated in the repo-query jj workspace. Diagnosis verified against pi 0.84.4 and the installed <code>Bafbi/pi-tre</code> extension. Nothing here is implemented yet.
+</footer>
+
+</div>
+</body>
+</html>

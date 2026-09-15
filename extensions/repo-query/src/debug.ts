@@ -12,7 +12,7 @@ type UiCtx = Pick<ExtensionContext, "hasUI" | "ui">;
 export interface DebugState {
 	enabled: boolean;
 	events: string[];
-	workspacePath: string | null;
+	tempspacePath: string | null;
 	trackedRepos: Map<
 		string,
 		{ status: string; cloned: boolean; branch?: string | null }
@@ -23,7 +23,7 @@ export function createDebugState(): DebugState {
 	return {
 		enabled: false,
 		events: [],
-		workspacePath: null,
+		tempspacePath: null,
 		trackedRepos: new Map(),
 	};
 }
@@ -60,8 +60,8 @@ export function trackRepo(
 	state.trackedRepos.set(identifier, info);
 }
 
-export function setWorkspacePath(state: DebugState, path: string): void {
-	state.workspacePath = path;
+export function setTempspacePath(state: DebugState, path: string): void {
+	state.tempspacePath = path;
 }
 
 /** Register the /repo-query-debug command on the extension API. */
@@ -149,7 +149,7 @@ export function syncDebugUi(state: DebugState, ctx: UiCtx): void {
 function getDebugLines(state: DebugState): string[] {
 	const header = [
 		`debug: ${state.enabled ? "ON" : "OFF"}`,
-		`workspace: ${state.workspacePath ?? "<none>"}`,
+		`tempspace: ${state.tempspacePath ?? "<none>"}`,
 		`tracked repos: ${state.trackedRepos.size}`,
 	];
 
@@ -186,7 +186,7 @@ export function buildDebugDump(
 	lines.push("## runtime");
 	lines.push(`- now: ${now}`);
 	lines.push(`- debugEnabled: ${state.enabled}`);
-	lines.push(`- workspacePath: ${state.workspacePath ?? "<none>"}`);
+	lines.push(`- tempspacePath: ${state.tempspacePath ?? "<none>"}`);
 	lines.push("");
 	lines.push("## session");
 	lines.push(`- cwd: ${ctx.cwd}`);

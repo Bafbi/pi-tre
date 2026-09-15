@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clearWorkspaceCache } from "../../src/workspace.js";
+import { clearTempspaceCache } from "../../src/tempspace.js";
 import {
 	captureExtension,
 	cleanupDirs,
@@ -16,7 +16,7 @@ const tempDirs: string[] = [];
 afterEach(async () => {
 	vi.restoreAllMocks();
 	await cleanupDirs(tempDirs);
-	clearWorkspaceCache();
+	clearTempspaceCache();
 });
 
 interface FetchMockConfig {

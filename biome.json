@@ -1,7 +1,13 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.5.5/schema.json",
 	"files": {
-		"includes": ["**", "!**/.vscode", "!**/.zed", "!**/*-lock.*", "!**/.scratch"],
+		"includes": [
+			"**",
+			"!**/.vscode",
+			"!**/.zed",
+			"!**/*-lock.*",
+			"!**/.scratch"
+		]
 	},
 	"vcs": {
 		"enabled": true,

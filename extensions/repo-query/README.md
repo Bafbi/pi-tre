@@ -140,18 +140,18 @@ mise run test
 
 ## Testing
 
-Unit tests mock external boundaries (GitHub API via Octokit, `pi.exec` for git operations). Integration tests use `ExtensionRunner` from `@mariozechner/pi-coding-agent` to run the full extension with mocked explorers and HTTP APIs. The workspace cache is cleared between tests to avoid cross-test pollution.
+Unit tests mock external boundaries (GitHub API via Octokit, `pi.exec` for git operations). Integration tests use `ExtensionRunner` from `@mariozechner/pi-coding-agent` to run the full extension with mocked explorers and HTTP APIs. The tempspace cache is cleared between tests to avoid cross-test pollution.
 
 ### Clone behavior
 
 `ensureRepoCloned` handles three outcomes:
-- **existing** — `.git` already present in workspace (reused across session queries)
+- **reused** — a valid clone already present at the clone target (reused across session queries)
 - **cloned** — shallow clone succeeded
 - **failed** — all branches failed, returns error with attempted branch list
 
 When a branch-specific clone fails, the function runs `git ls-remote --heads` to gather available remote branches, then uses **fuzzy matching** (normalized Levenshtein similarity ≥ 0.4) to suggest up to 5 similar branch names in the error message.
 
-Unit tests in `test/unit/clone.test.ts` cover all three paths plus branch suggestions. Integration tests in `test/integration/extension-runner.test.ts` verify real `git clone` from a local source repo into the session workspace.
+Unit tests in `test/unit/clone.test.ts` cover all three paths plus branch suggestions. Integration tests in `test/integration/extension-runner.test.ts` verify real `git clone` from a local source repo into the session tempspace.
 
 ## Tests
 
