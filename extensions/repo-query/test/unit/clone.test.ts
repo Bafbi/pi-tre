@@ -13,7 +13,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ensureRepoCloned } from "../../src/clone.js";
+import { clearInFlightClones, ensureRepoCloned } from "../../src/clone.js";
 import type { ParsedRepo } from "../../src/types.js";
 
 const tempDirs: string[] = [];
@@ -1059,5 +1059,36 @@ describe("concurrent clone dedupe", () => {
 		expect(cloneCalls).toBe(2);
 		const failed = [a, b].find((r) => r.status === "failed");
 		expect(failed?.reason).toBe("collision");
+	});
+
+	it("aborts in-flight clones when the registry is cleared", async () => {
+		const tempspace = mkdtempSync(join(tmpdir(), "repo-query-clone-test-"));
+		tempDirs.push(tempspace);
+		let releaseGate: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			releaseGate = resolve;
+		});
+		let cloneSignal: AbortSignal | undefined;
+
+		const pi = fakeGit({
+			clone: async ({ dest, options }) => {
+				cloneSignal = options?.signal;
+				mkdirSync(join(dest, ".git"), { recursive: true });
+				await gate;
+				return OK_REPLY;
+			},
+		});
+
+		const caller = ensureRepoCloned(repo, tempspace, undefined, pi);
+		await vi.waitFor(() => expect(cloneSignal).toBeDefined());
+		expect(cloneSignal?.aborted).toBe(false);
+
+		expect(clearInFlightClones()).toBe(1);
+		expect(cloneSignal?.aborted).toBe(true);
+
+		releaseGate();
+		const result = await caller;
+		expect(result.reason).toBe("aborted");
+		await vi.waitFor(() => expect(readdirSync(tempspace)).toEqual([]));
 	});
 });

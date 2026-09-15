@@ -308,10 +308,15 @@ export async function ensureRepoCloned(
 
 /**
  * Drop every in-flight clone entry. Called on session shutdown so a session
- * boundary does not leave hidden registry state behind. Returns the count.
+ * boundary does not leave hidden registry state behind. Each shared clone is
+ * aborted before it is forgotten, so it cannot keep running or publish after
+ * its tempspace is removed. Returns the count.
  */
 export function clearInFlightClones(): number {
 	const cleared = inFlightClones.size;
+	for (const shared of inFlightClones.values()) {
+		shared.controller.abort();
+	}
 	inFlightClones.clear();
 	return cleared;
 }
