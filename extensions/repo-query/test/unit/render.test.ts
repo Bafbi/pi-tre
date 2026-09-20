@@ -67,6 +67,7 @@ function renderText(
 	result: AgentToolResult<RepoQueryDetails>,
 	options: { expanded?: boolean; isPartial?: boolean },
 	ctx: ToolRenderLike,
+	width = 200,
 ): string {
 	return renderResult(
 		result,
@@ -77,8 +78,29 @@ function renderText(
 		mockTheme(),
 		ctx,
 	)
-		.render(200)
+		.render(width)
 		.join("\n");
+}
+
+/** Stop the live elapsed-time interval a partial render starts. */
+function stopInterval(ctx: ToolRenderLike): void {
+	const state = ctx.state as RepoQueryRenderState;
+	if (state.interval) clearInterval(state.interval);
+}
+
+/**
+ * Render a partial result and stop the interval the render starts. Stopping
+ * before any assertion runs keeps a failing expect from leaking a 1s timer
+ * into the rest of the file.
+ */
+function renderPartial(
+	result: AgentToolResult<RepoQueryDetails>,
+	ctx: ToolRenderLike,
+	width = 200,
+): string {
+	const text = renderText(result, { isPartial: true }, ctx, width);
+	stopInterval(ctx);
+	return text;
 }
 
 describe("repo_query rendering", () => {
@@ -151,6 +173,58 @@ describe("repo_query rendering", () => {
 		expect(text).toContain("clone failed");
 	});
 
+	it("partial view clamps a long single-line thought to the visual-row budget", () => {
+		const ctx = mockRenderContext();
+		const result = makeResult({
+			results: [okRepo],
+			phase: "exploring",
+			// One logical line: a reasoning chunk that arrives without newlines.
+			thought: "x".repeat(2000),
+		});
+
+		const text = renderPartial(result, ctx, 40);
+		const lines = text.split("\n");
+
+		// One repo status row, up to 5 wrapped thought rows plus a hint row, and
+		// one duration row. Counting '\n' segments instead let this single
+		// logical line wrap into ~50 rows.
+		expect(lines.length).toBeLessThanOrEqual(8);
+		expect(text).toContain("earlier");
+		expect(text).not.toContain("x".repeat(41));
+	});
+
+	it("partial view keeps 5 logical thought lines without a hint", () => {
+		const ctx = mockRenderContext();
+		const result = makeResult({
+			results: [okRepo],
+			phase: "exploring",
+			thought: "line 1\nline 2\nline 3\nline 4\nline 5",
+		});
+
+		const text = renderPartial(result, ctx);
+
+		expect(text).toContain("line 1");
+		expect(text).toContain("line 5");
+		expect(text).not.toContain("earlier");
+	});
+
+	it("partial view reports how many thought rows are hidden", () => {
+		const ctx = mockRenderContext();
+		const result = makeResult({
+			results: [okRepo],
+			phase: "exploring",
+			thought: "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot\ngolf",
+		});
+
+		const text = renderPartial(result, ctx);
+
+		expect(text).toContain("... 2 earlier lines");
+		expect(text).toContain("charlie");
+		expect(text).toContain("golf");
+		expect(text).not.toContain("alpha");
+		expect(text).not.toContain("bravo");
+	});
+
 	it("renderResult collapsed view does NOT start with a newline and shows the expand hint", () => {
 		const result = makeResult({ results: [okRepo], answer: "The answer." });
 
@@ -195,13 +269,7 @@ describe("repo_query rendering", () => {
 			thought: "Thinking...",
 		});
 
-		expect(renderText(result, { isPartial: true }, ctx)).toContain(
-			"Elapsed",
-		);
-
-		// Clean up the interval that was started by the partial render
-		const state = ctx.state as RepoQueryRenderState;
-		if (state.interval) clearInterval(state.interval);
+		expect(renderPartial(result, ctx)).toContain("Elapsed");
 	});
 
 	it("renderResult final view includes took time", () => {
