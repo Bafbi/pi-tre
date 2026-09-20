@@ -3,6 +3,7 @@ import {
 	getMarkdownTheme,
 	keyHint,
 	type Theme,
+	truncateToVisualLines,
 } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
@@ -10,6 +11,7 @@ import {
 	Markdown,
 	Spacer,
 	Text,
+	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { formatRepoDisplayName } from "./output.js";
 import type { RepoQueryDetails, RepoStatus } from "./types.js";
@@ -21,6 +23,57 @@ import { isFailure, isSuccess } from "./types.js";
  * context.lastComponent.
  */
 export class RepoQueryResultComponent extends Container {}
+
+/**
+ * Terminal rows the streaming thought preview may occupy. The skipped-count
+ * hint is an extra row on top of this budget.
+ */
+const THOUGHT_PREVIEW_ROWS = 5;
+
+/**
+ * Streaming tail of the subagent's thinking, clamped to a fixed number of
+ * terminal rows. pi's truncateToVisualLines renders at the real width and
+ * counts wrapped rows, so a single long reasoning chunk cannot expand the
+ * panel. The width-keyed cache survives the global re-renders that happen
+ * between result rebuilds (for example another tool's spinner), avoiding a
+ * re-wrap of the accumulated thought on every frame.
+ */
+class ThoughtPreviewComponent implements Component {
+	private cachedWidth: number | undefined;
+	private cachedLines: string[] | undefined;
+
+	constructor(
+		private readonly text: string,
+		private readonly theme: Theme,
+	) {}
+
+	render(width: number): string[] {
+		if (this.cachedLines === undefined || this.cachedWidth !== width) {
+			const preview = truncateToVisualLines(
+				this.text,
+				THOUGHT_PREVIEW_ROWS,
+				width,
+			);
+			const rendered: string[] = [];
+			if (preview.skippedCount > 0) {
+				const hint = this.theme.fg(
+					"dim",
+					`... ${preview.skippedCount} earlier lines`,
+				);
+				rendered.push(truncateToWidth(`  ${hint}`, width, "..."));
+			}
+			rendered.push(...preview.visualLines);
+			this.cachedWidth = width;
+			this.cachedLines = rendered;
+		}
+		return this.cachedLines ?? [];
+	}
+
+	invalidate(): void {
+		this.cachedWidth = undefined;
+		this.cachedLines = undefined;
+	}
+}
 
 /** Per-call render state tracked on context.state. */
 export interface RepoQueryRenderState {
@@ -123,7 +176,7 @@ function rebuildRepoQueryResultComponent(
 	const hasAnswer = Boolean(details.answer);
 	const allFailed = details.results.every((r) => isFailure(r.status));
 
-	// Streaming / partial state — repo status + last 5 thought lines
+	// Streaming / partial state — repo status + last 5 thought rows (clamped by width)
 	if (options.isPartial) {
 		const lines: string[] = [];
 
@@ -150,22 +203,29 @@ function rebuildRepoQueryResultComponent(
 			}
 		}
 
-		// Show last 5 lines of subagent thought
-		const thought = details.thought ?? "";
-		if (thought) {
-			const thoughtLines = thought.split("\n").filter((l) => l.trim());
-			const lastLines = thoughtLines.slice(-5);
-			if (thoughtLines.length > 5) {
-				lines.push(theme.fg("dim", "..."));
-			}
-			for (const line of lastLines) {
-				lines.push(`  ${theme.fg("dim", line.trim())}`);
-			}
-		}
-
+		// Repository status lines are short and bounded, so add them directly.
 		for (const line of lines) {
 			component.addChild(new Text(line, 0, 0));
 		}
+
+		// Show the tail of the subagent's thinking, clamped to a fixed number of
+		// terminal rows. A reasoning chunk often arrives without newlines, so
+		// counting '\n' segments (the old behavior) let one long line wrap into
+		// many rows and blow past the preview budget.
+		const thought = details.thought ?? "";
+		if (thought) {
+			const styledThought = thought
+				.split("\n")
+				.filter((l) => l.trim())
+				.map((l) => `  ${theme.fg("dim", l.trim())}`)
+				.join("\n");
+			if (styledThought) {
+				component.addChild(
+					new ThoughtPreviewComponent(styledThought, theme),
+				);
+			}
+		}
+
 		appendDurationLine(component, theme, startedAt, endedAt);
 		return;
 	}
