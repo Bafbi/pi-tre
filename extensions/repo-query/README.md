@@ -70,10 +70,10 @@ You can configure which model the exploration subagent uses per repository.
 
 | Scope | Path |
 |-------|------|
-| Global | `~/.pi/agent/extensions/repo-query.json` |
-| Project-local | `<cwd>/.pi/extensions/repo-query.json` |
+| Global | `~/.pi/agent/configs/repo-query.json` |
+| Project | `<cwd>/.pi/configs/repo-query.json` |
 
-Project-local overrides global. The config is a JSON file:
+The project config wins per key and is read only when pi trusts the project. The config is a JSON file:
 
 ```json
 {
@@ -107,8 +107,7 @@ This is used when no config file specifies a model.
 A JSON Schema is generated from the TypeScript config type and committed as `repo-query.schema.json`. Regenerate it after changing the config shape:
 
 ```bash
-cd extensions/repo-query
-bun run scripts/generate-schema.ts
+mise run //extensions/repo-query:generate-schema
 ```
 
 ## Install
@@ -125,9 +124,9 @@ pi install git:github.com/Bafbi/pi-tre
 pi -e ./extensions/repo-query/src/index.ts
 ```
 
-### Project-local (auto-discovered)
+### Auto-discovered in this repo
 
-The `.pi/extensions/repo-query.ts` re-export is already configured for this repo.
+The root `package.json` lists the extension under `pi.extensions`, so pi loads it for this repo.
 
 ## Dev
 

@@ -9,3 +9,7 @@ extends = "ext:typecheck"
 
 [tasks.check]
 extends = "ext:check"
+
+[tasks.generate-schema]
+description = "Regenerate the committed JSON config schema"
+run = "node scripts/generate-schema.ts"

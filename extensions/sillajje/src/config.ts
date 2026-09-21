@@ -1,30 +1,22 @@
 /**
  * Configuration loader for sillajje.
  *
- * Reads from `.pi/configs/sillajje.json` (project-local) with a fallback
- * to `~/.pi/configs/sillajje.json` (global). The project-local config is
- * authoritative — if it exists, its values win entirely over the global file.
+ * Path resolution, parsing, and merging live in `@pi-tre/pi-config`:
+ * - Global config: `~/.pi/agent/configs/sillajje.json`
+ * - Project config: `<repo-root>/.pi/configs/sillajje.json`, read only when
+ *   the project is trusted.
  *
- * The config schema is defined via TypeBox, which provides:
- * - A TypeScript type derived from the schema (`SillajjeConfig`)
- * - Runtime validation via `Check()` with descriptive error messages
- * - Default-value application via `Default()`
- * - Unknown-property stripping via `Clean()`
- * - JSON Schema generation for IDE intellisense and tooling
+ * The schema is TypeBox. It supplies the field defaults, so callers always get
+ * a fully-populated `SillajjeConfig`. See
+ * `docs/adr/0002-extension-config-layout.md`.
  *
- * Interface: `loadSillajjeConfig(repoRoot?, configDir?) → SillajjeConfig`
- *
- * This is a deep module: a large amount of config-resolving behaviour
- * (file walking, priority rules, default application, typed parsing) behind
- * a single-function interface. Callers never touch config files directly.
+ * Interface: `loadSillajjeConfig({ repoRoot?, configDir?, trusted? })
+ * → SillajjeConfig`.
  */
 
-import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-
+import { loadExtensionConfig } from "@pi-tre/pi-config";
 import { type Static, Type } from "@sinclair/typebox";
-import { Check, Clean, Default } from "@sinclair/typebox/value";
 
 // ---------------------------------------------------------------------------
 // Sub-schemas
@@ -108,9 +100,9 @@ const SubGeneratorSchema = Type.Object(
 /**
  * JSON Schema for sillajje configuration files.
  *
- * All fields are optional — missing fields are filled by `Default()` with
- * their declared defaults. Unknown properties are stripped by `Clean()`
- * at load time.
+ * All fields are optional. Missing fields are filled with their declared
+ * defaults, and unknown properties are stripped with a warning, both by the
+ * shared loader at load time.
  */
 export const SillajjeConfigSchema = Type.Object(
 	{
@@ -162,59 +154,6 @@ export const SillajjeConfigSchema = Type.Object(
 export type SillajjeConfig = Static<typeof SillajjeConfigSchema>;
 
 // ---------------------------------------------------------------------------
-// Defaults
-// ---------------------------------------------------------------------------
-
-/**
- * Fully-populated default config, derived by applying the schema's defaults
- * to an empty object. Used as the fallback when no config file is found.
- */
-const DEFAULTS: SillajjeConfig = Default(
-	SillajjeConfigSchema,
-	{},
-) as SillajjeConfig;
-
-// ---------------------------------------------------------------------------
-// Config file paths
-// ---------------------------------------------------------------------------
-
-const DEFAULT_GLOBAL_CONFIG_DIR = join(homedir(), ".pi/configs");
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Read a JSON config file, validate against the schema, and return a fully
- * populated config object (defaults applied, unknown properties stripped).
- *
- * Returns `undefined` when the file doesn't exist, can't be parsed, or
- * fails schema validation. Callers fall back to `DEFAULTS` in these cases.
- */
-function readConfigFile(path: string): SillajjeConfig | undefined {
-	try {
-		const raw = readFileSync(path, "utf-8");
-		const parsed = JSON.parse(raw);
-		if (typeof parsed !== "object" || parsed === null) return undefined;
-
-		// Strip unknown properties via additionalProperties: false.
-		const cleaned = Clean(SillajjeConfigSchema, parsed);
-
-		if (!Check(SillajjeConfigSchema, cleaned)) {
-			console.error(
-				`[sillajje] Config validation error in ${path}: expected valid types`,
-			);
-			return undefined;
-		}
-
-		// Apply defaults for missing optional fields.
-		return Default(SillajjeConfigSchema, cleaned) as SillajjeConfig;
-	} catch {
-		return undefined;
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -232,50 +171,37 @@ function parsePostInitEnv(): string[] | undefined {
 		.filter((s) => s.length > 0);
 }
 
+export interface LoadSillajjeConfigOptions {
+	/** Project root. Omit to read the global layer only. */
+	repoRoot?: string;
+	/**
+	 * Whether the project is trusted. Defaults to `false`, so an untrusted
+	 * project reads the global layer only. Project config can carry shell
+	 * commands (`postInit`), so callers pass `ctx.isProjectTrusted()`.
+	 */
+	trusted?: boolean;
+	/** Override the global config directory. Tests pass a temp dir. */
+	configDir?: string;
+}
+
 /**
  * Load the sillajje configuration.
  *
- * Resolution order:
- * 1. Project-local `.pi/configs/sillajje.json` (relative to `repoRoot`).
- *    If this file exists, its values are authoritative — the global config
- *    is not consulted.
- * 2. Global `<configDir>/sillajje.json` (defaults to `~/.pi/configs`).
- * 3. Hardcoded defaults (if neither config file exists).
- * 4. `SILLAJJE_POST_INIT` environment variable overrides `postInit` (only).
- *
- * @param repoRoot - Project root; a project-local config here takes precedence.
- * @param configDir - Override for the global config directory (defaults to
- *   `~/.pi/configs`). Tests pass a temp directory so the real user config is
- *   never read or written.
+ * Order: the global layer, then the project layer when `trusted`. The project
+ * wins per leaf. `SILLAJJE_POST_INIT` overrides `postInit` from either layer.
  *
  * Returns a fully-populated `SillajjeConfig` with all fields set.
  */
 export function loadSillajjeConfig(
-	repoRoot?: string,
-	configDir?: string,
+	options: LoadSillajjeConfigOptions = {},
 ): SillajjeConfig {
-	const globalConfigPath = join(
-		configDir ?? DEFAULT_GLOBAL_CONFIG_DIR,
-		"sillajje.json",
-	);
-	let config: SillajjeConfig;
-
-	// Project-local config takes precedence.
-	if (repoRoot) {
-		const localPath = join(repoRoot, ".pi/configs/sillajje.json");
-		const local = readConfigFile(localPath);
-		if (local !== undefined) {
-			config = local;
-		} else {
-			// No project config — fall back to global.
-			const global = readConfigFile(globalConfigPath);
-			config = global ?? { ...DEFAULTS };
-		}
-	} else {
-		// Fall back to global config.
-		const global = readConfigFile(globalConfigPath);
-		config = global ?? { ...DEFAULTS };
-	}
+	const config = loadExtensionConfig({
+		name: "sillajje",
+		schema: SillajjeConfigSchema,
+		repoRoot: options.repoRoot,
+		trusted: options.trusted,
+		configDir: options.configDir,
+	});
 
 	// Env var overrides postInit from file config.
 	const envPostInit = parsePostInitEnv();

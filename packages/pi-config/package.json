@@ -1,0 +1,16 @@
+{
+	"name": "@pi-tre/pi-config",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"scripts": {
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "catalog:pi-dev",
+		"@sinclair/typebox": "catalog:pi-dev"
+	}
+}

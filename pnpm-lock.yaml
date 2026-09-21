@@ -66,6 +66,9 @@ importers:
       '@octokit/rest':
         specifier: ^21.0.0
         version: 21.1.1
+      '@pi-tre/pi-config':
+        specifier: workspace:*
+        version: link:../../packages/pi-config
       '@pi-tre/pi-subagent':
         specifier: workspace:*
         version: link:../../packages/pi-subagent
@@ -84,6 +87,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: catalog:pi-dev
         version: 0.84.4(ws@8.20.0)(zod@4.3.6)
+      '@pi-tre/pi-config':
+        specifier: workspace:*
+        version: link:../../packages/pi-config
       '@pi-tre/pi-subagent':
         specifier: workspace:*
         version: link:../../packages/pi-subagent
@@ -92,6 +98,15 @@ importers:
         version: 0.34.52
 
   extensions/stale-write-guard:
+    dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: catalog:pi-dev
+        version: 0.84.4(ws@8.20.0)(zod@4.3.6)
+      '@sinclair/typebox':
+        specifier: catalog:pi-dev
+        version: 0.34.52
+
+  packages/pi-config:
     dependencies:
       '@earendil-works/pi-coding-agent':
         specifier: catalog:pi-dev

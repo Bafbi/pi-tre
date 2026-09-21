@@ -134,6 +134,7 @@ export function minimalContext(
 	return {
 		cwd,
 		hasUI: false,
+		isProjectTrusted: () => true,
 		sessionManager: {
 			getSessionFile: () => join(cwd, "session.jsonl"),
 			getBranch: () => [],

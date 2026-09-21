@@ -1,9 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-
-import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { loadExtensionConfig } from "@pi-tre/pi-config";
 import { type Static, Type } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
 
 import type { ParsedRepo } from "./types.js";
 
@@ -23,63 +19,32 @@ export const RepoQueryConfigSchema = Type.Object(
 
 export type RepoQueryConfig = Static<typeof RepoQueryConfigSchema>;
 
-function loadConfigFile(path: string): RepoQueryConfig {
-	if (!existsSync(path)) return {};
-	try {
-		const content = readFileSync(path, "utf-8");
-		const parsed = JSON.parse(content) as unknown;
-		if (typeof parsed !== "object" || parsed === null) {
-			console.error(
-				`[repo-query] Config file at ${path} is not a JSON object.`,
-			);
-			return {};
-		}
-		if (!Value.Check(RepoQueryConfigSchema, parsed)) {
-			const errors = Array.from(
-				Value.Errors(RepoQueryConfigSchema, parsed),
-			);
-			const errorDetails = errors
-				.map((e) => `${e.path}: ${e.message}`)
-				.join("; ");
-			console.error(
-				`[repo-query] Config file at ${path} has validation errors: ${errorDetails}`,
-			);
-			return {};
-		}
-		return parsed as RepoQueryConfig;
-	} catch (err) {
-		console.error(
-			`[repo-query] Failed to parse config file at ${path}: ${err instanceof Error ? err.message : String(err)}`,
-		);
-		return {};
-	}
+export interface LoadRepoQueryConfigOptions {
+	/** Working directory. The project config lives at `<cwd>/.pi/configs/repo-query.json`. */
+	cwd: string;
+	/** Whether the project is trusted. Untrusted projects read the global layer only. */
+	trusted?: boolean;
+	/** Override the global config directory. Tests pass a temp dir. */
+	configDir?: string;
 }
 
 /**
- * Load repo-query configuration, merging global and project-local files.
- * Project-local takes precedence.
+ * Load repo-query configuration through the shared loader.
+ *
+ * Order: the global layer, then the project layer when `trusted`. The project
+ * wins per leaf, and the `models` map merges per key. See
+ * `docs/adr/0002-extension-config-layout.md`.
  */
-export function loadRepoQueryConfig(cwd: string): RepoQueryConfig {
-	const globalPath = join(getAgentDir(), "extensions", "repo-query.json");
-	const projectPath = join(
-		cwd,
-		CONFIG_DIR_NAME,
-		"extensions",
-		"repo-query.json",
-	);
-
-	const globalConfig = loadConfigFile(globalPath);
-	const projectConfig = loadConfigFile(projectPath);
-
-	return {
-		...globalConfig,
-		...projectConfig,
-		// Merge nested models maps so project keys override global keys
-		models: {
-			...globalConfig.models,
-			...projectConfig.models,
-		},
-	};
+export function loadRepoQueryConfig(
+	options: LoadRepoQueryConfigOptions,
+): RepoQueryConfig {
+	return loadExtensionConfig({
+		name: "repo-query",
+		schema: RepoQueryConfigSchema,
+		repoRoot: options.cwd,
+		trusted: options.trusted,
+		configDir: options.configDir,
+	});
 }
 
 /**
