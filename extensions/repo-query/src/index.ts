@@ -154,7 +154,10 @@ export function createRepoQueryExtension(
 					ctx,
 				);
 
-				const config = loadRepoQueryConfig(ctx.cwd);
+				const config = loadRepoQueryConfig({
+					cwd: ctx.cwd,
+					trusted: ctx.isProjectTrusted(),
+				});
 
 				const tempspace = await getTempspacePath(ctx);
 				activeTempspaces.add(tempspace);

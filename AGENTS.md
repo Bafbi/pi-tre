@@ -13,6 +13,19 @@
   - Run formatting before committing.
 - **Vitest** is the testing framework.
 
+## Extension config
+
+An extension that reads configuration uses the shared `@pi-tre/pi-config` loader. Do not hand-roll `readFileSync` and path joining.
+
+- Project config: `<repo-root>/.pi/configs/<extension>.json`
+- Global config: `~/.pi/agent/configs/<extension>.json`
+
+The loader resolves both paths with `CONFIG_DIR_NAME` and `getAgentDir()`, deep-merges global then project (project wins per leaf, arrays replaced), strips unknown keys with a warning, and returns a fully-populated object. Pass a TypeBox schema.
+
+The loader ignores the project layer unless the caller passes `trusted: ctx.isProjectTrusted()`. Project config can carry shell commands, so never read it from an untrusted project.
+
+See `docs/adr/0002-extension-config-layout.md`.
+
 
 ## Repo workflow
 

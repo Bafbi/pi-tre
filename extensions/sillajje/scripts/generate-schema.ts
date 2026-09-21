@@ -2,7 +2,8 @@ import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SillajjeConfigSchema } from "../src/config.js";
+// Node runs this file directly (type stripping), so the extension is `.ts`.
+import { SillajjeConfigSchema } from "../src/config.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

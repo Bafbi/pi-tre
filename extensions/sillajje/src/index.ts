@@ -382,7 +382,10 @@ export default function (pi: ExtensionAPI) {
 		// Load sillajje config (project-level `.pi/configs/sillajje.json`
 		// or global `~/.pi/configs/sillajje.json`). Used for debug logging,
 		// workspace root, and sub-generator model.
-		activeConfig = loadSillajjeConfig(repoRoot);
+		activeConfig = loadSillajjeConfig({
+			repoRoot,
+			trusted: ctx.isProjectTrusted(),
+		});
 		debug = createDebugLogger({ enabled: activeConfig.debug ?? false });
 
 		const sessionId = ctx.sessionManager.getSessionId();

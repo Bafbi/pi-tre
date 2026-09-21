@@ -1,85 +1,106 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { loadRepoQueryConfig, resolveModel } from "../../src/config.js";
 import type { ParsedRepo } from "../../src/types.js";
 
 const tempDirs: string[] = [];
 
-function makeTempDir(): string {
-	const dir = mkdtempSync(join(tmpdir(), "repo-query-config-test-"));
+function makeTempDir(prefix: string): string {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
 	tempDirs.push(dir);
 	return dir;
 }
 
-beforeEach(() => {
-	vi.unstubAllEnvs();
-});
+function writeGlobal(configDir: string, config: unknown): void {
+	writeFileSync(join(configDir, "repo-query.json"), JSON.stringify(config));
+}
 
-afterEach(async () => {
+function writeProject(repoRoot: string, config: unknown): void {
+	const dir = join(repoRoot, ".pi", "configs");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, "repo-query.json"), JSON.stringify(config));
+}
+
+afterEach(() => {
 	for (const dir of tempDirs.splice(0)) {
-		await rm(dir, { recursive: true, force: true });
+		rmSync(dir, { recursive: true, force: true });
 	}
 	vi.unstubAllEnvs();
 });
 
 describe("loadRepoQueryConfig", () => {
-	it("returns empty config when no files exist", () => {
-		const agentDir = makeTempDir();
-		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+	it("returns an empty config when no files exist", () => {
+		const configDir = makeTempDir("repo-query-global-");
+		const cwd = makeTempDir("repo-query-repo-");
 
-		const cwd = makeTempDir();
-		const config = loadRepoQueryConfig(cwd);
-		expect(config).toEqual({ models: {} });
+		const config = loadRepoQueryConfig({ cwd, configDir });
+
+		expect(config).toEqual({});
 	});
 
-	it("loads project-local config", () => {
-		const agentDir = makeTempDir();
-		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+	it("reads the global layer", () => {
+		const configDir = makeTempDir("repo-query-global-");
+		const cwd = makeTempDir("repo-query-repo-");
+		writeGlobal(configDir, { defaultModel: "openai/gpt-4o" });
 
-		const cwd = makeTempDir();
-		mkdirSync(join(cwd, ".pi", "extensions"), { recursive: true });
-		writeFileSync(
-			join(cwd, ".pi", "extensions", "repo-query.json"),
-			JSON.stringify({ defaultModel: "openai/gpt-4o" }),
-			"utf8",
-		);
+		const config = loadRepoQueryConfig({ cwd, configDir });
 
-		const config = loadRepoQueryConfig(cwd);
 		expect(config.defaultModel).toBe("openai/gpt-4o");
 	});
 
-	it("merges global and project config with project taking precedence", () => {
-		const agentDir = makeTempDir();
+	it("resolves the global layer through PI_CODING_AGENT_DIR", () => {
+		const agentDir = makeTempDir("repo-query-agent-");
 		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
-
-		// Global config
-		mkdirSync(join(agentDir, "extensions"), { recursive: true });
+		mkdirSync(join(agentDir, "configs"), { recursive: true });
 		writeFileSync(
-			join(agentDir, "extensions", "repo-query.json"),
-			JSON.stringify({
-				defaultModel: "global-model",
-				models: { "owner/a": "global-a", "owner/c": "global-c" },
-			}),
-			"utf8",
+			join(agentDir, "configs", "repo-query.json"),
+			JSON.stringify({ defaultModel: "from-agent-dir" }),
 		);
+		const cwd = makeTempDir("repo-query-repo-");
 
-		// Project config
-		const cwd = makeTempDir();
-		mkdirSync(join(cwd, ".pi", "extensions"), { recursive: true });
-		writeFileSync(
-			join(cwd, ".pi", "extensions", "repo-query.json"),
-			JSON.stringify({
-				defaultModel: "project-model",
-				models: { "owner/a": "project-a", "owner/b": "project-b" },
-			}),
-			"utf8",
-		);
+		const config = loadRepoQueryConfig({ cwd });
 
-		const config = loadRepoQueryConfig(cwd);
+		expect(config.defaultModel).toBe("from-agent-dir");
+	});
+
+	it("reads the project layer when trusted", () => {
+		const configDir = makeTempDir("repo-query-global-");
+		const cwd = makeTempDir("repo-query-repo-");
+		writeProject(cwd, { defaultModel: "project-model" });
+
+		const config = loadRepoQueryConfig({ cwd, configDir, trusted: true });
+
+		expect(config.defaultModel).toBe("project-model");
+	});
+
+	it("ignores the project layer when not trusted", () => {
+		const configDir = makeTempDir("repo-query-global-");
+		const cwd = makeTempDir("repo-query-repo-");
+		writeGlobal(configDir, { defaultModel: "global-model" });
+		writeProject(cwd, { defaultModel: "project-model" });
+
+		const config = loadRepoQueryConfig({ cwd, configDir });
+
+		expect(config.defaultModel).toBe("global-model");
+	});
+
+	it("merges global and project, the project winning per models key", () => {
+		const configDir = makeTempDir("repo-query-global-");
+		const cwd = makeTempDir("repo-query-repo-");
+		writeGlobal(configDir, {
+			defaultModel: "global-model",
+			models: { "owner/a": "global-a", "owner/c": "global-c" },
+		});
+		writeProject(cwd, {
+			defaultModel: "project-model",
+			models: { "owner/a": "project-a", "owner/b": "project-b" },
+		});
+
+		const config = loadRepoQueryConfig({ cwd, configDir, trusted: true });
+
 		expect(config.defaultModel).toBe("project-model");
 		expect(config.models).toEqual({
 			"owner/a": "project-a",

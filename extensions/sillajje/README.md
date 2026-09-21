@@ -37,3 +37,38 @@ Rebases the session working copy onto `<rev>` with a merge commit that brings th
 ### `fold <rev> [--session <id>]`
 
 Collapses all session changes into one conventional-commit change on `<rev>`, then archives the session. The bookmark stays as sillage.
+
+## Configuration
+
+Sillajje reads one config file per layer:
+
+| Scope | Path |
+|-------|------|
+| Global | `~/.pi/agent/configs/sillajje.json` |
+| Project | `<repo-root>/.pi/configs/sillajje.json` |
+
+The project config wins per key. Sillajje reads it only when pi trusts the project, because `postInit` runs shell commands.
+
+| Key | Type | Default | Purpose |
+|-----|------|---------|---------|
+| `debug` | boolean | `false` | Write debug events to the sillajje log. |
+| `workspacesRoot` | string | `~/.pi/sillajje` | Root directory for session workspaces. |
+| `subGeneratorModel` | string | `openai/gpt-4o-mini` | Model for the header and trace sub-generators. |
+| `postInit` | string[] | `[]` | Shell commands to run after workspace creation. |
+| `vcsGuard` | boolean | `true` | Tell the agent to ask before running jj or git commands. |
+| `message.header` | `"one_line"` or `"user_prompt"` | `"one_line"` | Source of the commit header. |
+| `message.body.trace.detail` | `"high"`, `"step"`, or `"decision"` | `"high"` | Detail level of the trace narrative. |
+
+The `message.body` and `subGenerator` trees carry more toggles. See `sillajje-config.schema.json` for the full shape.
+
+`SILLAJJE_POST_INIT` overrides `postInit` from either file. Split commands with `;`:
+
+```bash
+export SILLAJJE_POST_INIT="mise trust; mise deps"
+```
+
+Regenerate the committed schema after changing the config shape:
+
+```bash
+mise run //extensions/sillajje:generate-schema
+```

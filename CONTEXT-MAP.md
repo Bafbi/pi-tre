@@ -11,9 +11,20 @@
 
 ## Terminology
 
+### Session scratch directories
+
 Two extensions name a per-session scratch directory. The terms are not interchangeable:
 
 - **Workspace** is sillajje's term: a jj workspace, a separate checkout directory tied to a commit.
 - **Tempspace** is repo-query's term: its per-session temporary root that holds clone targets.
 
 Use `Workspace` only for the jj concept and `Tempspace` only for repo-query's.
+
+### Config layers
+
+Every extension reads one config file per layer. The two layers are not interchangeable, and their names are fixed:
+
+- **Global config**: the user-wide file at `~/.pi/agent/configs/<extension>.json`. The `dotagents` repo owns this directory and deploys it to every host.
+- **Project config**: the per-repo file at `<repo-root>/.pi/configs/<extension>.json`.
+
+_Avoid_: "user config" for the global layer (the human is the user), "project-local config" for the project layer, "settings" for either.
