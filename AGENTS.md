@@ -10,7 +10,9 @@
 - **pnpm** is the only package manager for this monorepo.
   - Use workspaces for shared tooling and extension packages.
 - **Biome** handles formatting + linting.
-  - Run formatting before committing.
+  - `mise run check` auto-formats the tree first.
+  - `mise run ci` verifies formatting without writing and fails on unformatted code.
+  - Run formatting on its own with `mise run format`.
 - **Vitest** is the testing framework.
 
 ## Extension config
@@ -29,43 +31,78 @@ See `docs/adr/0002-extension-config-layout.md`.
 
 ## Repo workflow
 
-Every extension exposes four tasks via mise task templates: `lint`, `typecheck`, `test`, and `check` (which runs all three).
+Every extension exposes these tasks via mise task templates:
+
+- `lint` (Biome, includes the format check)
+- `typecheck` (tsc)
+- `typecheck-strict` (tsc with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`)
+- `test` (hermetic tests)
+- `type-aware` (Biome type-aware scan, slow)
+- `test-external` (LLM and external-service tests)
+- `check` (`lint` + `typecheck` + `test`)
+- `ci` (`check` + `type-aware` + `test-external`)
+
+`check` is the fast, hermetic gate. It formats the tree first, then runs the
+per-module checks and the root-only checks. A module that did not change skips.
+`ci` verifies formatting instead of writing, then adds the slow and non-hermetic
+parts.
 
 ### Global (full repo)
-1. `mise run check` — lint + typecheck + test across all extensions
+1. `mise run check` — per-module lint + typecheck + hermetic tests, plus the
+   root-only checks. Unchanged modules skip, so a warm run is a few seconds.
+2. `mise run ci` — check + type-aware scan + semgrep + non-hermetic tests
    (pnpm deps are auto-installed by `[deps.pnpm] auto = true`)
 
 ### Per-extension (single module)
-1. `mise run //extensions/<name>:check` — lint + typecheck + test for one extension
-2. Or individual steps: `mise //extensions/<name>:lint`, `:typecheck`, `:test`
+1. `mise run //extensions/<name>:check` — lint + typecheck + hermetic tests for one extension
+2. `mise run //extensions/<name>:ci` — check + type-aware + non-hermetic tests
+3. Or individual steps: `mise //extensions/<name>:lint`, `:typecheck`, `:test`
+
+Per-module tasks track their `sources` and skip when nothing changed. A change
+to a workspace dependency invalidates the consumers that list it. The
+`@pi-tre/pi-subagent` and `@pi-tre/pi-config` edges live in
+`extensions/repo-query/mise.toml` and `extensions/sillajje/mise.toml`; a new
+consumer must add them. Use `mise run --force <task>` to bypass the skip. `ci`
+adds the slow scans.
 
 
-## LLM-backed tests
+## LLM-backed and service tests
 
-Extensions may ship tests that call a real LLM (for example, repo-query's live
-subagent test). Such tests:
+Some tests are not hermetic. The filename marks the category:
 
-- Read `PI_TEST_MODEL` and skip when it is unset.
-- Run tests that need a real LLM when `PI_TEST_MODEL` is set.
-- Skip with the provider's message when the LLM call fails. A broken provider
-  never fails the suite.
+- `*.service.test.ts` calls a real external service.
+- `*.llm.test.ts` calls a real LLM.
 
-The default Mise environment provides a cheap `PI_TEST_MODEL`. Override it in
-`mise.local.toml` (gitignored) or in your shell when another provider is needed.
-Use `mise run ... --no-llm` to exclude LLM-backed tests and
-`mise run ... --no-service` to exclude tests that call real external services.
-These flags apply to `test` and `check` tasks.
+The default test run is hermetic. `scripts/run-vitest.sh` excludes both
+categories unless asked:
 
-Run tests through mise tasks (`mise run //extensions/<name>:test`). A direct
-`pnpm exec vitest run` does not get mise's `[env]` injection and skips the
-LLM-backed tests when `PI_TEST_MODEL` is unavailable.
+- `mise run //:test` and `mise run //extensions/<name>:test` run hermetic tests.
+- `mise run //:test-external` runs only the non-hermetic tests.
+- `mise run //:test-all` runs everything.
+- `--all` and `--external` are the underlying script flags.
+
+`mise run check` and per-extension `check` are hermetic. `mise run ci` adds
+`//:test-external`, so CI runs everything.
+
+A non-hermetic test must skip, not fail, when its dependency is unavailable. An
+LLM test skips with the provider's message when the call fails. A service test
+retries once, then skips with a visible reason. `PI_TEST_MODEL` selects the LLM.
+Override it in `mise.local.toml` (gitignored) or the shell.
+
+Run tests through mise tasks. A direct `pnpm exec vitest run` bypasses the
+hermetic default and the mise `[env]` injection.
 
 ## Check requirement
 
-**Any modification to an extension must pass its per-extension check before committing.**
-- If the change touches a single extension: `mise //extensions/<name>:check`
-- If the change spans multiple extensions or the root: `mise check`
-- Fix any failures before committing. Do not bypass the check.
+**Any modification to an extension must pass its per-extension check after changes.**
+- If the change touches a single extension: `mise run //extensions/<name>:check`
+- If the change spans multiple extensions or the root: `mise run check`
+- Fix any failures after changes. Do not bypass the check.
+
+The gate is temporarily red. `typecheck-tests`, `typecheck-strict`, `//:lint`,
+`//:knip`, `//:ast-grep`, and `leaf-copy:test` fail on findings the refactor
+owns. Run `mise run check-baseline` to tell a new regression from this list.
+Each task leaves `check` as the refactor clears it.
 
 ## VCS
 - You do not care about VCS.

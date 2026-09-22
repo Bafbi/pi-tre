@@ -4,11 +4,23 @@ extends = "ext:lint"
 [tasks.test]
 extends = "ext:test"
 
+[tasks.test-external]
+extends = "ext:test-external"
+
 [tasks.typecheck]
 extends = "ext:typecheck"
 
+[tasks.typecheck-strict]
+extends = "ext:typecheck-strict"
+
+[tasks.type-aware]
+extends = "ext:type-aware"
+
+[tasks.ci]
+extends = "ext:ci"
+
 [tasks.generate-fixture]
-description = "Record a fresh pi protocol fixture from the installed pi"
+description = "Record a fresh pi protocol fixture from the installed pi. Use when the pi protocol changes."
 run = "node scripts/generate-fixture.ts"
 
 [tasks.check]

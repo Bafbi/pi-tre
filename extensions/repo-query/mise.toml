@@ -4,12 +4,60 @@ extends = "ext:lint"
 [tasks.test]
 extends = "ext:test"
 
+[tasks.test-external]
+extends = "ext:test-external"
+# The non-hermetic suite executes the workspace dependencies.
+sources = [
+	"src/**/*.ts",
+	"test/**/*.ts",
+	"package.json",
+	"vitest.config.ts",
+	"{{ vars.monorepo }}/scripts/run-vitest.sh",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/pnpm-lock.yaml",
+	"{{ vars.monorepo }}/packages/pi-subagent/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/pi-config/src/**/*.ts",
+]
+
 [tasks.typecheck]
 extends = "ext:typecheck"
+# pi-subagent and pi-config are workspace dependencies. Their sources are part
+# of this task's inputs so a change there invalidates this typecheck. A
+# `depends` edge alone does not persist across separate mise invocations.
+sources = [
+	"src/**/*.ts",
+	"tsconfig.json",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/packages/pi-subagent/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/pi-config/src/**/*.ts",
+]
+
+[tasks.typecheck-strict]
+extends = "ext:typecheck-strict"
+sources = [
+	"src/**/*.ts",
+	"tsconfig.json",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/packages/pi-subagent/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/pi-config/src/**/*.ts",
+]
+
+[tasks.type-aware]
+extends = "ext:type-aware"
+sources = [
+	"src/**/*.ts",
+	"test/**/*.ts",
+	"{{ vars.monorepo }}/biome.json",
+	"{{ vars.monorepo }}/packages/pi-subagent/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/pi-config/src/**/*.ts",
+]
+
+[tasks.ci]
+extends = "ext:ci"
 
 [tasks.check]
 extends = "ext:check"
 
 [tasks.generate-schema]
-description = "Regenerate the committed JSON config schema"
+description = "Regenerate the committed JSON config schema. Use after changing the config schema."
 run = "node scripts/generate-schema.ts"

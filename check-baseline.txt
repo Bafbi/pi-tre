@@ -1,0 +1,8 @@
+# Tasks that fail on the pre-refactor tree. The refactor clears them.
+# Update this file when a task starts passing.
+//:ast-grep
+//:knip
+//:lint
+//:typecheck-strict
+//:typecheck-tests
+//extensions/leaf-copy:test

@@ -41,7 +41,7 @@ Branch suffix (`:`) is stripped before URL parsing.
 
 ### Test philosophy
 
-Tests are split by concern. Unit and integration tests mock external boundaries so they run fast and deterministically, with two explicit categories: tests ending in `.service.test.ts` call real external services, and tests ending in `.llm.test.ts` make real LLM calls. Integration tests use `ExtensionRunner` from `@earendil-works/pi-coding-agent`; unit tests mock at the module boundary.
+Tests are split by concern. Unit and integration tests mock external boundaries so they run fast and deterministically, with two explicit categories: tests ending in `.service.test.ts` call real external services, and tests ending in `.llm.test.ts` make real LLM calls. Both categories are non-hermetic and are excluded from the default test run. Integration tests use `ExtensionRunner` from `@earendil-works/pi-coding-agent`; unit tests mock at the module boundary.
 
 ### Mocking (dependency injection)
 
@@ -59,11 +59,11 @@ The extension takes its seams as explicit parameters instead of global state:
 
 ### Live subagent test
 
-`test/integration/live-subagent.llm.test.ts` runs a real subagent against a local git repo and asserts the reported usage. Mise provides `PI_TEST_MODEL` by default. A provider failure (bad model, auth, quota, outage) skips the test with the provider's message instead of failing. Run `mise run //extensions/repo-query:test --no-llm` to skip it.
+`test/integration/live-subagent.llm.test.ts` runs a real subagent against a local git repo and asserts the reported usage. Mise provides `PI_TEST_MODEL` by default. A provider failure (bad model, auth, quota, outage) skips the test with the provider's message instead of failing. The default test run excludes it. Run `mise run //extensions/repo-query:test-external` to include it.
 
 ### Remote clone integration test
 
-`test/integration/clone-remote.service.test.ts` is the only test that hits real GitHub servers. It runs by default through Mise, retries once, then skips with a visible reason when GitHub is unavailable. Assertion and application failures still fail the test. Run `mise run //extensions/repo-query:test --no-service` for a hermetic suite.
+`test/integration/clone-remote.service.test.ts` is the only test that hits real GitHub servers. The default test run excludes it. It retries once, then skips with a visible reason when GitHub is unavailable. Assertion and application failures still fail the test. Run `mise run //extensions/repo-query:test-external` to include it.
 
 The test uses `biomejs/biome` as the target repo and asserts:
 - `.git/shallow` exists (confirms shallow clone)
@@ -75,9 +75,12 @@ The test mocks the explorer through the factory overrides because subagent spawn
 ### Running tests
 
 ```bash
-# All tests, including service and LLM integration tests
+# Hermetic tests (default)
 mise run //extensions/repo-query:test
 
-# Fast hermetic tests
-mise run //extensions/repo-query:test --no-service --no-llm
+# Non-hermetic tests (LLM and GitHub)
+mise run //extensions/repo-query:test-external
+
+# Everything
+mise run //:test-all
 ```

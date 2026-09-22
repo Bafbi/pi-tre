@@ -2,6 +2,14 @@ packages:
   - "extensions/*"
   - "packages/*"
 
+# Supply-chain hardening (flagged by Semgrep).
+# minimumReleaseAge: wait 7 days before installing a newly published version.
+# trustPolicy: never let an update downgrade a package to a less trusted version.
+# blockExoticSubdeps: reject transitive dependencies from non-registry sources.
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
+blockExoticSubdeps: true
+
 catalogs:
   pi-dev:
     "@earendil-works/pi-coding-agent": ^0.84.4
