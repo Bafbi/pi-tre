@@ -20,7 +20,7 @@ extends = "ext:type-aware"
 extends = "ext:ci"
 
 [tasks.generate-fixture]
-description = "Record a fresh pi protocol fixture from the installed pi"
+description = "Record a fresh pi protocol fixture from the installed pi. Use when the pi protocol changes."
 run = "node scripts/generate-fixture.ts"
 
 [tasks.check]

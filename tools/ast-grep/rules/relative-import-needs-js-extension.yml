@@ -6,13 +6,13 @@ note: |
   Matches static import and export statements. Dynamic `import("./x")` is a
   call_expression and is not matched. Add a second rule on the call_expression
   pattern if dynamic imports appear.
+# Scripts run under tsx, which resolves `.ts` specifiers, so they are out of
+# scope. Sources and tests run under NodeNext and are in scope.
 files:
   - "extensions/*/src/**/*.ts"
   - "extensions/*/test/**/*.ts"
-  - "extensions/*/scripts/**/*.ts"
   - "packages/*/src/**/*.ts"
   - "packages/*/test/**/*.ts"
-  - "packages/*/scripts/**/*.ts"
 rule:
   kind: string
   regex: "^[\"']\\.\\.?/"

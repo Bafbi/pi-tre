@@ -33,7 +33,7 @@ auto = true
 "biome" = "pnpm exec biome"
 
 [task_templates."ext:test"]
-description = "Run this extension's hermetic tests"
+description = "Run this extension's hermetic tests. Default test loop; use after changes."
 depends = [":typecheck"]
 run = "bash ../../scripts/run-vitest.sh"
 sources = [
@@ -47,7 +47,7 @@ sources = [
 ]
 
 [task_templates."ext:test-external"]
-description = "Run this extension's non-hermetic tests (LLM and external services)"
+description = "Run this extension's LLM and external-service tests. Use in CI or when the change touches the subagent or network."
 run = "bash ../../scripts/run-vitest.sh --external"
 sources = [
 	"src/**/*.ts",
@@ -60,7 +60,7 @@ sources = [
 ]
 
 [task_templates."ext:lint"]
-description = "Run Biome checks for this extension (includes format check)"
+description = "Run Biome format and lint checks for this extension. Use after changes."
 run = "pnpm exec biome check . --error-on-warnings"
 sources = [
 	"src/**/*.ts",
@@ -72,7 +72,7 @@ sources = [
 ]
 
 [task_templates."ext:typecheck"]
-description = "Type-check this extension"
+description = "Type-check this extension with tsc. Use after changes."
 run = "pnpm exec tsc -p tsconfig.json --noEmit"
 sources = [
 	"src/**/*.ts",
@@ -81,11 +81,11 @@ sources = [
 ]
 
 [task_templates."ext:check"]
-description = "Run this extension's lint + typecheck + hermetic tests"
+description = "Run this extension's lint, typecheck, and hermetic tests. The per-module gate; use after changes."
 depends = [":lint", ":typecheck", ":test"]
 
 [task_templates."ext:typecheck-strict"]
-description = "Type-check this extension with the strictest flags"
+description = "Type-check this extension with noUncheckedIndexedAccess and exactOptionalPropertyTypes. Use when refactoring types."
 run = "pnpm exec tsc -p tsconfig.json --noEmit --noUncheckedIndexedAccess --exactOptionalPropertyTypes"
 sources = [
 	"src/**/*.ts",
@@ -94,7 +94,7 @@ sources = [
 ]
 
 [task_templates."ext:type-aware"]
-description = "Run the Biome type-aware scan for this extension (slow)"
+description = "Run the Biome type-aware scan for this extension. Slow; use in CI."
 run = "pnpm exec biome lint --only=types --error-on-warnings ."
 sources = [
 	"src/**/*.ts",
@@ -103,39 +103,39 @@ sources = [
 ]
 
 [task_templates."ext:ci"]
-description = "Slow gate for this extension: check + type-aware + non-hermetic tests"
+description = "Run this extension's full gate: check, type-aware scan, and non-hermetic tests. Use in CI."
 depends = [":check", ":type-aware", ":test-external"]
 
 [tasks.format]
-description = "Format repository with Biome (writes files)"
+description = "Format the repository with Biome and write the files. Use to fix formatting after changes."
 run = "pnpm run format"
 
 [tasks.format-check]
-description = "Check formatting without writing"
+description = "Check formatting without writing. Use to see whether the tree is formatted."
 run = "pnpm run format:check"
 
 [tasks.lint]
-description = "Run Biome lint checks (includes the format check)"
+description = "Run Biome format and lint checks across the repo. Use after changes."
 run = "pnpm run lint"
 
 [tasks.test]
-description = "Run hermetic tests"
+description = "Run the hermetic test suite. Default test loop; use after changes."
 run = "bash scripts/run-vitest.sh"
 
 [tasks.test-external]
-description = "Run non-hermetic tests (LLM and external services)"
+description = "Run the LLM and external-service tests. Use in CI or when the change touches network or subagent code."
 run = "bash scripts/run-vitest.sh --external"
 
 [tasks.test-all]
-description = "Run all tests, including non-hermetic ones"
+description = "Run every test, hermetic and external. Use to reproduce a CI failure locally."
 run = "bash scripts/run-vitest.sh --all"
 
 [tasks.typecheck]
-description = "Type-check all workspace packages"
+description = "Type-check every workspace package. Use after changes."
 run = "pnpm -r run typecheck"
 
 [tasks.check-core]
-description = "Shared check set: per-module checks (skip when unchanged) + root-only checks"
+description = "Run the shared check set: per-module checks plus the root-only checks. Used by check and ci; run directly to skip formatting."
 depends = [
   { task = "//extensions/...:check", optional = true },
   { task = "//packages/...:check", optional = true },
@@ -143,32 +143,32 @@ depends = [
 run = { tasks = ["//:config-roots", "//:lint", "//:typecheck-tests", "//:typecheck-strict", "//:boundaries", "//:knip", "//:ast-grep"] }
 
 [tasks.check]
-description = "Fast gate: format the tree, then run the check set"
+description = "Run the fast gate: format the tree, then run the check set. Run after changes."
 depends = ["//:format"]
 run = { tasks = ["//:check-core"] }
 
 [tasks.type-aware]
-description = "Run Biome type-aware lint (slow; run in CI, not in check)"
+description = "Run the Biome type-aware lint across the repo. Slow; use in CI, not the fast loop."
 run = "pnpm run type-aware"
 
 [tasks.type-aware-changed]
-description = "Type-aware lint for files changed since MISE_AFFECTED_BASE (needs a git checkout)"
+description = "Run type-aware lint for files changed since MISE_AFFECTED_BASE. Use in a git CI checkout for pull requests."
 run = "pnpm exec biome lint --only=types --error-on-warnings --changed --since=${MISE_AFFECTED_BASE:-origin/main} ."
 
 [tasks.ast-grep]
-description = "Run ast-grep structural rules"
+description = "Run the ast-grep structural rules. Use when adding or changing repo-specific rules."
 run = "pnpm run ast-grep"
 
 [tasks.config-roots]
-description = "Assert every config root defines the expected tasks"
+description = "Assert every config root defines the expected tasks. Use when adding or renaming a workspace."
 run = "pnpm run config-roots"
 
 [tasks.check-baseline]
-description = "Compare gate failures against check-baseline.txt"
+description = "Compare gate failures against check-baseline.txt. Use to tell a new regression from the known red set."
 run = "pnpm run check-baseline"
 
 [tasks.boundaries]
-description = "Check import boundaries and cycles"
+description = "Check import boundaries and cycles. Use when adding or moving modules."
 run = "pnpm run boundaries"
 sources = [
   "scripts/check-boundaries.mjs",
@@ -179,23 +179,23 @@ sources = [
 ]
 
 [tasks.knip]
-description = "Find unused files, exports, and dependencies"
+description = "Find unused files, exports, and dependencies. Use when cleaning up or adding a dependency."
 run = "pnpm run knip"
 
 [tasks.typecheck-tests]
-description = "Type-check tests and scripts (currently reports known errors)"
+description = "Type-check tests and scripts. Currently red; use to see the refactor work list."
 run = "pnpm run typecheck:tests"
 
 [tasks.typecheck-strict]
-description = "Type-check workspaces with noUncheckedIndexedAccess and exactOptionalPropertyTypes (currently reports known errors)"
+description = "Type-check workspaces with noUncheckedIndexedAccess and exactOptionalPropertyTypes. Currently red; use to see the refactor work list."
 run = "pnpm run typecheck:strict"
 
 [tasks.semgrep]
-description = "Run the local Semgrep security scan (slow)"
+description = "Run the local Semgrep security scan. Slow; use in CI or when touching process or path code."
 run = "pnpm run semgrep"
 
 [tasks.ci]
-description = "Full CI gate: verify formatting, run the check set, then the slow scans"
+description = "Run the full CI gate: verify formatting, run the check set, then the slow scans. Use in CI."
 depends = ["//:format-check"]
 run = { tasks = ["//:check-core", "//:type-aware", "//:semgrep", "//:test-external"] }
 

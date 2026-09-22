@@ -60,9 +60,10 @@ parts.
 
 Per-module tasks track their `sources` and skip when nothing changed. A change
 to a workspace dependency invalidates the consumers that list it. The
-`@pi-tre/pi-subagent` edge lives in `extensions/repo-query/mise.toml` and
-`extensions/sillajje/mise.toml`; a new consumer must add it. Use
-`mise run --force <task>` to bypass the skip. `ci` adds the slow scans.
+`@pi-tre/pi-subagent` and `@pi-tre/pi-config` edges live in
+`extensions/repo-query/mise.toml` and `extensions/sillajje/mise.toml`; a new
+consumer must add them. Use `mise run --force <task>` to bypass the skip. `ci`
+adds the slow scans.
 
 
 ## LLM-backed and service tests
@@ -93,10 +94,10 @@ hermetic default and the mise `[env]` injection.
 
 ## Check requirement
 
-**Any modification to an extension must pass its per-extension check before committing.**
+**Any modification to an extension must pass its per-extension check after changes.**
 - If the change touches a single extension: `mise run //extensions/<name>:check`
 - If the change spans multiple extensions or the root: `mise run check`
-- Fix any failures before committing. Do not bypass the check.
+- Fix any failures after changes. Do not bypass the check.
 
 The gate is temporarily red. `typecheck-tests` (149 errors),
 `typecheck-strict` (65 errors), `//:lint`, `//:knip`, `//:ast-grep` (37 missing

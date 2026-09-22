@@ -37,7 +37,12 @@ try {
 		maxBuffer: 64 * 1024 * 1024,
 	});
 } catch (error) {
-	output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+	const stdout = error.stdout ?? "";
+	const stderr = error.stderr ?? "";
+	// A spawn failure (no `mise` on PATH) has no output. Do not read it as a
+	// clean run with zero failures.
+	if (!stdout && !stderr) throw error;
+	output = `${stdout}${stderr}`;
 }
 
 const current = new Set();

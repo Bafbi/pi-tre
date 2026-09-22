@@ -82,5 +82,5 @@ mise run //extensions/repo-query:test
 mise run //extensions/repo-query:test-external
 
 # Everything
-mise run //extensions/repo-query:test-all
+mise run //:test-all
 ```

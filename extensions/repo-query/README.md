@@ -167,7 +167,7 @@ explicitly:
 
 ```bash
 mise run //extensions/repo-query:test-external   # service and LLM only
-mise run //extensions/repo-query:test-all        # hermetic and external
+mise run //:test-all                             # hermetic and external
 ```
 
 A live subagent test (`test/integration/live-subagent.llm.test.ts`) runs a real

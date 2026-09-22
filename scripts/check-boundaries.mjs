@@ -253,9 +253,14 @@ function findCycles(graph) {
 	return [...cycles.values()];
 }
 
+/** Normalize a path to forward slashes. `relative` uses `\` on Windows. */
+function toPosix(path) {
+	return path.split("\\").join("/");
+}
+
 /** Return the workspace root name for a path, or undefined for root files. */
 function workspaceOf(path) {
-	const rel = relative(ROOT, path);
+	const rel = toPosix(relative(ROOT, path));
 	for (const group of WORKSPACE_DIRS) {
 		if (rel.startsWith(`${group}/`)) {
 			return `${group}/${rel.split("/")[1]}`;
@@ -266,12 +271,12 @@ function workspaceOf(path) {
 
 /** Return true when the path is under a `src/` directory. */
 function isSrc(path) {
-	return relative(ROOT, path).split("/").includes("src");
+	return toPosix(relative(ROOT, path)).split("/").includes("src");
 }
 
 /** Return true when the path is under a `test/` directory. */
 function isTest(path) {
-	return relative(ROOT, path).split("/").includes("test");
+	return toPosix(relative(ROOT, path)).split("/").includes("test");
 }
 
 const packageDirs = readPackageDirs();
