@@ -1,0 +1,5 @@
+id: no-shell-c
+valid:
+  - 'exec("jj", ["log"], options);'
+invalid:
+  - 'exec("sh", ["-c", cmd], { cwd });'

@@ -9,6 +9,10 @@
 		"noEmit": true,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,
+		"verbatimModuleSyntax": true,
+		"isolatedModules": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
 		"types": ["node"]
 	}
 }

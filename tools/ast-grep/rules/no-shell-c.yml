@@ -1,0 +1,6 @@
+id: no-shell-c
+language: TypeScript
+severity: warning
+message: Review shell execution. Prefer argument arrays over `sh -c`.
+rule:
+  pattern: '$EXEC("sh", ["-c", $$$REST], $$$OPTS)'

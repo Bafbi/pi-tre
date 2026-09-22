@@ -1,0 +1,24 @@
+id: relative-import-needs-js-extension
+language: TypeScript
+severity: error
+message: Relative imports under NodeNext need a .js or .json extension.
+note: |
+  Matches static import and export statements. Dynamic `import("./x")` is a
+  call_expression and is not matched. Add a second rule on the call_expression
+  pattern if dynamic imports appear.
+files:
+  - "extensions/*/src/**/*.ts"
+  - "extensions/*/test/**/*.ts"
+  - "extensions/*/scripts/**/*.ts"
+  - "packages/*/src/**/*.ts"
+  - "packages/*/test/**/*.ts"
+  - "packages/*/scripts/**/*.ts"
+rule:
+  kind: string
+  regex: "^[\"']\\.\\.?/"
+  not:
+    regex: "\\.(js|json|mjs|cjs)[\"']$"
+  inside:
+    any:
+      - kind: import_statement
+      - kind: export_statement

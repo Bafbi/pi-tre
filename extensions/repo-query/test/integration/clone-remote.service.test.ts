@@ -9,8 +9,8 @@ import {
 	minimalContext,
 } from "../helpers/create-runner.js";
 
-// These tests use the real GitHub service. `mise run ... --no-service`
-// excludes this file for hermetic, fast iteration.
+// These tests use the real GitHub service. The default run excludes this
+// file; run `mise run //extensions/repo-query:test-external` to include it.
 const SERVICE_TIMEOUT_MS = 15_000;
 
 const tempDirs: string[] = [];

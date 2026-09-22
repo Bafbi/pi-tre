@@ -160,14 +160,14 @@ Run the suite from the extension directory or via mise:
 mise run //extensions/repo-query:check
 ```
 
-The default suite runs the service and LLM integration tests. Tests that call
-real services use the `.service.test.ts` suffix. Tests that call a real LLM use
-the `.llm.test.ts` suffix. Skip either category with Mise flags:
+The default suite is hermetic. Tests that call real services use the
+`.service.test.ts` suffix, and tests that call a real LLM use the
+`.llm.test.ts` suffix. Both are excluded from the default run. Run them
+explicitly:
 
 ```bash
-mise run //extensions/repo-query:check --no-service
-mise run //extensions/repo-query:check --no-llm
-mise run //extensions/repo-query:check --no-service --no-llm
+mise run //extensions/repo-query:test-external   # service and LLM only
+mise run //extensions/repo-query:test-all        # hermetic and external
 ```
 
 A live subagent test (`test/integration/live-subagent.llm.test.ts`) runs a real

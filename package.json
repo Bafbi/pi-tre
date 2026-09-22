@@ -4,12 +4,23 @@
 	"version": "0.1.0",
 	"packageManager": "pnpm@10.33.0",
 	"scripts": {
-		"lint": "biome check .",
+		"lint": "biome check . --error-on-warnings",
 		"format": "biome format --write --verbose .",
 		"format:check": "biome format .",
 		"typecheck": "pnpm -r run typecheck",
-		"test": "vitest run",
-		"test:watch": "vitest"
+		"typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
+		"typecheck:strict": "pnpm -r --no-bail exec tsc -p tsconfig.json --noEmit --noUncheckedIndexedAccess --exactOptionalPropertyTypes",
+		"test": "bash scripts/run-vitest.sh",
+		"test:external": "bash scripts/run-vitest.sh --external",
+		"test:all": "bash scripts/run-vitest.sh --all",
+		"test:watch": "vitest",
+		"type-aware": "biome lint --only=types --error-on-warnings .",
+		"knip": "knip",
+		"boundaries": "node scripts/check-boundaries.mjs",
+		"config-roots": "node scripts/check-config-roots.mjs",
+		"check-baseline": "node scripts/check-baseline.mjs",
+		"ast-grep": "ast-grep test --skip-snapshot-tests && ast-grep scan",
+		"semgrep": "semgrep scan --config p/typescript --config p/owasp-top-ten"
 	},
 	"pi": {
 		"extensions": [
@@ -22,11 +33,8 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.5",
 		"@types/node": "^25",
+		"knip": "^6.37.0",
 		"typescript": "^7.0.2",
 		"vitest": "^3.2.4"
-	},
-	"dependencies": {
-		"@octokit/rest": "^21.0.0",
-		"fuse.js": "^7.3.0"
 	}
 }

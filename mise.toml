@@ -4,9 +4,20 @@ monorepo_root = true
 config_roots = ["extensions/*", "packages/*"]
 lockfile = true
 
+[settings]
+# Write mise.lock so tool versions are reproducible.
+lockfile = true
+# [deps.pnpm] auto = true is experimental. A clean checkout needs this on.
+experimental = true
+
+# Non-Node tools are installed by `mise install`.
+# Node tooling (Biome, TypeScript, Vitest, Knip) is a pnpm workspace dependency.
+# [deps.pnpm] auto = true installs it automatically before any task runs.
 [tools]
-node = "25"
-pnpm = "latest"
+node = "25.9.0"
+pnpm = "10.33.0"
+ast-grep = "0.45.3"
+semgrep = "1.177.0"
 
 [env]
 NODE_ENV = "development"
@@ -22,41 +33,174 @@ auto = true
 "biome" = "pnpm exec biome"
 
 [task_templates."ext:test"]
-description = "Run tests for this extension"
-depends = [":typecheck", "//:lint"]
+description = "Run this extension's hermetic tests"
+depends = [":typecheck"]
 run = "bash ../../scripts/run-vitest.sh"
+sources = [
+	"src/**/*.ts",
+	"test/**/*.ts",
+	"package.json",
+	"vitest.config.ts",
+	"{{ vars.monorepo }}/scripts/run-vitest.sh",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/pnpm-lock.yaml",
+]
+
+[task_templates."ext:test-external"]
+description = "Run this extension's non-hermetic tests (LLM and external services)"
+run = "bash ../../scripts/run-vitest.sh --external"
+sources = [
+	"src/**/*.ts",
+	"test/**/*.ts",
+	"package.json",
+	"vitest.config.ts",
+	"{{ vars.monorepo }}/scripts/run-vitest.sh",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/pnpm-lock.yaml",
+]
 
 [task_templates."ext:lint"]
-description = "Run Biome checks for this extension"
-depends = ["//:format"]
-run = "pnpm exec biome check ."
+description = "Run Biome checks for this extension (includes format check)"
+run = "pnpm exec biome check . --error-on-warnings"
+sources = [
+	"src/**/*.ts",
+	"test/**/*.ts",
+	"package.json",
+	"tsconfig.json",
+	"vitest.config.ts",
+	"{{ vars.monorepo }}/biome.json",
+]
 
 [task_templates."ext:typecheck"]
 description = "Type-check this extension"
-depends = ["//:format"]
 run = "pnpm exec tsc -p tsconfig.json --noEmit"
+sources = [
+	"src/**/*.ts",
+	"tsconfig.json",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+]
 
 [task_templates."ext:check"]
-description = "Run lint + typecheck + tests for this extension"
+description = "Run this extension's lint + typecheck + hermetic tests"
 depends = [":lint", ":typecheck", ":test"]
 
+[task_templates."ext:typecheck-strict"]
+description = "Type-check this extension with the strictest flags"
+run = "pnpm exec tsc -p tsconfig.json --noEmit --noUncheckedIndexedAccess --exactOptionalPropertyTypes"
+sources = [
+	"src/**/*.ts",
+	"tsconfig.json",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+]
+
+[task_templates."ext:type-aware"]
+description = "Run the Biome type-aware scan for this extension (slow)"
+run = "pnpm exec biome lint --only=types --error-on-warnings ."
+sources = [
+	"src/**/*.ts",
+	"test/**/*.ts",
+	"{{ vars.monorepo }}/biome.json",
+]
+
+[task_templates."ext:ci"]
+description = "Slow gate for this extension: check + type-aware + non-hermetic tests"
+depends = [":check", ":type-aware", ":test-external"]
+
 [tasks.format]
-description = "Format repository with Biome"
+description = "Format repository with Biome (writes files)"
 run = "pnpm run format"
 
+[tasks.format-check]
+description = "Check formatting without writing"
+run = "pnpm run format:check"
+
 [tasks.lint]
-description = "Run Biome lint checks"
-depends = ["//:format"]
+description = "Run Biome lint checks (includes the format check)"
 run = "pnpm run lint"
 
 [tasks.test]
-description = "Run all extension tests"
+description = "Run hermetic tests"
 run = "bash scripts/run-vitest.sh"
+
+[tasks.test-external]
+description = "Run non-hermetic tests (LLM and external services)"
+run = "bash scripts/run-vitest.sh --external"
+
+[tasks.test-all]
+description = "Run all tests, including non-hermetic ones"
+run = "bash scripts/run-vitest.sh --all"
 
 [tasks.typecheck]
 description = "Type-check all workspace packages"
 run = "pnpm -r run typecheck"
 
+[tasks.check-core]
+description = "Shared check set: per-module checks (skip when unchanged) + root-only checks"
+depends = [
+  { task = "//extensions/...:check", optional = true },
+  { task = "//packages/...:check", optional = true },
+]
+run = { tasks = ["//:config-roots", "//:lint", "//:typecheck-tests", "//:typecheck-strict", "//:boundaries", "//:knip", "//:ast-grep"] }
+
 [tasks.check]
-description = "Run lint + typecheck + tests"
-run = { tasks = ["//:lint", "//:typecheck", "//:test"] }
+description = "Fast gate: format the tree, then run the check set"
+depends = ["//:format"]
+run = { tasks = ["//:check-core"] }
+
+[tasks.type-aware]
+description = "Run Biome type-aware lint (slow; run in CI, not in check)"
+run = "pnpm run type-aware"
+
+[tasks.type-aware-changed]
+description = "Type-aware lint for files changed since MISE_AFFECTED_BASE (needs a git checkout)"
+run = "pnpm exec biome lint --only=types --error-on-warnings --changed --since=${MISE_AFFECTED_BASE:-origin/main} ."
+
+[tasks.ast-grep]
+description = "Run ast-grep structural rules"
+run = "pnpm run ast-grep"
+
+[tasks.config-roots]
+description = "Assert every config root defines the expected tasks"
+run = "pnpm run config-roots"
+
+[tasks.check-baseline]
+description = "Compare gate failures against check-baseline.txt"
+run = "pnpm run check-baseline"
+
+[tasks.boundaries]
+description = "Check import boundaries and cycles"
+run = "pnpm run boundaries"
+sources = [
+  "scripts/check-boundaries.mjs",
+  "extensions/*/src/**/*.ts",
+  "extensions/*/test/**/*.ts",
+  "packages/*/src/**/*.ts",
+  "packages/*/test/**/*.ts",
+]
+
+[tasks.knip]
+description = "Find unused files, exports, and dependencies"
+run = "pnpm run knip"
+
+[tasks.typecheck-tests]
+description = "Type-check tests and scripts (currently reports known errors)"
+run = "pnpm run typecheck:tests"
+
+[tasks.typecheck-strict]
+description = "Type-check workspaces with noUncheckedIndexedAccess and exactOptionalPropertyTypes (currently reports known errors)"
+run = "pnpm run typecheck:strict"
+
+[tasks.semgrep]
+description = "Run the local Semgrep security scan (slow)"
+run = "pnpm run semgrep"
+
+[tasks.ci]
+description = "Full CI gate: verify formatting, run the check set, then the slow scans"
+depends = ["//:format-check"]
+run = { tasks = ["//:check-core", "//:type-aware", "//:semgrep", "//:test-external"] }
+
+# Resolves to the monorepo root. It inherits into every workspace task, so a
+# workspace task can reference root files with "{{ vars.monorepo }}/..."
+# instead of a backward relative path.
+[vars]
+monorepo = "{{ config_root }}"
