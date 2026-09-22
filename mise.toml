@@ -69,6 +69,7 @@ sources = [
 	"tsconfig.json",
 	"vitest.config.ts",
 	"{{ vars.monorepo }}/biome.json",
+	"{{ vars.monorepo }}/pnpm-lock.yaml",
 ]
 
 [task_templates."ext:typecheck"]
@@ -78,6 +79,7 @@ sources = [
 	"src/**/*.ts",
 	"tsconfig.json",
 	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/pnpm-lock.yaml",
 ]
 
 [task_templates."ext:check"]
@@ -91,6 +93,7 @@ sources = [
 	"src/**/*.ts",
 	"tsconfig.json",
 	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/pnpm-lock.yaml",
 ]
 
 [task_templates."ext:type-aware"]
@@ -100,6 +103,7 @@ sources = [
 	"src/**/*.ts",
 	"test/**/*.ts",
 	"{{ vars.monorepo }}/biome.json",
+	"{{ vars.monorepo }}/pnpm-lock.yaml",
 ]
 
 [task_templates."ext:ci"]
@@ -174,8 +178,10 @@ sources = [
   "scripts/check-boundaries.mjs",
   "extensions/*/src/**/*.ts",
   "extensions/*/test/**/*.ts",
+  "extensions/*/scripts/**/*.ts",
   "packages/*/src/**/*.ts",
   "packages/*/test/**/*.ts",
+  "packages/*/scripts/**/*.ts",
 ]
 
 [tasks.knip]

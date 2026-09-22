@@ -286,7 +286,7 @@ for (const group of WORKSPACE_DIRS) {
 	for (const entry of readDir(groupDir)) {
 		const dir = join(groupDir, entry);
 		if (!statSync(dir).isDirectory()) continue;
-		for (const sub of ["src", "test"]) {
+		for (const sub of ["src", "test", "scripts"]) {
 			files.push(...walk(join(dir, sub)));
 		}
 	}

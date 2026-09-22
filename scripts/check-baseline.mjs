@@ -46,7 +46,9 @@ try {
 }
 
 const current = new Set();
-for (const match of output.matchAll(/^\[(\/\/[^\]]+)\] exited with status/gm)) {
+for (const match of output.matchAll(
+	/^\[(\/\/[^\]]+)\] (?:exited with status|ERROR task failed)/gm,
+)) {
 	current.add(match[1]);
 }
 

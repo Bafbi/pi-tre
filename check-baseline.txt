@@ -6,5 +6,3 @@
 //:typecheck-strict
 //:typecheck-tests
 //extensions/leaf-copy:test
-//extensions/sillajje:lint
-//packages/pi-subagent:lint
