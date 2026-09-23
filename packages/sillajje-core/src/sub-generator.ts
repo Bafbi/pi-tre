@@ -371,7 +371,7 @@ Respond with exactly one line, max 72 characters.`;
 /**
  * Generate a classic conventional commit subject line from the diff alone.
  *
- * Used by the manual stamp command (/sillajje stamp). Spawns a headless
+ * Used by the manual stamp command. Spawns a headless
  * pi process to classify the diff and produce a single-line conventional
  * commit subject (e.g. "feat: add user login form").
  *

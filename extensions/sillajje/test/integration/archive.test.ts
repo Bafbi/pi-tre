@@ -7,6 +7,7 @@ import {
 	describeJj,
 	installDefaultSubGeneratorMock,
 	makeRunnerCwd,
+	runSillajje,
 	sessionBookmark,
 	tempDirs,
 } from "./_helpers.js";
@@ -102,9 +103,7 @@ describeJj("sillajje archive / unarchive", () => {
 		expect(existsSync(path)).toBe(true);
 
 		// Archive via command.
-		const cmd = runner.getCommand("sillajje");
-		expect(cmd).toBeDefined();
-		await cmd!.handler("archive", runner.createCommandContext());
+		await runSillajje(runner, "archive");
 
 		// Workspace directory should be gone.
 		expect(existsSync(path)).toBe(false);
@@ -119,9 +118,7 @@ describeJj("sillajje archive / unarchive", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 
 		// Archive.
-		await runner
-			.getCommand("sillajje")!
-			.handler("archive", runner.createCommandContext());
+		await runSillajje(runner, "archive");
 
 		// Input should be blocked.
 		const inputResult = await runner.emitInput(
@@ -141,9 +138,7 @@ describeJj("sillajje archive / unarchive", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 
 		// Archive.
-		await runner
-			.getCommand("sillajje")!
-			.handler("archive", runner.createCommandContext());
+		await runSillajje(runner, "archive");
 
 		// before_agent_start should return undefined (no-op).
 		const result = await runner.emitBeforeAgentStart(
@@ -164,9 +159,7 @@ describeJj("sillajje archive / unarchive", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 
 		// Archive.
-		await runner
-			.getCommand("sillajje")!
-			.handler("archive", runner.createCommandContext());
+		await runSillajje(runner, "archive");
 
 		// After archive, before_agent_start no-ops for archived state.
 		const result = await runner.emitBeforeAgentStart(
@@ -193,8 +186,7 @@ describeJj("sillajje archive / unarchive", () => {
 		await simulateInteraction(runner, "First change", "Done.");
 
 		// Archive.
-		const cmd = runner.getCommand("sillajje")!;
-		await cmd.handler("archive", runner.createCommandContext());
+		await runSillajje(runner, "archive");
 		expect(existsSync(path)).toBe(false);
 
 		// The bookmark sillajje/<sessionId> should still exist after archive.
@@ -205,10 +197,7 @@ describeJj("sillajje archive / unarchive", () => {
 		expect(bmList).toContain(sessionBookmark(sessionId));
 
 		// Unarchive.
-		await cmd.handler(
-			`unarchive ${sessionId}`,
-			runner.createCommandContext(),
-		);
+		await runSillajje(runner, `unarchive ${sessionId}`);
 
 		// Workspace should be recreated.
 		expect(existsSync(path)).toBe(true);
@@ -230,13 +219,9 @@ describeJj("sillajje archive / unarchive", () => {
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const cmd = runner.getCommand("sillajje")!;
 		// Unarchive with a non-existent session ID — should not throw.
 		await expect(
-			cmd.handler(
-				"unarchive nonexistent-id",
-				runner.createCommandContext(),
-			),
+			runSillajje(runner, "unarchive nonexistent-id"),
 		).resolves.toBeUndefined();
 	});
 
@@ -258,8 +243,7 @@ describeJj("sillajje archive / unarchive", () => {
 		await simulateInteraction(runner, "First change", "Done.");
 
 		// Archive.
-		const cmd = runner.getCommand("sillajje")!;
-		await cmd.handler("archive", runner.createCommandContext());
+		await runSillajje(runner, "archive");
 		expect(existsSync(path)).toBe(false);
 
 		// Archived — input blocked.
@@ -271,10 +255,7 @@ describeJj("sillajje archive / unarchive", () => {
 		expect(inputResult).toEqual({ action: "handled" });
 
 		// Unarchive.
-		await cmd.handler(
-			`unarchive ${sessionId}`,
-			runner.createCommandContext(),
-		);
+		await runSillajje(runner, `unarchive ${sessionId}`);
 		expect(existsSync(path)).toBe(true);
 
 		// Active again — input passes through.

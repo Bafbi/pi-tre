@@ -143,14 +143,19 @@ export function initRepo(): string {
 	return cwd;
 }
 
-/** Invoke the /sillajje command with the given args string. */
+/**
+ * Invoke a `/sillajje:<subcommand>` command from a full invocation string
+ * such as `"stamp -s @"`. The subcommand selects the registered command; the
+ * rest is passed as its arguments.
+ */
 export async function runSillajje(
 	runner: ExtensionRunner,
-	args: string,
+	invocation: string,
 ): Promise<void> {
-	const cmd = runner.getCommand("sillajje");
+	const [subcommand, ...rest] = invocation.trim().split(/\s+/);
+	const cmd = runner.getCommand(`sillajje:${subcommand}`);
 	expect(cmd).toBeDefined();
-	await cmd?.handler(args, runner.createCommandContext());
+	await cmd?.handler(rest.join(" "), runner.createCommandContext());
 }
 
 /** Assistant message fixture, optionally with tool calls, thinking, or an error stop. */

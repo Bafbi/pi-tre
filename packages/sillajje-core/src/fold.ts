@@ -55,7 +55,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-/** The `/sillajje fold` input. */
+/** The fold input. */
 export interface FoldInput {
 	/** Session source: a session key, a session id, or `@`. */
 	session?: string | undefined;
@@ -555,10 +555,10 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 	};
 }
 
-/** `/sillajje fold` — publish a source range under a target. */
+/** The fold subcommand — publish a source range under a target. */
 export const FOLD_ARGS: CommandSpec = {
 	name: "fold",
-	usage: "usage: /sillajje fold (-s <id|@> | -r <rev>) -o <rev>",
+	usage: "fold (-s <id|@> | -r <rev>) -o <rev>",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "rev", aliases: ["-r", "--rev"], takesValue: true },
@@ -570,7 +570,7 @@ export const FOLD_ARGS: CommandSpec = {
 	exclusive: [["session", "rev"]],
 };
 
-/** `/sillajje fold` help. */
+/** The fold subcommand's help. */
 export const FOLD_HELP: CommandHelp = {
 	usage: FOLD_ARGS.usage,
 	lines: [

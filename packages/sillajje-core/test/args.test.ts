@@ -16,7 +16,7 @@ import {
 /** A sync-shaped spec: `-s` optional, `-o` required. */
 const SYNC_ARGS: CommandSpec = {
 	name: "sync",
-	usage: "usage: /sillajje sync [-s|--session <id>] -o|--onto <rev>",
+	usage: "sync [-s|--session <id>] -o|--onto <rev>",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "onto", aliases: ["-o", "--onto"], takesValue: true },
@@ -27,7 +27,7 @@ const SYNC_ARGS: CommandSpec = {
 /** A fold-shaped spec: exclusive targets, required `-o`, boolean flags. */
 const FOLD_ARGS: CommandSpec = {
 	name: "fold",
-	usage: "usage: /sillajje fold (-s <id|@> | -r <rev>) -o <rev>",
+	usage: "fold (-s <id|@> | -r <rev>) -o <rev>",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "rev", aliases: ["-r", "--rev"], takesValue: true },
@@ -40,6 +40,12 @@ const FOLD_ARGS: CommandSpec = {
 };
 
 describe("parseCommandArgs", () => {
+	it("keeps the command spelling out of the usage line", () => {
+		expect(STAMP_ARGS.usage).toBe(
+			"stamp [-r|--rev <rev>] [-s|--session <id>]",
+		);
+	});
+
 	it("parses a value flag with its long and short aliases", () => {
 		expect(parseCommandArgs("--rev abc123", STAMP_ARGS)).toEqual({
 			kind: "go",
@@ -72,30 +78,54 @@ describe("parseCommandArgs", () => {
 		});
 	});
 
+	it("renders the usage line with the caller's prefix", () => {
+		expect(
+			parseCommandArgs("--wat abc", STAMP_ARGS, { prefix: "/sillajje:" }),
+		).toEqual({
+			kind: "error",
+			message:
+				'usage: /sillajje:stamp [-r|--rev <rev>] [-s|--session <id>] (unknown flag "--wat")',
+		});
+	});
+
+	it("renders a prefixless usage when no prefix is given", () => {
+		expect(parseCommandArgs("--wat abc", STAMP_ARGS)).toEqual({
+			kind: "error",
+			message:
+				'usage: stamp [-r|--rev <rev>] [-s|--session <id>] (unknown flag "--wat")',
+		});
+	});
+
 	it("rejects an unknown flag, naming it and the usage", () => {
-		const result = parseCommandArgs("--wat abc", STAMP_ARGS);
+		const result = parseCommandArgs("--wat abc", STAMP_ARGS, {
+			prefix: "/sillajje:",
+		});
 		expect(result).toEqual({
 			kind: "error",
 			message:
-				'usage: /sillajje stamp [-r|--rev <rev>] [-s|--session <id>] (unknown flag "--wat")',
+				'usage: /sillajje:stamp [-r|--rev <rev>] [-s|--session <id>] (unknown flag "--wat")',
 		});
 	});
 
 	it("rejects a flag missing its value", () => {
-		const result = parseCommandArgs("--rev", STAMP_ARGS);
+		const result = parseCommandArgs("--rev", STAMP_ARGS, {
+			prefix: "/sillajje:",
+		});
 		expect(result).toEqual({
 			kind: "error",
 			message:
-				"usage: /sillajje stamp [-r|--rev <rev>] [-s|--session <id>] (--rev requires a value)",
+				"usage: /sillajje:stamp [-r|--rev <rev>] [-s|--session <id>] (--rev requires a value)",
 		});
 	});
 
 	it("rejects a stray positional", () => {
-		const result = parseCommandArgs("abc123", STAMP_ARGS);
+		const result = parseCommandArgs("abc123", STAMP_ARGS, {
+			prefix: "/sillajje:",
+		});
 		expect(result).toEqual({
 			kind: "error",
 			message:
-				'usage: /sillajje stamp [-r|--rev <rev>] [-s|--session <id>] (unexpected argument "abc123")',
+				'usage: /sillajje:stamp [-r|--rev <rev>] [-s|--session <id>] (unexpected argument "abc123")',
 		});
 	});
 
@@ -118,18 +148,6 @@ describe("parseCommandArgs", () => {
 		expect(parseCommandArgs("   ", STAMP_ARGS)).toEqual({ kind: "help" });
 	});
 
-	it("skips the leading subcommand token when asked", () => {
-		expect(
-			parseCommandArgs("stamp -r abc123", STAMP_ARGS, { skip: 1 }),
-		).toEqual({ kind: "go", values: { rev: "abc123" } });
-	});
-
-	it("treats a bare subcommand as help when skipping", () => {
-		expect(parseCommandArgs("stamp", STAMP_ARGS, { skip: 1 })).toEqual({
-			kind: "help",
-		});
-	});
-
 	it("lets help win over an invalid rest", () => {
 		expect(parseCommandArgs("--rev -h", STAMP_ARGS)).toEqual({
 			kind: "help",
@@ -140,11 +158,13 @@ describe("parseCommandArgs", () => {
 	});
 
 	it("rejects a missing required flag", () => {
-		const result = parseCommandArgs("-s @", SYNC_ARGS);
+		const result = parseCommandArgs("-s @", SYNC_ARGS, {
+			prefix: "/sillajje:",
+		});
 		expect(result).toEqual({
 			kind: "error",
 			message:
-				"usage: /sillajje sync [-s|--session <id>] -o|--onto <rev> (missing --onto)",
+				"usage: /sillajje:sync [-s|--session <id>] -o|--onto <rev> (missing --onto)",
 		});
 	});
 
@@ -167,9 +187,9 @@ describe("parseCommandArgs", () => {
 
 describe("renderHelp", () => {
 	it("renders the usage line, a blank line, then the help lines", () => {
-		expect(renderHelp(STAMP_HELP)).toBe(
+		expect(renderHelp(STAMP_HELP, "/sillajje:")).toBe(
 			[
-				"usage: /sillajje stamp [-r|--rev <rev>] [-s|--session <id>]",
+				"usage: /sillajje:stamp [-r|--rev <rev>] [-s|--session <id>]",
 				"",
 				"Seals a change with a generated commit message. Exactly one target is required:",
 				"  -r, --rev <rev>     describe the revision; no bookmark, no new change",

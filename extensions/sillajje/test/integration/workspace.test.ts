@@ -175,10 +175,10 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const cmd = runner.getCommand("sillajje");
+		const cmd = runner.getCommand("sillajje:status");
 		expect(cmd).toBeDefined();
 		await expect(
-			cmd?.handler("status", runner.createCommandContext()),
+			cmd?.handler("", runner.createCommandContext()),
 		).resolves.toBeUndefined();
 	});
 

@@ -12,9 +12,20 @@ describe("sillajje scaffold", () => {
 		expect(runner.hasHandlers("tool_call")).toBe(true);
 		expect(runner.hasHandlers("input")).toBe(true);
 
-		const cmd = runner.getCommand("sillajje");
+		const cmd = runner.getCommand("sillajje:stamp");
 		expect(cmd).toBeDefined();
-		expect(cmd?.invocationName).toBe("sillajje");
+		expect(cmd?.invocationName).toBe("sillajje:stamp");
+		for (const subcommand of [
+			"status",
+			"stamp",
+			"archive",
+			"unarchive",
+			"sync",
+			"fold",
+		]) {
+			expect(runner.getCommand(`sillajje:${subcommand}`)).toBeDefined();
+		}
+		expect(runner.getCommand("sillajje")).toBeUndefined();
 	});
 
 	it("session_start in non-jj directory clears the status pill", async () => {

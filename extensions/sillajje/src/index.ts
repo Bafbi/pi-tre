@@ -6,6 +6,7 @@ import type { Message } from "@earendil-works/pi-ai";
 import {
 	createLocalBashOperations,
 	type ExtensionAPI,
+	type ExtensionCommandContext,
 	type UserBashEventResult,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -298,11 +299,17 @@ export default function (pi: ExtensionAPI) {
 		createStamp(buildPorts(ctx, repoRoot));
 
 	/**
-	 * Parse a subcommand's args against its spec. The parser skips the leading
-	 * subcommand token itself, so the command text is tokenized once. On a usage
-	 * error or a help request, report through the UI and return `undefined` so
-	 * the caller breaks. One home for the parser→notification policy stamp,
-	 * sync, and fold share.
+	 * The command spelling the adapter owns. The core renders the usage line
+	 * relative to this, so no pi command name lives in the core. Each command
+	 * receives only its own arguments, so the parser does not skip a token.
+	 */
+	const commandPrefix = "/sillajje:";
+
+	/**
+	 * Parse a subcommand's args against its spec. On a usage error or a help
+	 * request, report through the UI and return `undefined` so the caller
+	 * breaks. One home for the parser→notification policy stamp, sync, and
+	 * fold share.
 	 */
 	const parseOrReport = (
 		ctx: CommandContext,
@@ -311,7 +318,7 @@ export default function (pi: ExtensionAPI) {
 		help: CommandHelp,
 		eventPrefix: string,
 	): Record<string, ArgValue> | undefined => {
-		const parsed = parseCommandArgs(args, spec, { skip: 1 });
+		const parsed = parseCommandArgs(args, spec, { prefix: commandPrefix });
 		if (parsed.kind === "error") {
 			debug.event(`${eventPrefix}_usage_error`, {
 				error: parsed.message,
@@ -324,7 +331,10 @@ export default function (pi: ExtensionAPI) {
 		if (parsed.kind === "help") {
 			debug.event(`${eventPrefix}_help`);
 			if (ctx.hasUI) {
-				ctx.ui.notify(`[sillajje] ${renderHelp(help)}`, "info");
+				ctx.ui.notify(
+					`[sillajje] ${renderHelp(help, commandPrefix)}`,
+					"info",
+				);
 			}
 			return undefined;
 		}
@@ -436,7 +446,7 @@ export default function (pi: ExtensionAPI) {
 		debug.error("session_missing_workspace", new Error(reason));
 		if (ctx.hasUI) {
 			ctx.ui.notify(
-				`[sillajje] ${reason} — session marked unusable. Use /sillajje unarchive or start a new session.`,
+				`[sillajje] ${reason} — session marked unusable. Use /sillajje:unarchive or start a new session.`,
 				"error",
 			);
 		}
@@ -445,7 +455,7 @@ export default function (pi: ExtensionAPI) {
 	/** Block reason shown to the agent when the session's workspace is missing. */
 	const missingWorkspaceBlockReason =
 		"The sillajje workspace for this session is missing or unusable. " +
-		"Tell the user to run /sillajje unarchive or start a new session.";
+		"Tell the user to run /sillajje:unarchive or start a new session.";
 
 	// -----------------------------------------------------------------------
 	// session_start — detect jj, determine state
@@ -740,7 +750,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// -----------------------------------------------------------------------
-	// stampManual — /sillajje stamp command
+	// stampManual — /sillajje:stamp command
 	// -----------------------------------------------------------------------
 
 	const stampManual = async (ctx: {
@@ -927,6 +937,33 @@ export default function (pi: ExtensionAPI) {
 			source: event.source,
 		});
 
+		// The old space form (`/sillajje stamp`) is retired. Catch it first so a
+		// stale command neither reaches the model nor triggers a pending stamp.
+		// The match is narrow: a colon command is left alone, and an unknown
+		// colon subcommand falls through to pi's ordinary behavior.
+		if (/^\/sillajje(?:\s|$)/.test(event.text)) {
+			const subcommand = event.text.trim().split(/\s+/)[1];
+			const known = [
+				"status",
+				"stamp",
+				"archive",
+				"unarchive",
+				"sync",
+				"fold",
+			].includes(subcommand ?? "");
+			const suggestion = known
+				? `/sillajje:${subcommand}`
+				: "/sillajje:<status|stamp|archive|unarchive|sync|fold>";
+			debug.event("input_old_form_guard", { text: event.text });
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] "/sillajje ..." is retired — use "${suggestion}"`,
+					"warning",
+				);
+			}
+			return { action: "handled" as const };
+		}
+
 		// A previous interaction that ended in an error (and was not retried)
 		// is finalized now, before the new interaction overwrites its prompt
 		// and response. Stamping seals it as its own change and starts fresh.
@@ -946,13 +983,13 @@ export default function (pi: ExtensionAPI) {
 		if (state.isInactive()) return undefined;
 		if (state.isMissingWorkspace()) {
 			// Already notified when the missing workspace was detected — prompts pass
-			// through so the user can still run /sillajje commands.
+			// through so the user can still run /sillajje: commands.
 			return undefined;
 		}
 		if (state.isArchived()) {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
-					"[sillajje] This session is archived. Use /sillajje unarchive to resume.",
+					"[sillajje] This session is archived. Use /sillajje:unarchive to resume.",
 					"warning",
 				);
 			}
@@ -1026,547 +1063,553 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// -----------------------------------------------------------------------
-	// /sillajje command — status subcommand
+	// Command handlers — one named function per subcommand
 	// -----------------------------------------------------------------------
 
-	pi.registerCommand("sillajje", {
-		description: "Manage sillajje session versioning",
-		handler: async (args, ctx) => {
-			const [subcommand] = args.trim().split(/\s+/).filter(Boolean);
+	const handleStatus = async (
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const lifecycle = state.getLifecycle();
+		const lines: string[] = [`Sillajje session status: ${lifecycle}`];
 
-			switch (subcommand) {
-				case "status": {
-					const lifecycle = state.getLifecycle();
-					const lines: string[] = [
-						`Sillajje session status: ${lifecycle}`,
-					];
+		if (state.getRepoRoot()) {
+			lines.push(`Repo root: ${state.getRepoRoot()}`);
+		}
+		if (state.getSessionId()) {
+			lines.push(`Session ID: ${state.getSessionId()}`);
+		}
+		if (state.getWorkspacePath()) {
+			lines.push(`Workspace: ${state.getWorkspacePath()}`);
+		}
 
-					if (state.getRepoRoot()) {
-						lines.push(`Repo root: ${state.getRepoRoot()}`);
-					}
-					if (state.getSessionId()) {
-						lines.push(`Session ID: ${state.getSessionId()}`);
-					}
-					if (state.getWorkspacePath()) {
-						lines.push(`Workspace: ${state.getWorkspacePath()}`);
-					}
+		const statusText = lines.join("\n");
 
-					const statusText = lines.join("\n");
+		if (ctx.hasUI) {
+			ctx.ui.notify(statusText, "info");
+		}
+		return;
+	};
 
-					if (ctx.hasUI) {
-						ctx.ui.notify(statusText, "info");
-					}
-					break;
+	const handleArchive = async (
+		args: string,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const parts = args.trim().split(/\s+/);
+		const targetSessionId = parts[0] || state.getSessionKey();
+
+		if (!targetSessionId) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] no session ID available to archive",
+					"error",
+				);
+			}
+			return;
+		}
+
+		const repoRoot = state.getRepoRoot();
+		if (!repoRoot) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot archive: no jj repo detected",
+					"error",
+				);
+			}
+			return;
+		}
+
+		const workspaces = workspacesFor(repoRoot);
+		const targetKey = workspaces.sessionKey(targetSessionId);
+		const outcome = await workspaces.archive(targetKey);
+		if (outcome.status === "failed") {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] archive failed: ${outcome.reason}`,
+					"error",
+				);
+			}
+			return;
+		}
+
+		debug.event("session_archived", {
+			sessionKey: targetKey,
+			outcome: outcome.status,
+		});
+
+		// Update state if this is the current session.
+		if (targetKey === state.getSessionKey()) {
+			state.setArchived();
+			state.clearWorkspacePath();
+			state.resetInteraction();
+		}
+
+		syncPill(ctx);
+
+		if (ctx.hasUI) {
+			ctx.ui.notify(
+				outcome.status === "removed"
+					? `[sillajje] session ${targetSessionId} archived`
+					: `[sillajje] session ${targetSessionId} archived (workspace already gone)`,
+				"info",
+			);
+		}
+		return;
+	};
+
+	const handleStamp = async (
+		args: string,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const values = parseOrReport(
+			ctx,
+			args,
+			STAMP_ARGS,
+			STAMP_HELP,
+			"stamp",
+		);
+		if (values === undefined) return;
+
+		const rev = values.rev;
+		const sessionId = values.session;
+		if (typeof rev === "string") {
+			// Rev stamp: describe the target change and nothing else.
+			// Works with or without a live sillajje session — jj runs
+			// from the current session's workspace when one is active,
+			// otherwise from the repo root.
+			const activeWsPath =
+				state.isActive() && !state.isMissingWorkspace()
+					? state.getWorkspacePath()
+					: undefined;
+			const wsPath =
+				activeWsPath ?? state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
+			if (!wsPath) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						"[sillajje] cannot stamp: no jj repo detected",
+						"error",
+					);
 				}
+				return;
+			}
 
-				case "archive": {
-					const parts = args.trim().split(/\s+/);
-					const targetSessionId = parts[1] || state.getSessionKey();
+			debug.event("stamp_rev_start", {
+				rev,
+				wsPath,
+			});
 
-					if (!targetSessionId) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								"[sillajje] no session ID available to archive",
-								"error",
-							);
-						}
-						break;
-					}
+			// A Rev stamp runs in a working directory, not a session: the
+			// adapter resolved it above (active workspace or repo root).
+			// Side-effect scope: a Rev stamp touches no session state —
+			// the pending interaction survives and still auto-stamps.
+			const revResult = await buildStamp(ctx).rev({
+				cwd: wsPath,
+				rev,
+			});
 
-					const repoRoot = state.getRepoRoot();
-					if (!repoRoot) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								"[sillajje] cannot archive: no jj repo detected",
-								"error",
-							);
-						}
-						break;
-					}
+			if (revResult.ok) {
+				debug.event("stamp_rev_done", {
+					subject: revResult.subject,
+					rev: revResult.rev,
+				});
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] change ${rev} stamped: ${revResult.subject}`,
+						"info",
+					);
+				}
+			} else if (revResult.reason === "no-changes") {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] nothing to stamp at ${rev} — no changes`,
+						"info",
+					);
+				}
+			} else {
+				// The stamp action emits an error status before returning
+				// `failed`; createStatusSink already notified the user.
+				debug.error(
+					"stamp_rev_failed",
+					new Error("stamp rev returned failed"),
+				);
+			}
+			return;
+		}
 
-					const workspaces = workspacesFor(repoRoot);
-					const targetKey = workspaces.sessionKey(targetSessionId);
-					const outcome = await workspaces.archive(targetKey);
-					if (outcome.status === "failed") {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] archive failed: ${outcome.reason}`,
-								"error",
-							);
-						}
-						break;
-					}
+		if (typeof sessionId === "string") {
+			if (sessionId === "@") {
+				// `-s @` targets the current session: today's bare
+				// `/sillajje:stamp` behavior.
+				await stampManual(ctx);
+				syncPill(ctx);
+				return;
+			}
 
-					debug.event("session_archived", {
-						sessionKey: targetKey,
-						outcome: outcome.status,
-					});
+			// Cross-session stamp: a Session stamp on another
+			// sillajje session's @, resolved and validated with
+			// the same three-state check sync and fold use.
+			const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
+			if (!repoRoot) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						"[sillajje] cannot stamp: no jj repo detected",
+						"error",
+					);
+				}
+				return;
+			}
 
-					// Update state if this is the current session.
-					if (targetKey === state.getSessionKey()) {
-						state.setArchived();
-						state.clearWorkspacePath();
-						state.resetInteraction();
-					}
+			// The action resolves the target through the Workspaces
+			// port. The adapter still needs the session key for its own
+			// bookkeeping; the pure `sessionKey` method gives it without a
+			// jj read.
+			const workspaces = workspacesFor(repoRoot);
+			const targetKey = workspaces.sessionKey(sessionId);
 
+			// The foreign transcript is never borrowed: a session
+			// stamp on another session generates from the diff
+			// alone. Stamping the current session keeps today's
+			// state resets (it covers any pending interaction).
+			const stampingCurrent = targetKey === state.getSessionKey();
+			if (stampingCurrent) {
+				state.clearPendingFinalize();
+			}
+
+			debug.event("stamp_session_start", {
+				sessionKey: targetKey,
+				stampingCurrent,
+			});
+
+			const sessionResult = await buildStamp(ctx, repoRoot).session({
+				target: sessionId,
+				current: {
+					sessionKey: state.getSessionKey(),
+					wsPath: state.getWorkspacePath(),
+				},
+			});
+
+			if (sessionResult.ok) {
+				debug.event("stamp_session_done", {
+					subject: sessionResult.subject,
+					sessionKey: targetKey,
+				});
+				if (stampingCurrent) {
+					// Sealing the working copy covers the pending
+					// interaction — clear its transcript.
+					state.resetInteraction();
+				}
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] session ${targetKey} stamped: ${sessionResult.subject}`,
+						"info",
+					);
+				}
+				if (stampingCurrent) {
 					syncPill(ctx);
-
-					if (ctx.hasUI) {
-						ctx.ui.notify(
-							outcome.status === "removed"
-								? `[sillajje] session ${targetSessionId} archived`
-								: `[sillajje] session ${targetSessionId} archived (workspace already gone)`,
-							"info",
-						);
-					}
-					break;
 				}
-
-				case "stamp": {
-					// `args` includes the subcommand token itself (matching the other
-					// cases) — `parseOrReport` skips it.
-					const values = parseOrReport(
-						ctx,
-						args,
-						STAMP_ARGS,
-						STAMP_HELP,
-						"stamp",
+			} else if (sessionResult.reason === "no-changes") {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] nothing to stamp at session ${targetKey} — no changes`,
+						"info",
 					);
-					if (values === undefined) break;
-
-					const rev = values.rev;
-					const sessionId = values.session;
-					if (typeof rev === "string") {
-						// Rev stamp: describe the target change and nothing else.
-						// Works with or without a live sillajje session — jj runs
-						// from the current session's workspace when one is active,
-						// otherwise from the repo root.
-						const activeWsPath =
-							state.isActive() && !state.isMissingWorkspace()
-								? state.getWorkspacePath()
-								: undefined;
-						const wsPath =
-							activeWsPath ??
-							state.getRepoRoot() ??
-							findJjRepoRoot(ctx.cwd);
-						if (!wsPath) {
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									"[sillajje] cannot stamp: no jj repo detected",
-									"error",
-								);
-							}
-							break;
-						}
-
-						debug.event("stamp_rev_start", {
-							rev,
-							wsPath,
-						});
-
-						// A Rev stamp runs in a working directory, not a session: the
-						// adapter resolved it above (active workspace or repo root).
-						// Side-effect scope: a Rev stamp touches no session state —
-						// the pending interaction survives and still auto-stamps.
-						const revResult = await buildStamp(ctx).rev({
-							cwd: wsPath,
-							rev,
-						});
-
-						if (revResult.ok) {
-							debug.event("stamp_rev_done", {
-								subject: revResult.subject,
-								rev: revResult.rev,
-							});
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									`[sillajje] change ${rev} stamped: ${revResult.subject}`,
-									"info",
-								);
-							}
-						} else if (revResult.reason === "no-changes") {
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									`[sillajje] nothing to stamp at ${rev} — no changes`,
-									"info",
-								);
-							}
-						} else {
-							// The stamp action emits an error status before returning
-							// `failed`; createStatusSink already notified the user.
-							debug.error(
-								"stamp_rev_failed",
-								new Error("stamp rev returned failed"),
-							);
-						}
-						break;
-					}
-
-					if (typeof sessionId === "string") {
-						if (sessionId === "@") {
-							// `-s @` targets the current session: today's bare
-							// `/sillajje stamp` behavior.
-							await stampManual(ctx);
-							syncPill(ctx);
-							break;
-						}
-
-						// Cross-session stamp: a Session stamp on another
-						// sillajje session's @, resolved and validated with
-						// the same three-state check sync and fold use.
-						const repoRoot =
-							state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
-						if (!repoRoot) {
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									"[sillajje] cannot stamp: no jj repo detected",
-									"error",
-								);
-							}
-							break;
-						}
-
-						// The action resolves the target through the Workspaces
-						// port. The adapter still needs the session key for its own
-						// bookkeeping; the pure `sessionKey` method gives it without a
-						// jj read.
-						const workspaces = workspacesFor(repoRoot);
-						const targetKey = workspaces.sessionKey(sessionId);
-
-						// The foreign transcript is never borrowed: a session
-						// stamp on another session generates from the diff
-						// alone. Stamping the current session keeps today's
-						// state resets (it covers any pending interaction).
-						const stampingCurrent =
-							targetKey === state.getSessionKey();
-						if (stampingCurrent) {
-							state.clearPendingFinalize();
-						}
-
-						debug.event("stamp_session_start", {
-							sessionKey: targetKey,
-							stampingCurrent,
-						});
-
-						const sessionResult = await buildStamp(
-							ctx,
-							repoRoot,
-						).session({
-							target: sessionId,
-							current: {
-								sessionKey: state.getSessionKey(),
-								wsPath: state.getWorkspacePath(),
-							},
-						});
-
-						if (sessionResult.ok) {
-							debug.event("stamp_session_done", {
-								subject: sessionResult.subject,
-								sessionKey: targetKey,
-							});
-							if (stampingCurrent) {
-								// Sealing the working copy covers the pending
-								// interaction — clear its transcript.
-								state.resetInteraction();
-							}
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									`[sillajje] session ${targetKey} stamped: ${sessionResult.subject}`,
-									"info",
-								);
-							}
-							if (stampingCurrent) {
-								syncPill(ctx);
-							}
-						} else if (sessionResult.reason === "no-changes") {
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									`[sillajje] nothing to stamp at session ${targetKey} — no changes`,
-									"info",
-								);
-							}
-						} else if (sessionResult.reason === "failed") {
-							// The stamp action emits an error status before
-							// returning `failed`; createStatusSink already
-							// notified the user.
-							debug.error(
-								"stamp_session_failed",
-								new Error("stamp session returned failed"),
-							);
-						} else {
-							// A session target the port could not resolve: render the
-							// same three-state message sync and fold use.
-							if (ctx.hasUI) {
-								ctx.ui.notify(
-									`[sillajje] ${renderSessionFailure(sessionResult.reason, sessionId)}`,
-									"error",
-								);
-							}
-						}
-						break;
-					}
-
-					break;
 				}
-
-				case "unarchive": {
-					const parts = args.trim().split(/\s+/);
-					const targetSessionId = parts[1];
-
-					if (!targetSessionId) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								"[sillajje] usage: /sillajje unarchive <session-id>",
-								"warning",
-							);
-						}
-						break;
-					}
-
-					const repoRoot = state.getRepoRoot();
-					if (!repoRoot) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								"[sillajje] cannot unarchive: no jj repo detected",
-								"error",
-							);
-						}
-						break;
-					}
-
-					const workspaces = workspacesFor(repoRoot);
-					const unarchiveKey = workspaces.sessionKey(targetSessionId);
-					if (workspaces.ownerOf(unarchiveKey) !== owner) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] ${renderSessionFailure("foreign", targetSessionId)}`,
-								"error",
-							);
-						}
-						break;
-					}
-
-					try {
-						const info = await workspaces.unarchive(unarchiveKey);
-
-						// Restore state for the unarchived session.
-						state.setSessionId(
-							workspaces.unqualified(info.sessionKey),
-						);
-						state.setSessionKey(info.sessionKey);
-						state.setActive();
-						state.setWorkspacePath(info.workspacePath);
-						debug.event("session_unarchived", {
-							sessionKey: info.sessionKey,
-							path: info.workspacePath,
-						});
-						syncPill(ctx);
-
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] workspace restored at ${info.workspacePath}`,
-								"info",
-							);
-						}
-					} catch (err) {
-						debug.error("unarchive_failed", err);
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] unarchive failed: ${String(err)}`,
-								"error",
-							);
-						}
-					}
-					break;
-				}
-
-				case "sync": {
-					const values = parseOrReport(
-						ctx,
-						args,
-						SYNC_ARGS,
-						SYNC_HELP,
-						"sync",
+			} else if (sessionResult.reason === "failed") {
+				// The stamp action emits an error status before
+				// returning `failed`; createStatusSink already
+				// notified the user.
+				debug.error(
+					"stamp_session_failed",
+					new Error("stamp session returned failed"),
+				);
+			} else {
+				// A session target the port could not resolve: render the
+				// same three-state message sync and fold use.
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] ${renderSessionFailure(sessionResult.reason, sessionId)}`,
+						"error",
 					);
-					if (values === undefined) break;
-
-					const rev = values.onto;
-					if (typeof rev !== "string") break;
-					const session =
-						typeof values.session === "string"
-							? values.session
-							: "@";
-
-					const repoRoot =
-						state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
-					if (!repoRoot) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								"[sillajje] cannot sync: no jj repo detected",
-								"error",
-							);
-						}
-						break;
-					}
-
-					const sync = createSync(buildPorts(ctx, repoRoot));
-					const result = await sync({
-						target: session,
-						current: {
-							sessionKey: state.getSessionKey(),
-							wsPath: state.getWorkspacePath(),
-						},
-						rev,
-					});
-
-					if (result.ok) {
-						// The session stays active after a successful sync.
-						debug.event("sync_done", {
-							sessionKey: result.sessionKey,
-							rev: result.rev,
-						});
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] session ${result.sessionKey} synced onto ${result.rev}`,
-								"info",
-							);
-						}
-					} else if (
-						result.reason === "failed" ||
-						result.reason === "conflict"
-					) {
-						// The action emitted an error or conflict status; the sink
-						// already notified the user.
-						debug.error(
-							`sync_${result.reason}`,
-							new Error("sync returned a failure"),
-						);
-					} else {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] ${renderSessionFailure(result.reason, session)}`,
-								"error",
-							);
-						}
-					}
-					break;
-				}
-
-				case "fold": {
-					const values = parseOrReport(
-						ctx,
-						args,
-						FOLD_ARGS,
-						FOLD_HELP,
-						"fold",
-					);
-					if (values === undefined) break;
-
-					const onto = values.onto;
-					if (typeof onto !== "string") break;
-					const session =
-						typeof values.session === "string"
-							? values.session
-							: undefined;
-					const rev =
-						typeof values.rev === "string" ? values.rev : undefined;
-					const land = values.land === true;
-					const archive = values.archive === true;
-
-					const repoRoot =
-						state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
-					if (!repoRoot) {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								"[sillajje] cannot fold: no jj repo detected",
-								"error",
-							);
-						}
-						break;
-					}
-
-					debug.event("fold_start", { session, rev, onto });
-					const fold = createFold(buildPorts(ctx, repoRoot));
-					const result = await fold({
-						session,
-						rev,
-						onto,
-						land,
-						archive,
-						current: {
-							sessionKey: state.getSessionKey(),
-							wsPath: state.getWorkspacePath(),
-						},
-						cwd: repoRoot,
-					});
-
-					if (result.ok) {
-						debug.event("fold_done", {
-							rev: result.rev,
-							ref: result.ref,
-						});
-						// Archiving the current session is an adapter-side state change:
-						// the action archived the workspace, the adapter owns the session.
-						if (
-							result.archived &&
-							result.sessionKey === state.getSessionKey()
-						) {
-							state.setArchived();
-							state.clearWorkspacePath();
-							state.resetInteraction();
-							syncPill(ctx);
-						}
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] folded onto ${onto} as ${result.rev}: ${result.subject}`,
-								"info",
-							);
-						}
-					} else if (result.reason === "no-changes") {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] nothing to fold onto ${onto} — no new changes`,
-								"info",
-							);
-						}
-					} else if (result.reason === "usage") {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] ${result.message ?? "invalid fold arguments"}`,
-								"warning",
-							);
-						}
-					} else if (
-						result.reason === "failed" ||
-						result.reason === "conflict"
-					) {
-						// The action emitted an error or conflict status; the sink
-						// already notified the user.
-						debug.error(
-							`fold_${result.reason}`,
-							new Error("fold returned a failure"),
-						);
-					} else {
-						if (ctx.hasUI) {
-							ctx.ui.notify(
-								`[sillajje] ${renderSessionFailure(result.reason, session ?? "@")}`,
-								"error",
-							);
-						}
-					}
-					break;
-				}
-
-				default: {
-					if (ctx.hasUI) {
-						ctx.ui.notify(
-							"Usage: /sillajje [status|stamp|archive|unarchive|sync|fold]",
-							"warning",
-						);
-					}
-					break;
 				}
 			}
+			return;
+		}
+
+		return;
+	};
+
+	const handleUnarchive = async (
+		args: string,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const parts = args.trim().split(/\s+/);
+		const targetSessionId = parts[0];
+
+		if (!targetSessionId) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] usage: /sillajje:unarchive <session-id>",
+					"warning",
+				);
+			}
+			return;
+		}
+
+		const repoRoot = state.getRepoRoot();
+		if (!repoRoot) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot unarchive: no jj repo detected",
+					"error",
+				);
+			}
+			return;
+		}
+
+		const workspaces = workspacesFor(repoRoot);
+		const unarchiveKey = workspaces.sessionKey(targetSessionId);
+		if (workspaces.ownerOf(unarchiveKey) !== owner) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] ${renderSessionFailure("foreign", targetSessionId)}`,
+					"error",
+				);
+			}
+			return;
+		}
+
+		try {
+			const info = await workspaces.unarchive(unarchiveKey);
+
+			// Restore state for the unarchived session.
+			state.setSessionId(workspaces.unqualified(info.sessionKey));
+			state.setSessionKey(info.sessionKey);
+			state.setActive();
+			state.setWorkspacePath(info.workspacePath);
+			debug.event("session_unarchived", {
+				sessionKey: info.sessionKey,
+				path: info.workspacePath,
+			});
+			syncPill(ctx);
+
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] workspace restored at ${info.workspacePath}`,
+					"info",
+				);
+			}
+		} catch (err) {
+			debug.error("unarchive_failed", err);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] unarchive failed: ${String(err)}`,
+					"error",
+				);
+			}
+		}
+		return;
+	};
+
+	const handleSync = async (
+		args: string,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const values = parseOrReport(ctx, args, SYNC_ARGS, SYNC_HELP, "sync");
+		if (values === undefined) return;
+
+		const rev = values.onto;
+		if (typeof rev !== "string") return;
+		const session =
+			typeof values.session === "string" ? values.session : "@";
+
+		const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
+		if (!repoRoot) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot sync: no jj repo detected",
+					"error",
+				);
+			}
+			return;
+		}
+
+		const sync = createSync(buildPorts(ctx, repoRoot));
+		const result = await sync({
+			target: session,
+			current: {
+				sessionKey: state.getSessionKey(),
+				wsPath: state.getWorkspacePath(),
+			},
+			rev,
+		});
+
+		if (result.ok) {
+			// The session stays active after a successful sync.
+			debug.event("sync_done", {
+				sessionKey: result.sessionKey,
+				rev: result.rev,
+			});
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] session ${result.sessionKey} synced onto ${result.rev}`,
+					"info",
+				);
+			}
+		} else if (result.reason === "failed" || result.reason === "conflict") {
+			// The action emitted an error or conflict status; the sink
+			// already notified the user.
+			debug.error(
+				`sync_${result.reason}`,
+				new Error("sync returned a failure"),
+			);
+		} else {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] ${renderSessionFailure(result.reason, session)}`,
+					"error",
+				);
+			}
+		}
+		return;
+	};
+
+	const handleFold = async (
+		args: string,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const values = parseOrReport(ctx, args, FOLD_ARGS, FOLD_HELP, "fold");
+		if (values === undefined) return;
+
+		const onto = values.onto;
+		if (typeof onto !== "string") return;
+		const session =
+			typeof values.session === "string" ? values.session : undefined;
+		const rev = typeof values.rev === "string" ? values.rev : undefined;
+		const land = values.land === true;
+		const archive = values.archive === true;
+
+		const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
+		if (!repoRoot) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot fold: no jj repo detected",
+					"error",
+				);
+			}
+			return;
+		}
+
+		debug.event("fold_start", { session, rev, onto });
+		const fold = createFold(buildPorts(ctx, repoRoot));
+		const result = await fold({
+			session,
+			rev,
+			onto,
+			land,
+			archive,
+			current: {
+				sessionKey: state.getSessionKey(),
+				wsPath: state.getWorkspacePath(),
+			},
+			cwd: repoRoot,
+		});
+
+		if (result.ok) {
+			debug.event("fold_done", {
+				rev: result.rev,
+				ref: result.ref,
+			});
+			// Archiving the current session is an adapter-side state change:
+			// the action archived the workspace, the adapter owns the session.
+			if (
+				result.archived &&
+				result.sessionKey === state.getSessionKey()
+			) {
+				state.setArchived();
+				state.clearWorkspacePath();
+				state.resetInteraction();
+				syncPill(ctx);
+			}
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] folded onto ${onto} as ${result.rev}: ${result.subject}`,
+					"info",
+				);
+			}
+		} else if (result.reason === "no-changes") {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] nothing to fold onto ${onto} — no new changes`,
+					"info",
+				);
+			}
+		} else if (result.reason === "usage") {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] ${result.message ?? "invalid fold arguments"}`,
+					"warning",
+				);
+			}
+		} else if (result.reason === "failed" || result.reason === "conflict") {
+			// The action emitted an error or conflict status; the sink
+			// already notified the user.
+			debug.error(
+				`fold_${result.reason}`,
+				new Error("fold returned a failure"),
+			);
+		} else {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] ${renderSessionFailure(result.reason, session ?? "@")}`,
+					"error",
+				);
+			}
+		}
+		return;
+	};
+
+	// -----------------------------------------------------------------------
+	// /sillajje:<subcommand> commands
+	// -----------------------------------------------------------------------
+
+	pi.registerCommand("sillajje:status", {
+		description: "Report the sillajje session status",
+		handler: async (_args, ctx) => {
+			await handleStatus(ctx);
+		},
+	});
+
+	pi.registerCommand("sillajje:stamp", {
+		description: "Stamp a change with a generated commit message",
+		handler: async (args, ctx) => {
+			await handleStamp(args, ctx);
+		},
+	});
+
+	pi.registerCommand("sillajje:archive", {
+		description: "Archive the current session workspace",
+		handler: async (args, ctx) => {
+			await handleArchive(args, ctx);
+		},
+	});
+
+	pi.registerCommand("sillajje:unarchive", {
+		description: "Recreate an archived session workspace",
+		handler: async (args, ctx) => {
+			await handleUnarchive(args, ctx);
+		},
+	});
+
+	pi.registerCommand("sillajje:sync", {
+		description: "Bring a revision into a session's ancestry",
+		handler: async (args, ctx) => {
+			await handleSync(args, ctx);
+		},
+	});
+
+	pi.registerCommand("sillajje:fold", {
+		description: "Publish a source range as one clean change",
+		handler: async (args, ctx) => {
+			await handleFold(args, ctx);
 		},
 	});
 }

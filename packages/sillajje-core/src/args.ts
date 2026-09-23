@@ -29,7 +29,11 @@ export interface FlagDef {
 export interface CommandSpec {
 	/** The subcommand name, e.g. `stamp`. */
 	name: string;
-	/** The usage line, shown by help and repeated in every usage error. */
+	/**
+	 * The usage line relative to the command prefix, e.g.
+	 * `stamp [-r|--rev <rev>]`. The adapter supplies the prefix (`/sillajje:`)
+	 * so the core never spells a command.
+	 */
 	usage: string;
 	/** Every flag the subcommand accepts. */
 	flags: readonly FlagDef[];
@@ -71,9 +75,8 @@ function flagLabel(spec: CommandSpec, key: string): string {
  * Rules:
  * - Tokens are whitespace-delimited; leading and trailing whitespace is
  *   trimmed and empty tokens are dropped.
- * - `skip` drops leading tokens first. The adapter passes `{ skip: 1 }` to
- *   drop the `/sillajje <subcommand>` token, so the parser owns the whole
- *   tokenizing step and the command text is never split twice.
+ * - `prefix` is prepended to the usage line in every error message. The
+ *   adapter owns the command spelling; the core renders the relative tail.
  * - `-h`, `--help`, and a target-less invocation (no tokens) return help.
  *   Help wins over every other rule, including a missing flag value.
  * - A flag's value is the following token, even when it starts with `-`.
@@ -84,13 +87,10 @@ function flagLabel(spec: CommandSpec, key: string): string {
 export function parseCommandArgs(
 	args: string,
 	spec: CommandSpec,
-	options?: { skip?: number },
+	options?: { prefix?: string },
 ): ParseResult {
-	const tokens = args
-		.trim()
-		.split(/\s+/)
-		.filter(Boolean)
-		.slice(options?.skip ?? 0);
+	const usage = `usage: ${options?.prefix ?? ""}${spec.usage}`;
+	const tokens = args.trim().split(/\s+/).filter(Boolean);
 
 	if (tokens.some((t) => t === "-h" || t === "--help"))
 		return { kind: "help" };
@@ -105,8 +105,8 @@ export function parseCommandArgs(
 			return {
 				kind: "error",
 				message: token.startsWith("-")
-					? `${spec.usage} (unknown flag "${token}")`
-					: `${spec.usage} (unexpected argument "${token}")`,
+					? `${usage} (unknown flag "${token}")`
+					: `${usage} (unexpected argument "${token}")`,
 			};
 		}
 		if (!flag.takesValue) {
@@ -117,7 +117,7 @@ export function parseCommandArgs(
 		if (value === undefined) {
 			return {
 				kind: "error",
-				message: `${spec.usage} (${token} requires a value)`,
+				message: `${usage} (${token} requires a value)`,
 			};
 		}
 		values[flag.key] = value;
@@ -128,7 +128,7 @@ export function parseCommandArgs(
 		if (values[a] !== undefined && values[b] !== undefined) {
 			return {
 				kind: "error",
-				message: `${spec.usage} — ${flagLabel(spec, a)} and ${flagLabel(spec, b)} are mutually exclusive`,
+				message: `${usage} — ${flagLabel(spec, a)} and ${flagLabel(spec, b)} are mutually exclusive`,
 			};
 		}
 	}
@@ -137,7 +137,7 @@ export function parseCommandArgs(
 		if (values[key] === undefined) {
 			return {
 				kind: "error",
-				message: `${spec.usage} (missing ${flagLabel(spec, key)})`,
+				message: `${usage} (missing ${flagLabel(spec, key)})`,
 			};
 		}
 	}
@@ -149,9 +149,12 @@ export function parseCommandArgs(
 // Help and session errors
 // ---------------------------------------------------------------------------
 
-/** Render a subcommand's help text: the usage line, a blank line, then lines. */
-export function renderHelp(help: CommandHelp): string {
-	return [help.usage, "", ...help.lines].join("\n");
+/**
+ * Render a subcommand's help text: the usage line, a blank line, then lines.
+ * `prefix` is the command spelling the adapter owns (`/sillajje:`).
+ */
+export function renderHelp(help: CommandHelp, prefix = ""): string {
+	return [`usage: ${prefix}${help.usage}`, "", ...help.lines].join("\n");
 }
 
 /**
@@ -175,10 +178,10 @@ export function renderSessionFailure(
 // The stamp subcommand
 // ---------------------------------------------------------------------------
 
-/** `/sillajje stamp` — one target, a revision or a session. */
+/** The stamp subcommand — one target, a revision or a session. */
 export const STAMP_ARGS: CommandSpec = {
 	name: "stamp",
-	usage: "usage: /sillajje stamp [-r|--rev <rev>] [-s|--session <id>]",
+	usage: "stamp [-r|--rev <rev>] [-s|--session <id>]",
 	flags: [
 		{ key: "rev", aliases: ["-r", "--rev"], takesValue: true },
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
@@ -186,7 +189,7 @@ export const STAMP_ARGS: CommandSpec = {
 	exclusive: [["rev", "session"]],
 };
 
-/** `/sillajje stamp` help. */
+/** The stamp subcommand's help. */
 export const STAMP_HELP: CommandHelp = {
 	usage: STAMP_ARGS.usage,
 	lines: [

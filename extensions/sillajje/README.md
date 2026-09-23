@@ -4,21 +4,21 @@ Auto-versioning for Pi agent sessions built on jj. Every agent interaction becom
 
 ## Commands
 
-All commands run as `/sillajje <subcommand>` from any conversation inside a sillajje repo.
+All commands run as `/sillajje:<subcommand>` from any conversation inside a sillajje repo. The old space form (`/sillajje stamp`) is retired: typing it reports the colon command instead of running.
 
-### `status`
+### `/sillajje:status`
 
 Reports the current session: lifecycle state, workspace path, and session ID.
 
-### `archive`
+### `/sillajje:archive`
 
 Archives the current session: keeps the `sillajje/<session-id>` bookmark, deletes the workspace directory. An archived session accepts no prompts until unarchived.
 
-### `unarchive <session-id>`
+### `/sillajje:unarchive <session-id>`
 
 Recreates the workspace for an archived session.
 
-### `stamp [-r | --rev <rev>] [-s | --session <id>] [-h | --help]`
+### `/sillajje:stamp [-r | --rev <rev>] [-s | --session <id>] [-h | --help]`
 
 Seals a change with a generated commit message. Exactly one target is required:
 
@@ -26,15 +26,15 @@ Seals a change with a generated commit message. Exactly one target is required:
 - **`-r <rev>`** — a Rev stamp on any revision jj resolves (change ID, commit prefix, bookmark, `@`): describes that change only. No bookmark moves, no new change, and your session's pending interaction survives.
 - **`-s <id>`** — a Session stamp on another live session's working copy, sealed through that session's own workspace. The message comes from the diff alone; the stamped change's metadata names the stamped session, not yours.
 
-A target-less `/sillajje stamp` and `-h`/`--help` print this usage and take no action. `--rev` and `--session` are mutually exclusive. An unknown `-s` target reports "not a sillajje session"; a bookmark without a workspace reports "archived — unarchive it first".
+A target-less `/sillajje:stamp` and `-h`/`--help` print this usage and take no action. `--rev` and `--session` are mutually exclusive. An unknown `-s` target reports "not a sillajje session"; a bookmark without a workspace reports "archived — unarchive it first".
 
 The seal is transactional: if describe, bookmark, or the fresh change fails mid-seal, the repository ends unchanged. Empty-diff targets report `nothing to stamp` before any mutation.
 
-### `sync [-s | --session <id>] -o | --onto <rev> [-h | --help]`
+### `/sillajje:sync [-s | --session <id>] -o | --onto <rev> [-h | --help]`
 
 Brings `<rev>` into a session's ancestry as a merge, keeping the session's own history. `-s` defaults to `@` (this session). The session stays active. A file-level conflict aborts with the file list; a failed `update-stale` after a successful rebase is a warning.
 
-### `fold (-s <id|@> | -r <rev>) -o <rev> [--land] [--archive] [-h | --help]`
+### `/sillajje:fold (-s <id|@> | -r <rev>) -o <rev> [--land] [--archive] [-h | --help]`
 
 Publishes a source range as one clean change placed as a child of `<rev>`, and appends: each fold adds one change, so a pull-request branch grows without a force-push. The source branch survives. `-s` defaults to `@`; `-s` and `-r` are mutually exclusive. `--land` advances the single local bookmark that `--onto` resolves to. `--archive` retires a session source after a successful fold. The body is a generated summary and a `Ref:` line — no `Meta:` and no `Loop:`.
 

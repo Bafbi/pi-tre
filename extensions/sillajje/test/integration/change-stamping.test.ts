@@ -370,7 +370,7 @@ describeJj("sillajje change stamping", () => {
 		expect(log).toContain("Follow-up task");
 	}, 30_000);
 
-	it("manual /sillajje stamp -s @ records the diff source in the provenance", async () => {
+	it("manual /sillajje:stamp -s @ records the diff source in the provenance", async () => {
 		const cwd = initRepo();
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
@@ -380,9 +380,9 @@ describeJj("sillajje change stamping", () => {
 		// Work happens in the workspace, then the user stamps -s @ manually.
 		writeFileSync(join(workspace, "manual.ts"), "// manual\n");
 
-		const cmd = runner.getCommand("sillajje");
+		const cmd = runner.getCommand("sillajje:stamp");
 		expect(cmd).toBeDefined();
-		await cmd!.handler("stamp -s @", runner.createCommandContext());
+		await cmd!.handler("-s @", runner.createCommandContext());
 
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("Meta: source: diff");
@@ -392,7 +392,7 @@ describeJj("sillajje change stamping", () => {
 		expect(show).not.toContain("Response:");
 	}, 15_000);
 
-	it("a target-less /sillajje stamp shows help and seals nothing", async () => {
+	it("a target-less /sillajje:stamp shows help and seals nothing", async () => {
 		const cwd = initRepo();
 		const notifications: Array<[string, string]> = [];
 		const runner = await createRunner(cwd, {
@@ -407,14 +407,14 @@ describeJj("sillajje change stamping", () => {
 			workspace,
 		);
 
-		const cmd = runner.getCommand("sillajje");
+		const cmd = runner.getCommand("sillajje:stamp");
 		expect(cmd).toBeDefined();
-		await cmd!.handler("stamp", runner.createCommandContext());
+		await cmd!.handler("", runner.createCommandContext());
 
 		expect(
 			notifications.some(
 				(n) =>
-					n[1] === "info" && n[0].includes("usage: /sillajje stamp"),
+					n[1] === "info" && n[0].includes("usage: /sillajje:stamp"),
 			),
 		).toBe(true);
 		// Nothing was sealed.
@@ -431,14 +431,14 @@ describeJj("sillajje change stamping", () => {
 		});
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const cmd = runner.getCommand("sillajje");
+		const cmd = runner.getCommand("sillajje:stamp");
 		expect(cmd).toBeDefined();
-		await cmd!.handler("stamp -h", runner.createCommandContext());
+		await cmd!.handler("-h", runner.createCommandContext());
 
 		expect(
 			notifications.some(
 				(n) =>
-					n[1] === "info" && n[0].includes("usage: /sillajje stamp"),
+					n[1] === "info" && n[0].includes("usage: /sillajje:stamp"),
 			),
 		).toBe(true);
 	}, 15_000);

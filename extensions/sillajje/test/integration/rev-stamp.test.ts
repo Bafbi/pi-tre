@@ -1,5 +1,5 @@
 /**
- * Integration tests for the Rev stamp (`/sillajje stamp -r <rev>`) against
+ * Integration tests for the Rev stamp (`/sillajje:stamp -r <rev>`) against
  * real jj, driven through the registered command.
  */
 
@@ -136,7 +136,7 @@ describeJj("sillajje rev stamp", () => {
 
 		expect(notifications.some((n) => n[1] === "warning")).toBe(true);
 		expect(
-			notifications.some((n) => n[0].includes("usage: /sillajje stamp")),
+			notifications.some((n) => n[0].includes("usage: /sillajje:stamp")),
 		).toBe(true);
 
 		// Nothing changed.

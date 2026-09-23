@@ -90,10 +90,10 @@ async function simulateInteraction(
 	await runner.emit({ type: "agent_settled" });
 }
 
-/** Get the registered sillajje command, throwing if missing. */
-function getSillajjeCommand(runner: Awaited<ReturnType<typeof createRunner>>) {
-	const cmd = runner.getCommand("sillajje");
-	if (!cmd) throw new Error("sillajje command not registered");
+/** Get the registered sync command, throwing if missing. */
+function getSyncCommand(runner: Awaited<ReturnType<typeof createRunner>>) {
+	const cmd = runner.getCommand("sillajje:sync");
+	if (!cmd) throw new Error("sillajje:sync command not registered");
 	return cmd;
 }
 
@@ -194,8 +194,8 @@ describeJj("sillajje sync", () => {
 		const upstreamCommit = changeId(cwd, "main");
 
 		// Sync onto main.
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler("sync -o main", runner.createCommandContext());
+		const cmd = getSyncCommand(runner);
+		await cmd.handler("-o main", runner.createCommandContext());
 
 		// Merge commit: @ has exactly the two expected parents.
 		expect(parentCount(path)).toBe(2);
@@ -270,9 +270,9 @@ describeJj("sillajje sync", () => {
 		const upstreamCommit = changeId(cwd, "main");
 
 		// Sync the other session onto main.
-		const cmd = getSillajjeCommand(runner);
+		const cmd = getSyncCommand(runner);
 		await cmd.handler(
-			`sync -s ${otherId} -o main`,
+			`-s ${otherId} -o main`,
 			runner.createCommandContext(),
 		);
 
@@ -309,11 +309,8 @@ describeJj("sillajje sync", () => {
 		execSync("echo session-work > session.txt", { cwd: path });
 		await simulateInteraction(runner, "Session change", "Done.");
 
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler(
-			"sync -o nonexistent-rev",
-			runner.createCommandContext(),
-		);
+		const cmd = getSyncCommand(runner);
+		await cmd.handler("-o nonexistent-rev", runner.createCommandContext());
 
 		// Error notification surfaces jj's failure.
 		expect(notifications).toContainEqual(
@@ -338,11 +335,13 @@ describeJj("sillajje sync", () => {
 
 		// Stamp a change so the session bookmark exists, then archive.
 		await simulateInteraction(runner, "Session change", "Done.");
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler("archive", runner.createCommandContext());
+		await runner
+			.getCommand("sillajje:archive")!
+			.handler("", runner.createCommandContext());
 
 		// Sync targets the current (archived) session.
-		await cmd.handler("sync -o main", runner.createCommandContext());
+		const cmd = getSyncCommand(runner);
+		await cmd.handler("-o main", runner.createCommandContext());
 
 		expect(notifications).toContainEqual(
 			expect.objectContaining({
@@ -361,9 +360,9 @@ describeJj("sillajje sync", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const notifications = captureNotifications(runner);
 
-		const cmd = getSillajjeCommand(runner);
+		const cmd = getSyncCommand(runner);
 		await cmd.handler(
-			"sync -s nonexistent-session -o main",
+			"-s nonexistent-session -o main",
 			runner.createCommandContext(),
 		);
 
@@ -397,8 +396,8 @@ describeJj("sillajje sync", () => {
 		// Upstream edits the same file differently.
 		createUpstream(cwd, "file.txt", "upstream-edit", "feat: upstream");
 
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler("sync -o main", runner.createCommandContext());
+		const cmd = getSyncCommand(runner);
+		await cmd.handler("-o main", runner.createCommandContext());
 
 		// Conflict warning lists the conflicting file…
 		const conflictNotif = notifications.find(
@@ -427,13 +426,13 @@ describeJj("sillajje sync", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const notifications = captureNotifications(runner);
 
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler("sync", runner.createCommandContext());
+		const cmd = getSyncCommand(runner);
+		await cmd.handler("", runner.createCommandContext());
 
 		expect(notifications).toContainEqual(
 			expect.objectContaining({
 				type: "info",
-				msg: expect.stringContaining("usage: /sillajje sync"),
+				msg: expect.stringContaining("usage: /sillajje:sync"),
 			}),
 		);
 	}, 15_000);
