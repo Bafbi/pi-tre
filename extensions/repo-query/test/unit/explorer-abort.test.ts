@@ -26,8 +26,8 @@ class FakeProc extends EventEmitter implements ExplorerProcess {
 	signals: string[] = [];
 	exitCode: number | null = 0;
 
-	override stdout = new EventEmitter();
-	override stderr = new EventEmitter();
+	stdout = new EventEmitter();
+	stderr = new EventEmitter();
 
 	constructor(
 		private readonly responsive = true,
@@ -36,7 +36,7 @@ class FakeProc extends EventEmitter implements ExplorerProcess {
 		super();
 	}
 
-	override kill(signal?: NodeJS.Signals): boolean {
+	kill(signal?: NodeJS.Signals): boolean {
 		const name = signal ?? "SIGTERM";
 		this.signals.push(name);
 		this.killed = true;

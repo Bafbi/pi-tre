@@ -1,6 +1,11 @@
 import { execSync } from "node:child_process";
 import { expect, it } from "vitest";
-import { createRunner, describeJj, makeRunnerCwd, tempDirs } from "./_helpers";
+import {
+	createRunner,
+	describeJj,
+	makeRunnerCwd,
+	tempDirs,
+} from "./_helpers.js";
 
 describeJj("sillajje user_bash interception", () => {
 	it("active session returns operations from user_bash handler", async () => {
@@ -75,11 +80,11 @@ describeJj("sillajje user_bash interception", () => {
 
 		// Execute the operations — the cwd passed here should be IGNORED,
 		// and the actual execution should happen in the workspace path.
-		const operations = result.operations;
+		const operations = result!.operations;
 		expect(operations).toBeDefined();
 
 		const stdoutChunks: Buffer[] = [];
-		const exit = await operations.exec("pwd", "/some/ignored/path", {
+		const exit = await operations!.exec("pwd", "/some/ignored/path", {
 			onData: (data: Buffer) => stdoutChunks.push(data),
 		});
 		expect(exit.exitCode).toBe(0);

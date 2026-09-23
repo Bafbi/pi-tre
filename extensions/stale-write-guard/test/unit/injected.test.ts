@@ -4,7 +4,7 @@ import {
 	diskMatchesInjected,
 	extractInjectedContent,
 	type InjectedContent,
-} from "../../src/injected";
+} from "../../src/injected.js";
 
 const SKILL_PATH = "/tmp/skills/my-skill/SKILL.md";
 

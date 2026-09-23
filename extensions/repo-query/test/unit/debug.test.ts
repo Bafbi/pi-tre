@@ -1,3 +1,4 @@
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -9,6 +10,9 @@ import {
 	syncDebugUi,
 	trackRepo,
 } from "../../src/debug.js";
+
+/** The fields of the pi context the debug UI reads. */
+type UiCtx = Pick<ExtensionContext, "hasUI" | "ui">;
 
 function makeUiCtx() {
 	const statusCalls: Array<{ key: string; value: string | undefined }> = [];
@@ -25,7 +29,7 @@ function makeUiCtx() {
 					widgetCalls.push({ key, lines });
 				},
 			},
-		},
+		} as unknown as UiCtx,
 		statusCalls,
 		widgetCalls,
 	};
@@ -189,7 +193,7 @@ describe("syncDebugUi", () => {
 			hasUI: false,
 			ui: { setStatus: vi.fn(), setWidget: vi.fn() },
 		};
-		syncDebugUi(state, ctx);
+		syncDebugUi(state, ctx as unknown as UiCtx);
 		expect(ctx.ui.setStatus).not.toHaveBeenCalled();
 		expect(ctx.ui.setWidget).not.toHaveBeenCalled();
 	});

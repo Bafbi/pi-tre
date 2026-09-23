@@ -89,6 +89,15 @@ importers:
       '@pi-tre/pi-subagent':
         specifier: workspace:*
         version: link:../../packages/pi-subagent
+      '@pi-tre/sillajje-core':
+        specifier: workspace:*
+        version: link:../../packages/sillajje-core
+      '@pi-tre/sillajje-jj':
+        specifier: workspace:*
+        version: link:../../packages/sillajje-jj
+      '@pi-tre/sillajje-workspace':
+        specifier: workspace:*
+        version: link:../../packages/sillajje-workspace
       '@sinclair/typebox':
         specifier: catalog:pi-dev
         version: 0.34.52
@@ -122,6 +131,26 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: catalog:pi-dev
         version: 0.84.4(ws@8.20.0)(zod@4.6.5)
+
+  packages/sillajje-core:
+    dependencies:
+      '@pi-tre/sillajje-jj':
+        specifier: workspace:*
+        version: link:../sillajje-jj
+      '@pi-tre/sillajje-workspace':
+        specifier: workspace:*
+        version: link:../sillajje-workspace
+      '@sinclair/typebox':
+        specifier: catalog:pi-dev
+        version: 0.34.52
+
+  packages/sillajje-jj: {}
+
+  packages/sillajje-workspace:
+    dependencies:
+      '@pi-tre/sillajje-jj':
+        specifier: workspace:*
+        version: link:../sillajje-jj
 
 packages:
 

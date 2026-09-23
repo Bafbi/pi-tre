@@ -25,6 +25,7 @@ export async function handleCopyLeaf(ctx: ExtensionContext): Promise<void> {
 		const branch = ctx.sessionManager.getBranch();
 		for (let i = branch.length - 1; i >= 0; i--) {
 			const entry = branch[i];
+			if (entry === undefined) continue;
 			if (!isMessageEntry(entry)) continue;
 
 			const role = entry.message.role;

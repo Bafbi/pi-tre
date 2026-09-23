@@ -27,15 +27,15 @@ export interface LoadExtensionConfigOptions<T extends TSchema> {
 	/** TypeBox schema. It also supplies the field defaults. */
 	schema: T;
 	/** Project root. Omit to read the global layer only. */
-	repoRoot?: string;
+	repoRoot?: string | undefined;
 	/** Override the global config directory. Tests pass a temp dir. */
-	configDir?: string;
+	configDir?: string | undefined;
 	/**
 	 * Whether the project is trusted. Defaults to `false`, so an untrusted
 	 * project reads the global layer only. Project config can carry shell
 	 * commands, so callers pass `ctx.isProjectTrusted()`.
 	 */
-	trusted?: boolean;
+	trusted?: boolean | undefined;
 }
 
 /**

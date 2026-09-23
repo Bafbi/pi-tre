@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { requiresReadBeforeMutation } from "../../src/guard";
+import { requiresReadBeforeMutation } from "../../src/guard.js";
 
 describe("requiresReadBeforeMutation", () => {
 	it("returns true when no read record exists", () => {

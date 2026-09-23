@@ -1,6 +1,11 @@
 import { execSync } from "node:child_process";
 import { expect, it } from "vitest";
-import { createRunner, describeJj, makeRunnerCwd, tempDirs } from "./_helpers";
+import {
+	createRunner,
+	describeJj,
+	makeRunnerCwd,
+	tempDirs,
+} from "./_helpers.js";
 
 describeJj("sillajje tool call redirection", () => {
 	it("redirects read path to workspace", async () => {

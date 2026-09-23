@@ -3,7 +3,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { expect, it } from "vitest";
-import { createRunner, describeJj, makeRunnerCwd, tempDirs } from "./_helpers";
+import {
+	createRunner,
+	describeJj,
+	makeRunnerCwd,
+	sessionBookmark,
+	tempDirs,
+} from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,11 +69,11 @@ function spyNotifications(
 }
 
 // ---------------------------------------------------------------------------
-// Edge cases: stale sessions
+// Edge cases: missing workspaces
 // ---------------------------------------------------------------------------
 
-describeJj("sillajje stale session handling", () => {
-	it("marks the session stale and blocks tools when the workspace is deleted externally", async () => {
+describeJj("sillajje missing-workspace handling", () => {
+	it("marks the workspace missing and blocks tools when the workspace is deleted externally", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
 		await setupJjRepo(cwd);
@@ -103,7 +109,7 @@ describeJj("sillajje stale session handling", () => {
 			"do something",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		expect(beforeAgent).toBeUndefined();
 
@@ -120,10 +126,10 @@ describeJj("sillajje stale session handling", () => {
 			cwd,
 			encoding: "utf-8",
 		});
-		expect(bookmarks).not.toContain(`sillajje/${sessionId}`);
+		expect(bookmarks).not.toContain(sessionBookmark(sessionId));
 	}, 15_000);
 
-	it("marks the session stale and skips stamping when jj disappears from PATH", async () => {
+	it("marks the workspace missing and skips stamping when jj disappears from PATH", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
 		await setupJjRepo(cwd);
@@ -148,7 +154,7 @@ describeJj("sillajje stale session handling", () => {
 				"Do something",
 				undefined,
 				"You are helpful.",
-				{ skills: [], contextFiles: [], prompts: [] },
+				{ skills: [], contextFiles: [], cwd: "" },
 			);
 			await runner.emit({ type: "agent_start" });
 			await runner.emit({
@@ -173,6 +179,6 @@ describeJj("sillajje stale session handling", () => {
 			cwd,
 			encoding: "utf-8",
 		});
-		expect(bookmarks).not.toContain(`sillajje/${sessionId}`);
+		expect(bookmarks).not.toContain(sessionBookmark(sessionId));
 	}, 15_000);
 });

@@ -11,9 +11,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ExecFn } from "@pi-tre/sillajje-jj";
 import { expect, it } from "vitest";
-import { setTestExecWrapper } from "../../src/index.js";
-import type { ExecFn } from "../../src/workspace.js";
+import { setTestPorts } from "../../src/index.js";
 import {
 	createRunner,
 	describeJj,
@@ -22,8 +22,9 @@ import {
 	installDefaultSubGeneratorMock,
 	jj,
 	runSillajje,
+	sessionBookmark,
 	wsPath,
-} from "./_helpers";
+} from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -103,11 +104,11 @@ describeJj("sillajje transactional seal", () => {
 			const before = repoState(workspace);
 
 			installDefaultSubGeneratorMock();
-			setTestExecWrapper(failingJjExec(failMatch));
+			setTestPorts({ exec: failingJjExec(failMatch) });
 			try {
 				await runSillajje(runner, "stamp -s @");
 			} finally {
-				setTestExecWrapper(undefined);
+				setTestPorts({ exec: undefined });
 			}
 
 			// Nothing happened: no described change, no moved bookmark, no
@@ -133,17 +134,17 @@ describeJj("sillajje transactional seal", () => {
 		const before = repoState(workspace);
 
 		installDefaultSubGeneratorMock();
-		setTestExecWrapper(
-			failingJjExec(
+		setTestPorts({
+			exec: failingJjExec(
 				(args) =>
 					args[0] === "bookmark" ||
 					(args[0] === "op" && args[1] === "abandon"),
 			),
-		);
+		});
 		try {
 			await runSillajje(runner, "stamp -s @");
 		} finally {
-			setTestExecWrapper(undefined);
+			setTestPorts({ exec: undefined });
 		}
 
 		// The repository is unchanged.
@@ -172,17 +173,17 @@ describeJj("sillajje transactional seal", () => {
 		const before = repoState(workspace);
 
 		installDefaultSubGeneratorMock();
-		const calls: string[][] = [];
-		setTestExecWrapper(
-			failingJjExec(
+		const calls: Array<{ args: string[]; stderr: string }> = [];
+		setTestPorts({
+			exec: failingJjExec(
 				(args) => args[0] === "op" && args[1] === "integrate",
 				calls,
 			),
-		);
+		});
 		try {
 			await runSillajje(runner, "stamp -s @");
 		} finally {
-			setTestExecWrapper(undefined);
+			setTestPorts({ exec: undefined });
 		}
 
 		// Nothing is visible — unintegrated operations stay invisible.
@@ -244,29 +245,38 @@ describeJj("sillajje transactional seal", () => {
 		// The wrapper lands a foreign operation exactly when the stamp is
 		// about to integrate — the worst interleaving the transaction faces.
 		installDefaultSubGeneratorMock();
-		setTestExecWrapper((cmd, args, opts) => {
-			if (cmd === "jj" && args[0] === "op" && args[1] === "integrate") {
-				writeFileSync(join(foreignPath, "foreign.txt"), "// foreign\n");
-				spawnSync("jj", ["new", "-m", "foreign work"], {
-					cwd: foreignPath,
-					stdio: "pipe",
+		setTestPorts({
+			exec: (cmd, args, opts) => {
+				if (
+					cmd === "jj" &&
+					args[0] === "op" &&
+					args[1] === "integrate"
+				) {
+					writeFileSync(
+						join(foreignPath, "foreign.txt"),
+						"// foreign\n",
+					);
+					spawnSync("jj", ["new", "-m", "foreign work"], {
+						cwd: foreignPath,
+						stdio: "pipe",
+						encoding: "utf-8",
+					});
+				}
+				const r = spawnSync(cmd, args, {
+					cwd: opts?.cwd,
 					encoding: "utf-8",
 				});
-			}
-			const r = spawnSync(cmd, args, {
-				cwd: opts?.cwd,
-				encoding: "utf-8",
-			});
-			return Promise.resolve({
-				code: r.status ?? 1,
-				stdout: r.stdout ?? "",
-				stderr: r.stderr ?? "",
-			});
+				return Promise.resolve({
+					code: r.status ?? 1,
+					stdout: r.stdout ?? "",
+					stderr: r.stderr ?? "",
+				});
+			},
 		});
 		try {
 			await runSillajje(runner, "stamp -s @");
 		} finally {
-			setTestExecWrapper(undefined);
+			setTestPorts({ exec: undefined });
 		}
 
 		// The seal landed: the stamped change carries the generated body and
@@ -275,7 +285,7 @@ describeJj("sillajje transactional seal", () => {
 			[
 				"log",
 				"-r",
-				`sillajje/${sessionId}`,
+				sessionBookmark(sessionId),
 				"--no-graph",
 				"-T",
 				"description.first_line()",

@@ -11,33 +11,25 @@ _Avoid_: Turn, round, exchange
 **Sillage**:
 The cumulative trail of jj changes left by agent sessions — fully reviewable via `jj log`, `jj show`, and `jj diff`.
 
-**Workspace**:
-A jj workspace — a separate checkout directory tied to a specific commit. Each Pi session creates one, and the agent runs inside it. Derived from `jj workspace list`.
-_Avoid_: Sandbox, clone, checkout
-
-**Archive**:
-A manual lifecycle action that keeps the jj branch but deletes the workspace directory (via `jj workspace forget` + `rm`). An archived session cannot accept prompts until unarchived.
-_Avoid_: Close, delete, prune
-
-**Session target**:
-The sillajje session a subcommand acts on: the current session by default, or the session named by `--session <id>`. A target equal to the current session uses its stored workspace path without a bookmark check. Any other target is validated by the three-state rule: no `sillajje/<key>` bookmark is not a sillajje session; a bookmark without a workspace is archived.
-_Avoid_: Session (the target is which session, not the session itself)
-
-**Rebase**:
-A `/sillajje rebase <rev>` subcommand that syncs the session: rebases the session working copy onto a target revision, creating a merge commit that brings the target into the session's ancestry. The session remains active afterward.
-_Avoid_: Merge, sync-update (rebase is precise and matches the jj operation name)
+**Sync**:
+A `/sillajje sync -s <id|@> -o <rev>` subcommand that brings a target revision into a session's ancestry as a merge commit, keeping the session's own history intact. The session remains active afterward.
+_Avoid_: Rebase (as the subcommand name — it asserts the wrong mechanics), Merge, Update (the jj operation underneath is `jj rebase`)
 
 **Fold**:
-A `/sillajje fold <rev>` subcommand that collapses all session changes into a single new conventional-commit change on a target revision. Produces a commit message via the sub-generator, then archives the session as a practical convenience. The session bookmark is left as sillage.
-_Avoid_: Squash (jj's `jj squash` is a different operation — fold is about collapsing session history, not descending into a parent)
+A `/sillajje fold` subcommand that publishes a source range as one clean change: it aggregates the changes between a base and a source tip into a single change placed as a child of a target. The source branch survives, and folding again onto the previous folded change appends only the delta. The message is a generated Header and Summary plus a `Ref:` line, never the agent trace. `--land` advances the target bookmark; `--archive` retires a session source.
+_Avoid_: Squash (jj's `jj squash` is the primitive underneath; Fold is the publish act)
+
+**Folded source**:
+The source tip last published by a Fold, recorded as a `sillajje/folded/<name>` bookmark. It is the base of the next Fold's delta, so folding again publishes only what is new.
+_Avoid_: Fold base, checkpoint
 
 **Stamping**:
-Sealing a change with a generated commit message: the Sub-generator produces the Header (and Trace), the Commit body is assembled, and the change is described. Two axes decide the shape. The session link (layer 1) decides the mechanics: a Session stamp performs the full seal at a workspace's working copy; a Rev stamp describes one revision and nothing else. The source (layer 2) decides generation: an Interaction transcript plus the diff, or the diff alone. Every Interaction becomes one stamped change.
+Sealing a change with a generated commit message: the Sub-generator produces the Header (and Trace), the Commit body is assembled, and the change is described. Two axes decide the shape. The Action decides the mechanics: a Session stamp performs the full seal at a workspace's working copy; a Rev stamp describes one revision and nothing else. The Source decides generation: an Interaction transcript plus the diff, or the diff alone. Every Interaction becomes one stamped change.
 _Avoid_: Committing (stamping is the session-level act; the jj mechanics underneath are incidental)
 
 **Session stamp**:
-A stamp bound to a sillajje session. It always targets that session's working copy and performs the full seal — workspace prep, describe, session bookmark move, and a fresh empty change — as one transaction: either the whole seal appears or nothing does. The triggers are the `agent_end` auto-stamp (with the pending Interaction transcript), `/sillajje stamp -s @` on the current session, and `/sillajje stamp -s <id>` on another live session (both diff-only; a foreign transcript is never borrowed).
-_Avoid_: Manual stamp (the same entry point serves both triggers)
+A stamp bound to a sillajje session. It always targets that session's working copy and performs the full seal — workspace prep, describe, session bookmark move, and a fresh empty change — as one transaction: either the whole seal appears or nothing does. It fires on the `agent_end` auto-stamp (with the pending Interaction transcript), `/sillajje stamp -s @` on the current session, and `/sillajje stamp -s <id>` on another live session (both diff-only; a foreign transcript is never borrowed).
+_Avoid_: Manual stamp (the same entry point serves both entries)
 
 **Rev stamp**:
 A stamp bound to a revision, not to a session. `/sillajje stamp -r <rev>` accepts any revision jj resolves and generates a conventional-commit header from `jj diff -r <rev>`, then describes that change only — no bookmark move, no `jj new`, no `update-stale`. A single `jj describe` is one jj operation, so the stamp is atomic. `--rev @` describes the caller's working copy without sealing it.
@@ -52,22 +44,33 @@ A stamp whose message is generated from the diff alone — the `-s @` current-se
 _Avoid_: Manual stamp (the `-s` form is equally diff-only)
 
 **Change metadata**:
-The programmatically-generated `Meta:` block in the commit body. It lists the interaction-loop observability data (tools used, tool call count, elapsed time, thinking blocks) plus the Provenance facts. One renderer in the metadata module builds it for every stamp path.
+The programmatically-generated `Meta:` section in a stamp's Commit body, carrying Provenance only: the Source, the ids the stamp touched, the sub-generator model, the fallbacks that fired, and the pi and sillajje versions.
+_Avoid_: Telemetry, stats
+
+**Interaction loop**:
+The programmatically-generated `Loop:` section in a stamped change's Commit body: tools used, tool call count, elapsed time, and thinking blocks. It renders only on an Interaction stamp; `actions.stamp.loop` selects its fields.
 _Avoid_: Telemetry, stats
 
 **Provenance**:
-The audit facts the metadata module renders on every stamp path, whether or not the interaction-loop fields are toggled: the trigger (Interaction, manual Session stamp, or Rev stamp), the stamped session key, the target rev of a Rev stamp, the sub-generator model, the sub-generator fallbacks that fired, and the pi and sillajje versions. The `message.body.meta.*` toggles govern the interaction-loop fields only.
+The section an Action contributes that records where its body came from: a stamp's is Change metadata (`Meta:`), a Fold's is its `Ref:` range, and Sync contributes none. Each Action owns its provenance shape; there is no shared Action field.
 _Avoid_: Audit log, telemetry
 
+**Source**:
+What a stamp's generated message was produced from: an Interaction transcript, a diff, or a revision. A Fold's provenance is its `Ref:` range, not a Source.
+_Avoid_: Trigger (the old term conflated the stamp mechanics with the Source)
+
+**Commit description**:
+The full jj description: the subject line (the Header) plus the Commit body.
+
 **Commit body**:
-The full jj description: dual-prefix subject line (header) + trace narrative + optional sections (user prompt, change metadata, agent response). Everything reviewable in `jj show`. Section visibility is controlled by `message.body.*` in the sillajje config.
+The ordered labelled sections after the subject line. A stamp contributes trace, change metadata, interaction loop, user prompt, and agent response; a Fold contributes a summary and a `Ref:` line. Everything reviewable in `jj show`. `actions.<action>.body` selects the sections and their order.
 
 **Sub-generator**:
 Two tool-less pi subagents invoked in parallel by the extension through `@pi-tre/pi-subagent`'s in-process backend (no child process) — one produces the dual-prefix subject line (header), the other produces the compressed agent-loop narrative (trace). Inputs: session transcript (user messages + extracted assistant text), the diff, and previous change descriptions.
 _Avoid_: Summarizer, sub-agent
 
 **Header**:
-The dual-prefix subject line produced by the header sub-generator. Format: `<interaction-type>[/<conventional-commit>][(<optional-scope>)]: <description>` (e.g., `act/feat(auth): add login form`, `explore(sillajje): audit error handling`, `answer: middleware chain explained`). The conventional-commit and scope are optional. When no files changed, omit the conventional-commit. The scope signals which area of the codebase the interaction touched. Configurable via `message.header` — can also be set to `"user_prompt"` to use the first line of the user's prompt instead.
+The dual-prefix subject line produced by the header sub-generator. Format: `<interaction-type>[/<conventional-commit>][(<optional-scope>)]: <description>` (e.g., `act/feat(auth): add login form`, `explore(sillajje): audit error handling`, `answer: middleware chain explained`). The conventional-commit and scope are optional. When no files changed, omit the conventional-commit. The scope signals which area of the codebase the interaction touched. Configurable via `actions.stamp.header.mode` — can also be set to `"user_prompt"` to use the first line of the user's prompt instead.
 
 **Trace**:
 The compressed narrative of the agent's thinking-and-tool loop, produced by the trace sub-generator. Captures what the agent thought about, what tools it called and why, what it found, and what decisions it made — not just the final outcome. Three configurable detail levels: `high` (2-4 sentences), `step` (numbered actions), `decision` (key insights and trade-offs).
@@ -81,11 +84,11 @@ The taxonomy of agent modes that form the first half of a dual prefix. Seven can
 
 ## Concurrency
 
-Each Pi session gets its own jj workspace (`sillajje/<session-id>`), so concurrent Pi processes on the same repo never share a working directory. jj handles concurrent operations on one repo natively — bookmarks, working-copy snapshots, and lock files are coordinated by jj itself — so no locking or coordination is needed in the extension. The session-ID collision guard (a numeric `-N` suffix on the workspace name and bookmark) covers the pathological case of two sessions sharing an ID.
+Each Pi session gets its own jj workspace (`sillajje/<session-key>`), so concurrent Pi processes on the same repo never share a working directory. jj handles concurrent operations on one repo natively — bookmarks, working-copy snapshots, and lock files are coordinated by jj itself — so no locking or coordination is needed in the extension. The session-ID collision guard (a numeric `-N` suffix on the session key) covers the pathological case of two sessions sharing an ID.
 
 ## Bookmark lifecycle
 
-The `sillajje/<session-id>` bookmark is created at the start of the first interaction (`before_agent_start`) and updated on every Session stamp: the `agent_end` auto-stamp, `/sillajje stamp -s @` on the current session, and `/sillajje stamp -s <id>` from another conversation. Creating it early means the session's `sillajje/<id>` ref resolves from the very first interaction (e.g. for `jj show`, `jj diff`, or unarchive). A Rev stamp (`-r <rev>`) never moves a bookmark.
+The `sillajje/<session-key>` bookmark is created at the start of the first interaction (`before_agent_start`) and updated on every Session stamp: the `agent_end` auto-stamp, `/sillajje stamp -s @` on the current session, and `/sillajje stamp -s <id>` from another conversation. Creating it early means the session's `sillajje/<session-key>` ref resolves from the very first interaction (e.g. for `jj show`, `jj diff`, or unarchive). A Rev stamp (`-r <rev>`) never moves a bookmark.
 
 ## Log revsets
 

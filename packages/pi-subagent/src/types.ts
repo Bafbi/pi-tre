@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai/compat";
+import type { Api, Model } from "@earendil-works/pi-ai/compat";
 
 /**
  * One subagent call. Every field except `prompt` and `cwd` is optional;
@@ -9,19 +9,19 @@ export interface SubagentTask {
 	prompt: string;
 	cwd: string;
 	/** Model for the subagent: a `Model` object or a CLI model string (e.g. `"anthropic/claude-..."`). Backends may inherit a parent default when omitted. */
-	model?: Model<any> | string;
+	model?: Model<Api> | string | undefined;
 	/** Thinking level. Backends may inherit a parent default when omitted. */
-	thinkingLevel?: ThinkingLevel;
+	thinkingLevel?: ThinkingLevel | undefined;
 	/** Tool allowlist, e.g. `["read", "grep", "find", "ls", "bash"]`. An empty array disables all tools; omit the field to use the backend default. */
-	tools?: string[];
+	tools?: string[] | undefined;
 	/** Tool denylist. Use it to keep the spawning extension's own tools out of the child. */
-	excludeTools?: string[];
+	excludeTools?: string[] | undefined;
 	/** Instructions appended to the child's system prompt. The process backend delivers it via a temp file and `--append-system-prompt`; the in-process backend appends it through a resource loader. */
-	systemPrompt?: string;
+	systemPrompt?: string | undefined;
 	/** Abort signal. Aborting kills the subagent run. */
-	signal?: AbortSignal;
+	signal?: AbortSignal | undefined;
 	/** Wall-clock limit. A run that outlasts it is aborted and reported as timed out. */
-	timeoutMs?: number;
+	timeoutMs?: number | undefined;
 }
 
 /** Token/cost usage accumulated across the subagent's LLM turns. */
@@ -67,7 +67,7 @@ export type SubagentEvent =
 			/** Collected stderr output. */
 			stderr: string;
 			/** Set when the child process itself failed to start. */
-			spawnError?: string;
+			spawnError?: string | undefined;
 	  };
 
 /** The handle returned by a subagent run. */

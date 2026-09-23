@@ -53,8 +53,12 @@ for (const match of output.matchAll(
 }
 
 const baseline = readBaseline();
-const added = [...current].filter((task) => !baseline.has(task)).sort();
-const fixed = [...baseline].filter((task) => !current.has(task)).sort();
+const added = [...current]
+	.filter((task) => !baseline.has(task))
+	.sort((a, b) => a.localeCompare(b));
+const fixed = [...baseline]
+	.filter((task) => !current.has(task))
+	.sort((a, b) => a.localeCompare(b));
 
 console.log(`Baseline failures: ${baseline.size}`);
 console.log(`Current failures:  ${current.size}`);

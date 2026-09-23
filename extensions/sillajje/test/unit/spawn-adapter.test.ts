@@ -4,13 +4,13 @@ import type {
 	SubagentTask,
 } from "@pi-tre/pi-subagent";
 import { createPushStream, zeroUsage } from "@pi-tre/pi-subagent";
-import { describe, expect, it } from "vitest";
-import type { SubGeneratorContext } from "../../src/sub-generator.js";
 import {
-	createSpawnFn,
 	generateHeader,
 	type HeaderOptions,
-} from "../../src/sub-generator.js";
+	type SubGeneratorContext,
+} from "@pi-tre/sillajje-core";
+import { describe, expect, it } from "vitest";
+import { createRunSubagent } from "../../src/sub-generator.js";
 
 const CTX: SubGeneratorContext = {
 	transcript: "User: hello\nAssistant: I did something",
@@ -96,30 +96,25 @@ function failingBackend(): SubagentBackend {
 	]);
 }
 
-describe("createSpawnFn over the pi-subagent seam", () => {
-	it("returns the subagent answer as stdout", async () => {
-		const spawn = createSpawnFn(
+describe("createRunSubagent over the pi-subagent seam", () => {
+	it("returns the subagent answer as text", async () => {
+		const run = createRunSubagent(
 			answeringBackend("act/feat: add login form"),
 		);
 
-		const result = await spawn(
-			"pi",
-			["-p", "--no-session", "--no-tools", "--model", "m"],
-			"prompt",
-			1_000,
-		);
-
-		expect(result).toEqual({
-			code: 0,
-			stdout: "act/feat: add login form",
-			stderr: "",
+		const result = await run({
+			prompt: "prompt",
+			model: "m",
+			timeoutMs: 1_000,
 		});
+
+		expect(result).toEqual({ text: "act/feat: add login form" });
 	});
 
 	it("treats an LLM error from the backend as a retryable failure and falls back", async () => {
-		const spawn = createSpawnFn(failingBackend());
+		const run = createRunSubagent(failingBackend());
 
-		const { text, fellBack } = await generateHeader(CTX, spawn, {
+		const { text, fellBack } = await generateHeader(CTX, run, {
 			...OPTS,
 			maxAttempts: 1,
 		});
@@ -128,7 +123,7 @@ describe("createSpawnFn over the pi-subagent seam", () => {
 		expect(text).toBe(OPTS.prompt);
 	});
 
-	it("maps the --no-tools flag to an empty tool allowlist", async () => {
+	it("runs the backend tool-less", async () => {
 		const seen: SubagentTask[] = [];
 		const backend = scriptedBackend((task) => {
 			seen.push(task);
@@ -137,31 +132,17 @@ describe("createSpawnFn over the pi-subagent seam", () => {
 				exitEvent(0),
 			];
 		});
-		const spawn = createSpawnFn(backend);
+		const run = createRunSubagent(backend);
 
-		// The generator's real command carries `--no-tools`.
-		await spawn(
-			"pi",
-			["-p", "--no-session", "--no-tools", "--model", "m"],
-			"prompt",
-			1_000,
-		);
+		await run({ prompt: "prompt", model: "m", timeoutMs: 1_000 });
+
 		expect(seen[0].tools).toEqual([]);
-
-		// Without the flag, no allowlist is imposed.
-		await spawn(
-			"pi",
-			["-p", "--no-session", "--model", "m"],
-			"prompt",
-			1_000,
-		);
-		expect(seen[1].tools).toBeUndefined();
 	});
 
 	it("maps a timed-out run to a retryable failure and still falls back", async () => {
-		const spawn = createSpawnFn(hangingBackend());
+		const run = createRunSubagent(hangingBackend());
 
-		const { text, fellBack } = await generateHeader(CTX, spawn, {
+		const { text, fellBack } = await generateHeader(CTX, run, {
 			...OPTS,
 			maxAttempts: 2,
 			timeoutMs: 20,

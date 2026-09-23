@@ -41,7 +41,7 @@ export function extractInjectedContent(
 	for (const match of prompt.matchAll(SKILL_BLOCK_PATTERN)) {
 		const [block, location] = match;
 		const body = extractSkillBody(block);
-		if (body === undefined) continue;
+		if (body === undefined || location === undefined) continue;
 		injected.push({ kind: "skill", path: location, content: body });
 	}
 

@@ -25,35 +25,74 @@
 				"type": "string"
 			}
 		},
-		"message": {
+		"actions": {
 			"default": {},
+			"additionalProperties": false,
 			"type": "object",
 			"properties": {
-				"header": {
-					"default": "one_line",
-					"anyOf": [
-						{
-							"const": "one_line",
-							"type": "string"
-						},
-						{
-							"const": "user_prompt",
-							"type": "string"
-						}
-					]
-				},
-				"body": {
+				"stamp": {
 					"default": {},
+					"additionalProperties": false,
 					"type": "object",
 					"properties": {
+						"body": {
+							"default": [
+								"trace",
+								"meta",
+								"loop",
+								"prompt",
+								"response"
+							],
+							"uniqueItems": true,
+							"type": "array",
+							"items": {
+								"anyOf": [
+									{
+										"const": "trace",
+										"type": "string"
+									},
+									{
+										"const": "meta",
+										"type": "string"
+									},
+									{
+										"const": "loop",
+										"type": "string"
+									},
+									{
+										"const": "prompt",
+										"type": "string"
+									},
+									{
+										"const": "response",
+										"type": "string"
+									}
+								]
+							}
+						},
+						"header": {
+							"default": {},
+							"type": "object",
+							"properties": {
+								"mode": {
+									"default": "one_line",
+									"anyOf": [
+										{
+											"const": "one_line",
+											"type": "string"
+										},
+										{
+											"const": "user_prompt",
+											"type": "string"
+										}
+									]
+								}
+							}
+						},
 						"trace": {
 							"default": {},
 							"type": "object",
 							"properties": {
-								"enabled": {
-									"default": true,
-									"type": "boolean"
-								},
 								"detail": {
 									"default": "high",
 									"anyOf": [
@@ -73,39 +112,82 @@
 								}
 							}
 						},
-						"meta": {
+						"loop": {
+							"default": [
+								"tools",
+								"call_count",
+								"elapsed",
+								"thinking_blocks"
+							],
+							"uniqueItems": true,
+							"type": "array",
+							"items": {
+								"anyOf": [
+									{
+										"const": "tools",
+										"type": "string"
+									},
+									{
+										"const": "call_count",
+										"type": "string"
+									},
+									{
+										"const": "elapsed",
+										"type": "string"
+									},
+									{
+										"const": "thinking_blocks",
+										"type": "string"
+									}
+								]
+							}
+						}
+					}
+				},
+				"fold": {
+					"default": {},
+					"additionalProperties": false,
+					"type": "object",
+					"properties": {
+						"body": {
+							"default": ["summary", "ref"],
+							"uniqueItems": true,
+							"type": "array",
+							"items": {
+								"anyOf": [
+									{
+										"const": "summary",
+										"type": "string"
+									},
+									{
+										"const": "ref",
+										"type": "string"
+									}
+								]
+							}
+						},
+						"summary": {
 							"default": {},
 							"type": "object",
 							"properties": {
-								"enabled": {
-									"default": true,
-									"type": "boolean"
-								},
-								"tools": {
-									"default": true,
-									"type": "boolean"
-								},
-								"call_count": {
-									"default": true,
-									"type": "boolean"
-								},
-								"elapsed": {
-									"default": true,
-									"type": "boolean"
-								},
-								"thinking_blocks": {
-									"default": true,
-									"type": "boolean"
+								"detail": {
+									"default": "high",
+									"anyOf": [
+										{
+											"const": "high",
+											"type": "string"
+										},
+										{
+											"const": "step",
+											"type": "string"
+										},
+										{
+											"const": "decision",
+											"type": "string"
+										}
+									]
 								}
 							}
-						},
-						"user_prompt": {
-							"default": true,
-							"type": "boolean"
-						},
-						"response": {
-							"default": true,
-							"type": "boolean"
 						}
 					}
 				}

@@ -26,7 +26,7 @@ interface FetchMockConfig {
 
 function mockGitHubApi(config: FetchMockConfig) {
 	const originalFetch = globalThis.fetch;
-	const mockedFetch = vi.fn(async (input: RequestInfo | URL) => {
+	const mockedFetch = vi.fn(async (input: string | URL) => {
 		const url = typeof input === "string" ? input : input.toString();
 		const match = config.responses.get(url);
 		if (match === undefined) {
@@ -73,7 +73,7 @@ async function executeQuery(
 		undefined,
 		undefined,
 		minimalContext(cwd),
-	) as Promise<Record<string, unknown>>;
+	) as unknown as Promise<Record<string, unknown>>;
 }
 
 describe("repo_query GitHub validation (hermetic)", () => {
@@ -98,7 +98,7 @@ describe("repo_query GitHub validation (hermetic)", () => {
 				results: Array<{ status: string }>;
 				answer?: string;
 			};
-			expect(details.results[0]?.status).toBe("success");
+			expect(details.results[0].status).toBe("success");
 			expect(details.answer).toBe("Mock exploration result");
 		} finally {
 			gh.restore();
@@ -123,11 +123,9 @@ describe("repo_query GitHub validation (hermetic)", () => {
 			const details = result.details as {
 				results: Array<{ status: string; warnings: string[] }>;
 			};
-			expect(details.results[0]?.status).toBe("archived");
+			expect(details.results[0].status).toBe("archived");
 			expect(
-				details.results[0]?.warnings.some((w) =>
-					w.includes("archived"),
-				),
+				details.results[0].warnings.some((w) => w.includes("archived")),
 			).toBe(true);
 		} finally {
 			gh.restore();
@@ -217,11 +215,11 @@ describe("repo_query GitHub validation (hermetic)", () => {
 				results: Array<{ status: string; warnings: string[] }>;
 			};
 			expect(
-				details.results[0]?.warnings.some((w) =>
+				details.results[0].warnings.some((w) =>
 					w.includes("GitHub API check failed"),
 				),
 			).toBe(true);
-			expect(details.results[0]?.status).toBe("success");
+			expect(details.results[0].status).toBe("success");
 		} finally {
 			gh.restore();
 		}

@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveCanonicalPath } from "../../src/path";
+import { resolveCanonicalPath } from "../../src/path.js";
 
 const tempDirs: string[] = [];
 

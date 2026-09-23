@@ -1,7 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	discoverAndLoadExtensions,
 	ExtensionRunner,
@@ -12,8 +13,8 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 const extensionPath = resolve(
-	process.cwd(),
-	"extensions/leaf-copy/src/index.ts",
+	dirname(fileURLToPath(import.meta.url)),
+	"../../src/index.ts",
 );
 const tempDirs: string[] = [];
 

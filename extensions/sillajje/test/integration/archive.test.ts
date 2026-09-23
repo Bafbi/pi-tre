@@ -7,8 +7,9 @@ import {
 	describeJj,
 	installDefaultSubGeneratorMock,
 	makeRunnerCwd,
+	sessionBookmark,
 	tempDirs,
-} from "./_helpers";
+} from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,7 +65,7 @@ async function simulateInteraction(
 	await runner.emitBeforeAgentStart(prompt, undefined, "You are helpful.", {
 		skills: [],
 		contextFiles: [],
-		prompts: [],
+		cwd: "",
 	});
 	await runner.emit({ type: "agent_start" });
 	await runner.emit({
@@ -149,7 +150,7 @@ describeJj("sillajje archive / unarchive", () => {
 			"do something",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		expect(result).toBeUndefined();
 	});
@@ -172,7 +173,7 @@ describeJj("sillajje archive / unarchive", () => {
 			"do something",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		expect(result).toBeUndefined();
 	});
@@ -201,7 +202,7 @@ describeJj("sillajje archive / unarchive", () => {
 			cwd,
 			encoding: "utf-8",
 		});
-		expect(bmList).toContain(`sillajje/${sessionId}`);
+		expect(bmList).toContain(sessionBookmark(sessionId));
 
 		// Unarchive.
 		await cmd.handler(

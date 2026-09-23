@@ -11,8 +11,8 @@ export interface ParsedRepo {
 	branch: string | null;
 	displayName: string;
 	dirName: string;
-	owner?: string;
-	repo?: string;
+	owner?: string | undefined;
+	repo?: string | undefined;
 }
 
 export type RepoStatus =
@@ -41,10 +41,10 @@ export function isFailure(status: RepoStatus): boolean {
 export interface RepoResult {
 	identifier: string;
 	status: RepoStatus;
-	localPath?: string;
+	localPath?: string | undefined;
 	warnings: string[];
-	suggestions?: string[];
-	error?: string;
+	suggestions?: string[] | undefined;
+	error?: string | undefined;
 }
 
 export type RepoQueryPhase =
@@ -63,14 +63,14 @@ export interface RepoQueryDetails {
 	results: RepoResult[];
 	phase: RepoQueryPhase;
 	/** The single answer produced by the subagent (absent until exploration completes). */
-	answer?: string;
-	thought?: string;
-	model?: string;
-	usage?: SubagentUsage;
+	answer?: string | undefined;
+	thought?: string | undefined;
+	model?: string | undefined;
+	usage?: SubagentUsage | undefined;
 }
 
 export interface ValidationResult {
 	valid: boolean;
-	warning?: string;
-	suggestions?: string[];
+	warning?: string | undefined;
+	suggestions?: string[] | undefined;
 }

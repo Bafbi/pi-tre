@@ -18,7 +18,7 @@ function mockTheme() {
 	return {
 		fg: (_color: string, text: string) => text,
 		bold: (text: string) => text,
-	} as unknown as import("@earendil-works/pi-tui").Theme;
+	} as unknown as import("@earendil-works/pi-coding-agent").Theme;
 }
 
 /** Build a minimal render context for testing. */
@@ -27,18 +27,10 @@ function mockRenderContext(overrides?: {
 	lastComponent?: Component;
 }): ToolRenderLike {
 	return {
-		args: { query: "", repos: [] },
-		toolCallId: "test",
 		invalidate: () => {},
 		lastComponent: overrides?.lastComponent,
 		state: overrides?.state ?? {},
-		cwd: "/tmp",
 		executionStarted: true,
-		argsComplete: true,
-		isPartial: false,
-		expanded: false,
-		showImages: false,
-		isError: false,
 	};
 }
 

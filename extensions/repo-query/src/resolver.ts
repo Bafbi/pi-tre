@@ -122,11 +122,14 @@ function parseSshUrl(
 	branch: string | null,
 ): ParsedRepo {
 	// git@host.com:owner/repo.git → https://host.com/owner/repo
-	const match = raw.match(/^git@([^:]+):(.+)$/);
+	const match = /^git@([^:]+):(.+)$/.exec(raw);
 	if (!match) {
 		throw new Error(`Cannot parse SSH git URL: ${original}`);
 	}
 
+	if (match[1] === undefined || match[2] === undefined) {
+		throw new Error(`Cannot parse SSH git URL: ${original}`);
+	}
 	const hostname = match[1];
 	const path = match[2].replace(/\.git$/, "");
 	const pathParts = path.split("/");

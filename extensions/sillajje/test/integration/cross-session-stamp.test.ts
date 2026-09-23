@@ -15,8 +15,9 @@ import {
 	installDefaultSubGeneratorMock,
 	jj,
 	runSillajje,
+	sessionBookmark,
 	wsPath,
-} from "./_helpers";
+} from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,7 +34,7 @@ function makeForeignSession(cwd: string, id: string): string {
 			"workspace",
 			"add",
 			"--name",
-			`sillajje-${id}`,
+			sessionBookmark(id),
 			"--revision",
 			"@-",
 			path,
@@ -41,7 +42,7 @@ function makeForeignSession(cwd: string, id: string): string {
 		cwd,
 	);
 	writeFileSync(join(path, "other.txt"), "// other work\n");
-	jj(["bookmark", "set", `sillajje/${id}`, "-r", "@"], path);
+	jj(["bookmark", "set", sessionBookmark(id), "-r", "@"], path);
 	return path;
 }
 
@@ -73,16 +74,16 @@ describeJj("sillajje cross-session stamp", () => {
 			otherPath,
 		);
 		expect(atDesc).toContain("test subject");
-		expect(atDesc).toContain("Meta: trigger: manual-session");
-		expect(atDesc).toContain(`sillajje/${otherId}`);
-		expect(atDesc).not.toContain(`sillajje/${sessionId}`);
+		expect(atDesc).toContain("Meta: source: diff");
+		expect(atDesc).toContain(sessionBookmark(otherId));
+		expect(atDesc).not.toContain(sessionBookmark(sessionId));
 
 		// The foreign bookmark moved to the stamped change…
 		const bmTarget = jj(
 			[
 				"log",
 				"-r",
-				`sillajje/${otherId}`,
+				sessionBookmark(otherId),
 				"--no-graph",
 				"-T",
 				"description.first_line()",
@@ -96,7 +97,7 @@ describeJj("sillajje cross-session stamp", () => {
 
 		// The issuer's own bookmark is untouched.
 		const ownBookmark = jj(["bookmark", "list"], cwd);
-		expect(ownBookmark).not.toContain(`sillajje/${sessionId}:`);
+		expect(ownBookmark).not.toContain(`${sessionBookmark(sessionId)}:`);
 	}, 20_000);
 
 	it("leaves the issuing conversation's pending interaction untouched", async () => {
@@ -119,7 +120,7 @@ describeJj("sillajje cross-session stamp", () => {
 			"My pending interaction",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
 		// Stamp the foreign session mid-interaction.
@@ -138,7 +139,7 @@ describeJj("sillajje cross-session stamp", () => {
 			[
 				"log",
 				"-r",
-				`ancestors(sillajje/${sessionId})`,
+				`ancestors(${sessionBookmark(sessionId)})`,
 				"--no-graph",
 				"-T",
 				"description",
@@ -152,7 +153,7 @@ describeJj("sillajje cross-session stamp", () => {
 			["log", "-r", "@-", "--no-graph", "-T", "description"],
 			otherPath,
 		);
-		expect(otherDesc).toContain(`sillajje/${otherId}`);
+		expect(otherDesc).toContain(sessionBookmark(otherId));
 	}, 20_000);
 
 	it("reports the archived-session error for a bookmark without a workspace", async () => {
@@ -173,7 +174,7 @@ describeJj("sillajje cross-session stamp", () => {
 			{
 				skills: [],
 				contextFiles: [],
-				prompts: [],
+				cwd: "",
 			},
 		);
 		await runner.emit({ type: "agent_start" });

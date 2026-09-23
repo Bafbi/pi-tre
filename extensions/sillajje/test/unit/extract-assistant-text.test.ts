@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractAssistantText } from "../../src/stamp/derive";
+import { extractAssistantText } from "../../src/derive.js";
 
 // ---------------------------------------------------------------------------
 // extractAssistantText — filters assistant message content blocks to text

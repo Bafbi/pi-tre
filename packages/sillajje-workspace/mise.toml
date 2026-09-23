@@ -1,0 +1,55 @@
+[tasks.lint]
+extends = "ext:lint"
+
+[tasks.test]
+extends = "ext:test"
+
+[tasks.test-external]
+extends = "ext:test-external"
+# The non-hermetic suite executes the workspace dependency.
+sources = [
+	"src/**/*.ts",
+	"test/**/*.ts",
+	"package.json",
+	"vitest.config.ts",
+	"{{ vars.monorepo }}/scripts/run-vitest.sh",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/pnpm-lock.yaml",
+	"{{ vars.monorepo }}/packages/sillajje-jj/src/**/*.ts",
+]
+
+[tasks.typecheck]
+extends = "ext:typecheck"
+# sillajje-jj is a workspace dependency. Its sources are part of this task's
+# inputs so a change there invalidates this typecheck. A `depends` edge alone
+# does not persist across separate mise invocations.
+sources = [
+	"src/**/*.ts",
+	"tsconfig.json",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/packages/sillajje-jj/src/**/*.ts",
+]
+
+[tasks.typecheck-strict]
+extends = "ext:typecheck-strict"
+sources = [
+	"src/**/*.ts",
+	"tsconfig.json",
+	"{{ vars.monorepo }}/tsconfig.base.json",
+	"{{ vars.monorepo }}/packages/sillajje-jj/src/**/*.ts",
+]
+
+[tasks.type-aware]
+extends = "ext:type-aware"
+sources = [
+	"src/**/*.ts",
+	"test/**/*.ts",
+	"{{ vars.monorepo }}/biome.json",
+	"{{ vars.monorepo }}/packages/sillajje-jj/src/**/*.ts",
+]
+
+[tasks.ci]
+extends = "ext:ci"
+
+[tasks.check]
+extends = "ext:check"

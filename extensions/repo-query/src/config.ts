@@ -72,7 +72,7 @@ export function resolveModel(
 			Object.hasOwn(config.models, firstRepo.displayName)
 		) {
 			const value = config.models[firstRepo.displayName];
-			if (value.length > 0) {
+			if (value !== undefined && value.length > 0) {
 				return value;
 			}
 		}

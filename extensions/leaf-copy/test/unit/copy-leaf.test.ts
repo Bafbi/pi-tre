@@ -19,7 +19,7 @@ function createMockContext(
 		editorText?: string;
 		branch?: Array<{
 			type: string;
-			message: { role: string; content: unknown };
+			message: { role: string; [key: string]: unknown };
 		}>;
 		hasUI?: boolean;
 	} = {},

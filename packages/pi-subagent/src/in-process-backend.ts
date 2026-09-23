@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai/compat";
+import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import {
 	type AgentSession,
 	type AgentSessionEvent,
@@ -49,7 +49,7 @@ export interface InProcessBackendOptions {
 	 */
 	modelRuntime?: ModelRuntime;
 	/** Returns the parent model to inherit when the task carries none. */
-	onModel?: () => Model<any> | undefined;
+	onModel?: () => Model<Api> | undefined;
 	/** Returns the parent thinking level to inherit when the task carries none. */
 	onThinkingLevel?: () => ThinkingLevel | undefined;
 	/** Session factory override for tests. Default: the SDK's `createAgentSession`. */
@@ -249,18 +249,27 @@ export function createInProcessBackend(
 					// build a session just to dispose it.
 					if (finished) return;
 
-					const { session: child } = await createSession({
+					const sessionOptions: CreateAgentSessionOptions = {
 						cwd: task.cwd,
 						agentDir,
 						modelRuntime: runtime,
-						model,
-						thinkingLevel,
-						tools: task.tools,
-						excludeTools: task.excludeTools,
-						resourceLoader,
 						sessionManager: SessionManager.inMemory(),
 						sessionStartEvent: DEFAULT_SESSION_START_EVENT,
-					});
+					};
+					if (model !== undefined) sessionOptions.model = model;
+					if (thinkingLevel !== undefined) {
+						sessionOptions.thinkingLevel = thinkingLevel;
+					}
+					if (task.tools !== undefined)
+						sessionOptions.tools = task.tools;
+					if (task.excludeTools !== undefined) {
+						sessionOptions.excludeTools = task.excludeTools;
+					}
+					if (resourceLoader !== undefined) {
+						sessionOptions.resourceLoader = resourceLoader;
+					}
+					const { session: child } =
+						await createSession(sessionOptions);
 					childSession = child;
 
 					// The deadline's abort grace elapsed while the session was still
@@ -361,7 +370,7 @@ function handleSessionEvent(
 
 /** A resolved model plus a thinking level parsed from a CLI string. */
 interface ResolvedModel {
-	model: Model<any> | undefined;
+	model: Model<Api> | undefined;
 	thinkingLevel: ThinkingLevel | undefined;
 }
 

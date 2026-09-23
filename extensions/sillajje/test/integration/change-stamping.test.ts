@@ -1,9 +1,9 @@
 import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { RunSubagent } from "@pi-tre/sillajje-core";
 import { beforeEach, expect, it, vi } from "vitest";
-import { setTestSpawnFn } from "../../src/index.js";
-import type { SpawnFn } from "../../src/sub-generator.js";
+import { setTestPorts } from "../../src/index.js";
 import {
 	assistantMsg,
 	createRunner,
@@ -13,9 +13,10 @@ import {
 	installDefaultSubGeneratorMock,
 	jj,
 	makeRunnerCwd,
+	sessionBookmark,
 	tempDirs,
 	wsPath,
-} from "./_helpers";
+} from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,7 +39,7 @@ async function simulateInteraction(
 	await runner.emitBeforeAgentStart(prompt, undefined, "You are helpful.", {
 		skills: [],
 		contextFiles: [],
-		prompts: [],
+		cwd: "",
 	});
 	await runner.emit({ type: "agent_start" });
 	await runner.emit({
@@ -101,7 +102,7 @@ describeJj("sillajje change stamping", () => {
 			"Add a login page",
 			undefined,
 			"You are a helpful assistant.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		await runner.emitToolCall({
 			type: "tool_call",
@@ -131,11 +132,11 @@ describeJj("sillajje change stamping", () => {
 		await runner.emit({ type: "agent_settled" });
 
 		// The bookmark is set on the stamped commit in the repo.
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("Add a login page");
-		expect(show).toContain("Meta: write, bash | 2 calls");
-		// Provenance: interaction trigger, model, and versions.
-		expect(show).toContain("trigger: interaction");
+		expect(show).toContain("Loop: write, bash | 2 calls");
+		// Provenance: interaction source, model, and versions.
+		expect(show).toContain("source: interaction");
 		expect(show).toMatch(/model: /);
 		expect(show).toMatch(/pi: /);
 		expect(show).toContain("sillajje/");
@@ -144,7 +145,7 @@ describeJj("sillajje change stamping", () => {
 
 		// Bookmark should exist.
 		const bookmarks = jj(["bookmark", "list"], cwd);
-		expect(bookmarks).toContain(`sillajje/${sessionId}`);
+		expect(bookmarks).toContain(sessionBookmark(sessionId));
 	}, 10_000);
 
 	it("steering does NOT create a new change", async () => {
@@ -169,7 +170,7 @@ describeJj("sillajje change stamping", () => {
 
 		// Record bookmark position.
 		const bmBefore = jj(
-			["bookmark", "list", "--revision", `sillajje/${sessionId}`],
+			["bookmark", "list", "--revision", sessionBookmark(sessionId)],
 			cwd,
 		);
 
@@ -190,7 +191,7 @@ describeJj("sillajje change stamping", () => {
 
 		// Bookmark should NOT have moved.
 		const bmAfter = jj(
-			["bookmark", "list", "--revision", `sillajje/${sessionId}`],
+			["bookmark", "list", "--revision", sessionBookmark(sessionId)],
 			cwd,
 		);
 		expect(bmAfter).toBe(bmBefore);
@@ -219,7 +220,7 @@ describeJj("sillajje change stamping", () => {
 			"Do something",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
 		// Segment 1
@@ -237,7 +238,7 @@ describeJj("sillajje change stamping", () => {
 			"Do more",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		await runner.emit({ type: "agent_start" });
 		await new Promise((r) => setTimeout(r, 15));
@@ -255,7 +256,7 @@ describeJj("sillajje change stamping", () => {
 			[
 				"log",
 				"-r",
-				`ancestors(sillajje/${sessionId})`,
+				`ancestors(${sessionBookmark(sessionId)})`,
 				"--no-graph",
 				"-T",
 				"description",
@@ -266,7 +267,7 @@ describeJj("sillajje change stamping", () => {
 		expect(log).toContain("Do more");
 
 		// The latest stamp should have Meta: line with elapsed
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("Meta:");
 	}, 30_000);
 
@@ -300,7 +301,7 @@ describeJj("sillajje change stamping", () => {
 			[
 				"log",
 				"-r",
-				`ancestors(sillajje/${sessionId})`,
+				`ancestors(${sessionBookmark(sessionId)})`,
 				"--no-graph",
 				"-T",
 				"description",
@@ -342,7 +343,7 @@ describeJj("sillajje change stamping", () => {
 			"Follow-up task",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		await runner.emit({ type: "agent_start" });
 		await runner.emit({
@@ -358,7 +359,7 @@ describeJj("sillajje change stamping", () => {
 			[
 				"log",
 				"-r",
-				`ancestors(sillajje/${sessionId})`,
+				`ancestors(${sessionBookmark(sessionId)})`,
 				"--no-graph",
 				"-T",
 				"description",
@@ -369,7 +370,7 @@ describeJj("sillajje change stamping", () => {
 		expect(log).toContain("Follow-up task");
 	}, 30_000);
 
-	it("manual /sillajje stamp -s @ records the manual-session trigger in the provenance", async () => {
+	it("manual /sillajje stamp -s @ records the diff source in the provenance", async () => {
 		const cwd = initRepo();
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
@@ -383,9 +384,9 @@ describeJj("sillajje change stamping", () => {
 		expect(cmd).toBeDefined();
 		await cmd!.handler("stamp -s @", runner.createCommandContext());
 
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
-		expect(show).toContain("Meta: trigger: manual-session");
-		expect(show).toContain(`sillajje/${sessionId}`);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("Meta: source: diff");
+		expect(show).toContain(sessionBookmark(sessionId));
 		// No interaction sections — the message generated from the diff alone.
 		expect(show).not.toContain("Prompt:");
 		expect(show).not.toContain("Response:");
@@ -446,14 +447,12 @@ describeJj("sillajje change stamping", () => {
 	// Config-gated body sections
 	// -------------------------------------------------------------------
 
-	it("omits Prompt section when message.body.user_prompt is false", async () => {
+	it("omits the Prompt section when it is not in the body", async () => {
 		const cwd = initRepo();
 
-		// Prompt section disabled via config.
+		// Prompt and trace are not in the body.
 		writeSillajjeConfig(cwd, {
-			message: {
-				body: { user_prompt: false, trace: { enabled: false } },
-			},
+			actions: { stamp: { body: ["meta", "loop", "response"] } },
 		});
 
 		const runner = await createRunner(cwd);
@@ -465,18 +464,18 @@ describeJj("sillajje change stamping", () => {
 			"The prompt is hidden.",
 		);
 
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).not.toContain("Prompt:");
 		// Other sections still present.
 		expect(show).toContain("Response:");
 		expect(show).toContain("Meta:");
 	}, 30_000);
 
-	it("omits Response section when message.body.response is false", async () => {
+	it("omits the Response section when it is not in the body", async () => {
 		const cwd = initRepo();
 
 		writeSillajjeConfig(cwd, {
-			message: { body: { response: false, trace: { enabled: false } } },
+			actions: { stamp: { body: ["meta", "loop", "prompt"] } },
 		});
 
 		const runner = await createRunner(cwd);
@@ -488,18 +487,18 @@ describeJj("sillajje change stamping", () => {
 			"The response is hidden.",
 		);
 
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).not.toContain("Response:");
 		expect(show).toContain("Prompt:");
 		expect(show).toContain("Meta:");
 	}, 30_000);
 
-	it("omits entire Meta block when message.body.meta.enabled is false", async () => {
+	it("keeps the Meta section and omits Loop when Loop is not in the body", async () => {
 		const cwd = initRepo();
 
 		writeSillajjeConfig(cwd, {
-			message: {
-				body: { meta: { enabled: false }, trace: { enabled: false } },
+			actions: {
+				stamp: { body: ["trace", "meta", "prompt", "response"] },
 			},
 		});
 
@@ -512,21 +511,22 @@ describeJj("sillajje change stamping", () => {
 			"Meta hidden.",
 		);
 
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
-		expect(show).not.toContain("Meta:");
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("Meta:");
+		expect(show).not.toContain("Loop:");
 		expect(show).toContain("Response:");
 		expect(show).toContain("Prompt:");
 	}, 30_000);
 
-	it("toggles individual meta fields in the Meta block", async () => {
+	it("selects the Loop fields from the config", async () => {
 		const cwd = initRepo();
 
-		// Disable tools and elapsed, keep call_count and thinking_blocks.
+		// Drop tools; keep call_count, elapsed, and thinking_blocks.
 		writeSillajjeConfig(cwd, {
-			message: {
-				body: {
-					meta: { tools: false, elapsed: true },
-					trace: { enabled: false },
+			actions: {
+				stamp: {
+					body: ["meta", "loop", "prompt", "response"],
+					loop: ["call_count", "elapsed", "thinking_blocks"],
 				},
 			},
 		});
@@ -535,7 +535,7 @@ describeJj("sillajje change stamping", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const sessionId = getSessionId(runner);
 
-		// Use a tool so the Meta block has tool data to toggle.
+		// Use a tool so the Loop has tool data to drop.
 		await runner.emitInput(
 			"Use tools to demonstrate meta toggles",
 			undefined,
@@ -545,7 +545,7 @@ describeJj("sillajje change stamping", () => {
 			"Use tools to demonstrate meta toggles",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		await runner.emitToolCall({
 			type: "tool_call",
@@ -567,8 +567,8 @@ describeJj("sillajje change stamping", () => {
 		});
 		await runner.emit({ type: "agent_settled" });
 
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
-		// Tools are toggled off → tool names should not appear.
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		// Tools are not selected → tool names should not appear.
 		expect(show).not.toContain("bash, read");
 		// call_count defaults to true → should appear.
 		expect(show).toMatch(/\d+ calls/);
@@ -582,13 +582,15 @@ describeJj("sillajje change stamping", () => {
 	// Header mode: user_prompt
 	// -------------------------------------------------------------------
 
-	it("uses prompt as subject when message.header is user_prompt", async () => {
+	it("uses prompt as subject when the header mode is user_prompt", async () => {
 		const cwd = initRepo();
 
 		writeSillajjeConfig(cwd, {
-			message: {
-				header: "user_prompt",
-				body: { trace: { enabled: false } },
+			actions: {
+				stamp: {
+					header: { mode: "user_prompt" },
+					body: ["meta", "loop", "prompt", "response"],
+				},
 			},
 		});
 
@@ -608,7 +610,7 @@ describeJj("sillajje change stamping", () => {
 			[
 				"log",
 				"-r",
-				`sillajje/${sessionId}`,
+				sessionBookmark(sessionId),
 				"--no-graph",
 				"-T",
 				"description.first_line()",
@@ -627,8 +629,10 @@ describeJj("sillajje change stamping", () => {
 
 		// Make every sub-generator attempt fail — the header falls back to
 		// deriveSubject(prompt) and the trace falls back to an empty string.
-		setTestSpawnFn(async () => {
-			throw new Error("sub-generator unavailable");
+		setTestPorts({
+			run: async () => {
+				throw new Error("sub-generator unavailable");
+			},
 		});
 
 		const runner = await createRunner(cwd);
@@ -640,7 +644,7 @@ describeJj("sillajje change stamping", () => {
 			"Fallback complete.",
 		);
 
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		// Subject should be the prompt fallback (the first line of the prompt).
 		// `jj show` starts with the commit header lines, so read the
 		// description's first line directly via a log template.
@@ -648,7 +652,7 @@ describeJj("sillajje change stamping", () => {
 			[
 				"log",
 				"-r",
-				`sillajje/${sessionId}`,
+				sessionBookmark(sessionId),
 				"--no-graph",
 				"-T",
 				"description.first_line()",
@@ -664,40 +668,30 @@ describeJj("sillajje change stamping", () => {
 	// Sub-generator success path (via test seam)
 	// -------------------------------------------------------------------
 
-	it("uses mocked sub-generator when __testSpawnFn is set", async () => {
+	it("uses mocked sub-generator when setTestPorts is set", async () => {
 		const cwd = initRepo();
 
-		// Mock SpawnFn that produces canned output on first call (header)
-		// and second call (trace). The parallel calls mean we don't know
-		// which runs first, so we accept both orders.
-		const mockSpawn = vi
-			.fn<SpawnFn>()
-			.mockImplementation(
-				(_cmd: string, _args: string[], input: string) => {
-					// Detect which prompt was used based on content.
-					if (input.includes("Interaction types")) {
-						return Promise.resolve({
-							code: 0,
-							stdout: "act/feat: add mocked login page",
-							stderr: "",
-						});
-					}
-					if (input.includes("narrative")) {
-						return Promise.resolve({
-							code: 0,
-							stdout: "The agent created a mocked login page with validation.",
-							stderr: "",
-						});
-					}
+		// Mock subagent backend that produces canned output on first call
+		// (header) and second call (trace). The parallel calls mean we don't
+		// know which runs first, so we accept both orders.
+		const mockRun = vi
+			.fn<RunSubagent>()
+			.mockImplementation(({ prompt }) => {
+				// Detect which prompt was used based on content.
+				if (prompt.includes("Interaction types")) {
 					return Promise.resolve({
-						code: 0,
-						stdout: "fallback",
-						stderr: "",
+						text: "act/feat: add mocked login page",
 					});
-				},
-			);
+				}
+				if (prompt.includes("narrative")) {
+					return Promise.resolve({
+						text: "The agent created a mocked login page with validation.",
+					});
+				}
+				return Promise.resolve({ text: "fallback" });
+			});
 
-		setTestSpawnFn(mockSpawn);
+		setTestPorts({ run: mockRun });
 
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
@@ -709,9 +703,9 @@ describeJj("sillajje change stamping", () => {
 		);
 
 		// Reset the seam.
-		setTestSpawnFn(undefined);
+		setTestPorts({ run: undefined });
 
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		// Dual-prefix subject from mock header sub-generator.
 		expect(show).toContain("act/feat: add mocked login page");
 		// Trace section from mock trace sub-generator.
@@ -744,7 +738,7 @@ describeJj("sillajje change stamping", () => {
 			"Fix the login bug",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		await runner.emit({ type: "agent_start" });
 
@@ -785,7 +779,7 @@ describeJj("sillajje change stamping", () => {
 		// The stamp must happen only at the true end: the bookmarked change
 		// contains BOTH files and the final response, and the workspace
 		// working copy is sealed clean by the final `jj new`.
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("a.ts");
 		expect(show).toContain("b.ts");
 		expect(show).toContain("Fixed the login bug.");
@@ -818,7 +812,7 @@ describeJj("sillajje change stamping", () => {
 			"First task",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		await runner.emit({ type: "agent_start" });
 		await runner.emitToolCall({
@@ -841,7 +835,7 @@ describeJj("sillajje change stamping", () => {
 			"Next task",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		await runner.emit({ type: "agent_start" });
 		await runner.emitToolCall({
@@ -863,7 +857,7 @@ describeJj("sillajje change stamping", () => {
 			[
 				"log",
 				"-r",
-				`ancestors(sillajje/${sessionId})`,
+				`ancestors(${sessionBookmark(sessionId)})`,
 				"--no-graph",
 				"-T",
 				"description",
@@ -875,7 +869,7 @@ describeJj("sillajje change stamping", () => {
 
 		// The latest (Next task) change contains only b.ts — the error
 		// interaction's a.ts was sealed into its own earlier change.
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("b.ts");
 		expect(show).not.toContain("a.ts");
 	}, 30_000);
@@ -903,7 +897,7 @@ describeJj("sillajje change stamping", () => {
 			"Last task",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		await runner.emit({ type: "agent_start" });
 		await runner.emitToolCall({
@@ -920,9 +914,9 @@ describeJj("sillajje change stamping", () => {
 		});
 
 		// Session ends — the pending interaction must be stamped anyway.
-		await runner.emit({ type: "session_shutdown" });
+		await runner.emit({ type: "session_shutdown", reason: "quit" });
 
-		const show = jj(["show", `sillajje/${sessionId}`], cwd);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("Last task");
 		expect(show).toContain("a.ts");
 		expect(show).toContain("provider unavailable");

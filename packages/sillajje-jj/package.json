@@ -1,0 +1,12 @@
+{
+	"name": "@pi-tre/sillajje-jj",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"scripts": {
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	}
+}

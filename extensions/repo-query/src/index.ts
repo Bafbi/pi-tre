@@ -205,7 +205,7 @@ export function createRepoQueryExtension(
 					results: [...results],
 					phase,
 					answer,
-					thought: thoughtOverride || buildThought(phase),
+					thought: thoughtOverride ?? buildThought(phase),
 					model: resolvedModel,
 					usage,
 				});

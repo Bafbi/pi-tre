@@ -7,16 +7,18 @@ import type { SubagentEvent, SubagentUsage } from "./types.js";
  */
 export interface AssistantMessageInfo {
 	content: Array<{ type: string; text: string }>;
-	usage?: {
-		input?: number;
-		output?: number;
-		cacheRead?: number;
-		cacheWrite?: number;
-		totalTokens?: number;
-		cost?: { total?: number };
-	};
-	stopReason?: string;
-	errorMessage?: string;
+	usage?:
+		| {
+				input?: number;
+				output?: number;
+				cacheRead?: number;
+				cacheWrite?: number;
+				totalTokens?: number;
+				cost?: { total?: number };
+		  }
+		| undefined;
+	stopReason?: string | undefined;
+	errorMessage?: string | undefined;
 }
 
 /** True for a protocol content part that carries assistant text. */
@@ -63,7 +65,7 @@ export function emitAssistantMessage(
 	if (message.stopReason === "error") {
 		emit({
 			type: "error",
-			message: message.errorMessage || "unknown subagent LLM error",
+			message: message.errorMessage ?? "unknown subagent LLM error",
 		});
 	} else if (message.stopReason) {
 		emit({ type: "stopReason", stopReason: message.stopReason });

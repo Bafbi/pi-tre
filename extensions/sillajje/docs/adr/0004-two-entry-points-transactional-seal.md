@@ -1,5 +1,7 @@
 # Two stamp entry points and a transactional seal
 
+> **Amended by ADR 0005 and ADR 0006**: fold does **not** become a consumer of `stampRev`. It needs a clean body (no `Meta:` / `Loop:`) and a transactional describe, so it composes `@pi-tre/sillajje-jj` primitives directly. The transaction is promoted out of the stamp module into `@pi-tre/sillajje-jj` as a generic runner; its contract below is unchanged.
+
 The stamp module exposes two entry points — `stampSession` and `stampRev` — where it had one (`stamp(input, deps)`), and the Session stamp's seal becomes an all-or-nothing jj transaction built on deferred integration. This ADR supersedes two paragraphs of ADR 0003: **Rev targeting** (`rev?: string` with `rev === "@"` selecting the full seal) and the single-entry-point premise that carried it, including the partial-application contract (`lastCompletedStep`) that documented the states a mid-seal failure could leave behind. ADR 0003 stays the record for the shape (one async call + callback sink), the source axis, the error policy, and the config decision — those carry over unchanged.
 
 ## Decisions
@@ -46,5 +48,5 @@ Rejected alternatives:
 - The adapter decides policy: parse flags, run the three-state session check, resolve the workspace, pick `stampSession` vs `stampRev`, scope side effects (state resets only for a seal on the current session), map statuses and results to notifications. The module owns mechanics.
 - `StampDeps` gains `env: { piVersion: string; sillajjeVersion: string }`, read once at activation.
 - The transaction runner is internal, tested through the two entry points with the fake `exec` seam; a unit test pins the printed-operation-id format the runner parses.
-- The fold flow keeps its direct `jj describe` this change; it is the designated future consumer of `stampRev` (follow-up).
+- The fold flow no longer targets `stampRev`. It composes `jj` primitives from `@pi-tre/sillajje-jj` directly, because it needs a clean body and a describe step inside its own transaction (ADR 0006).
 - The new provenance fields ship as the interface hook; richer rendering is a follow-up.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRunner, makeRunnerCwd } from "./_helpers";
+import { createRunner, makeRunnerCwd } from "./_helpers.js";
 
 describe("sillajje scaffold", () => {
 	it("loads from configured path and registers handlers/commands", async () => {
@@ -47,7 +47,7 @@ describe("sillajje scaffold", () => {
 			"do something",
 			undefined,
 			"You are a helpful assistant.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		expect(result).toBeUndefined();
 	});

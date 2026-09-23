@@ -1,4 +1,4 @@
 {
 	"$schema": "./node_modules/knip/schema.json",
-	"ignoreBinaries": ["jj", "ast-grep", "semgrep"]
+	"ignoreBinaries": ["jj", "ast-grep", "semgrep", "mise"]
 }

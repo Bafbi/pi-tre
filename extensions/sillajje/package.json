@@ -22,6 +22,9 @@
 	},
 	"dependencies": {
 		"@pi-tre/pi-config": "workspace:*",
-		"@pi-tre/pi-subagent": "workspace:*"
+		"@pi-tre/pi-subagent": "workspace:*",
+		"@pi-tre/sillajje-core": "workspace:*",
+		"@pi-tre/sillajje-jj": "workspace:*",
+		"@pi-tre/sillajje-workspace": "workspace:*"
 	}
 }

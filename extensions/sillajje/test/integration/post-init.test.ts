@@ -3,7 +3,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { createRunner, describeJj, makeRunnerCwd, tempDirs } from "./_helpers";
+import { createRunner, describeJj, makeRunnerCwd } from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -198,8 +198,7 @@ describeJj("sillajje post-init commands", () => {
 
 		// No post-init related notifications.
 		const postInitCalls = notify.mock.calls.filter(
-			([msg]: [string]) =>
-				typeof msg === "string" && msg.includes("post-init"),
+			([msg]) => typeof msg === "string" && msg.includes("post-init"),
 		);
 		expect(postInitCalls).toHaveLength(0);
 

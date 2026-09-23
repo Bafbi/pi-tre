@@ -119,7 +119,10 @@ describe("createInProcessBackend session wiring", () => {
 		expect(options.excludeTools).toEqual(["repo_query"]);
 		expect(options.cwd).toBe("/tmp/ws");
 		// Fresh, in-memory session: no session file.
-		expect(options.sessionManager?.sessionFile).toBeUndefined();
+		const sessionManager = options.sessionManager as unknown as
+			| { sessionFile?: string }
+			| undefined;
+		expect(sessionManager?.sessionFile).toBeUndefined();
 	});
 
 	it("appends the task system prompt through a resource loader", async () => {

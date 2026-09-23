@@ -39,7 +39,7 @@ export async function createRunner(cwd: string): Promise<ExtensionRunner> {
 	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
 	if (loaded.errors.length > 0) {
 		throw new Error(
-			`Extension load errors: ${loaded.errors.map((e) => e.message ?? String(e)).join("; ")}`,
+			`Extension load errors: ${loaded.errors.map((e) => e.error).join("; ")}`,
 		);
 	}
 

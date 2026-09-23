@@ -30,13 +30,13 @@ A target-less `/sillajje stamp` and `-h`/`--help` print this usage and take no a
 
 The seal is transactional: if describe, bookmark, or the fresh change fails mid-seal, the repository ends unchanged. Empty-diff targets report `nothing to stamp` before any mutation.
 
-### `rebase <rev> [--session <id>]`
+### `sync [-s | --session <id>] -o | --onto <rev> [-h | --help]`
 
-Rebases the session working copy onto `<rev>` with a merge commit that brings the target into the session's ancestry. The session stays active.
+Brings `<rev>` into a session's ancestry as a merge, keeping the session's own history. `-s` defaults to `@` (this session). The session stays active. A file-level conflict aborts with the file list; a failed `update-stale` after a successful rebase is a warning.
 
-### `fold <rev> [--session <id>]`
+### `fold (-s <id|@> | -r <rev>) -o <rev> [--land] [--archive] [-h | --help]`
 
-Collapses all session changes into one conventional-commit change on `<rev>`, then archives the session. The bookmark stays as sillage.
+Publishes a source range as one clean change placed as a child of `<rev>`, and appends: each fold adds one change, so a pull-request branch grows without a force-push. The source branch survives. `-s` defaults to `@`; `-s` and `-r` are mutually exclusive. `--land` advances the single local bookmark that `--onto` resolves to. `--archive` retires a session source after a successful fold. The body is a generated summary and a `Ref:` line — no `Meta:` and no `Loop:`.
 
 ## Configuration
 
@@ -56,10 +56,14 @@ The project config wins per key. Sillajje reads it only when pi trusts the proje
 | `subGeneratorModel` | string | `openai/gpt-4o-mini` | Model for the header and trace sub-generators. |
 | `postInit` | string[] | `[]` | Shell commands to run after workspace creation. |
 | `vcsGuard` | boolean | `true` | Tell the agent to ask before running jj or git commands. |
-| `message.header` | `"one_line"` or `"user_prompt"` | `"one_line"` | Source of the commit header. |
-| `message.body.trace.detail` | `"high"`, `"step"`, or `"decision"` | `"high"` | Detail level of the trace narrative. |
+| `actions.stamp.body` | section list | `["trace","meta","loop","prompt","response"]` | Ordered sections the stamp body renders. |
+| `actions.stamp.header.mode` | `"one_line"` or `"user_prompt"` | `"one_line"` | Source of the commit header. |
+| `actions.stamp.trace.detail` | `"high"`, `"step"`, or `"decision"` | `"high"` | Detail level of the trace narrative. |
+| `actions.stamp.loop` | field list | `["tools","call_count","elapsed","thinking_blocks"]` | Fields the `Loop:` section renders. |
+| `actions.fold.body` | section list | `["summary","ref"]` | Ordered sections the fold body renders. |
+| `actions.fold.summary.detail` | `"high"`, `"step"`, or `"decision"` | `"high"` | Detail level of the fold summary. |
 
-The `message.body` and `subGenerator` trees carry more toggles. See `sillajje-config.schema.json` for the full shape.
+The `actions` and `subGenerator` trees carry more toggles. See `sillajje-config.schema.json` for the full shape.
 
 `SILLAJJE_POST_INIT` overrides `postInit` from either file. Split commands with `;`:
 

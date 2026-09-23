@@ -59,10 +59,10 @@ const installedPiVersion: string = (() => {
  */
 class ReplayProc extends EventEmitter implements ProcessBackendSpawn {
 	killed = false;
-	override stdout = new EventEmitter();
-	override stderr = new EventEmitter();
+	stdout = new EventEmitter();
+	stderr = new EventEmitter();
 
-	override kill(): boolean {
+	kill(): boolean {
 		this.killed = true;
 		return true;
 	}
@@ -92,13 +92,19 @@ function expectedUsage(): AssistantEndUsage {
 			type?: string;
 			message?: {
 				role?: string;
-				usage?: Record<string, number>;
-				cost?: { total?: number };
+				usage?: {
+					input?: number;
+					output?: number;
+					cacheRead?: number;
+					cacheWrite?: number;
+					totalTokens?: number;
+					cost?: { total?: number };
+				};
 			};
 		};
 		if (event.type !== "message_end") continue;
 		const message = event.message;
-		if (!message || message.role !== "assistant" || !message.usage) {
+		if (message?.role !== "assistant" || !message.usage) {
 			continue;
 		}
 		total.input += message.usage.input ?? 0;

@@ -14,10 +14,19 @@
 			"path": "./extensions/sillajje"
 		},
 		{
+			"path": "./packages/pi-config"
+		},
+		{
 			"path": "./packages/pi-subagent"
 		},
 		{
-			"path": "./packages/pi-config"
+			"path": "./packages/sillajje-jj"
+		},
+		{
+			"path": "./packages/sillajje-core"
+		},
+		{
+			"path": "./packages/sillajje-workspace"
 		}
 	]
 }

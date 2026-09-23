@@ -55,6 +55,7 @@ function findTempspaceInSession(ctx: ExtensionContext): string | null {
 	const branch = ctx.sessionManager.getBranch();
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
+		if (entry === undefined) continue;
 		if (entry.type !== "message") continue;
 		const msg = entry.message;
 		if (msg.role !== "toolResult" || msg.toolName !== "repo_query")

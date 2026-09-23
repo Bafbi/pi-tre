@@ -97,7 +97,8 @@ describe("repo-query extension", () => {
 			expect(result.content).toBeDefined();
 			expect(result.content.length).toBeGreaterThan(0);
 
-			const text = result.content[0]?.text ?? "";
+			const first = result.content[0];
+			const text = first?.type === "text" ? first.text : "";
 			expect(text).toContain("Mock exploration result");
 			expect(text).toContain("# Answer");
 

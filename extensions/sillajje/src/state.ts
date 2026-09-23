@@ -33,11 +33,12 @@ export class SessionState {
 	private sessionKey: string | undefined;
 
 	/**
-	 * Whether the session was marked stale: the workspace directory was
-	 * deleted externally or `jj` disappeared from PATH mid-session. Stale
-	 * sessions no-op like inactive ones but keep prompting notifications.
+	 * Whether the session's workspace is missing: the directory was deleted
+	 * externally, or `jj` disappeared from PATH mid-session. A session with a
+	 * missing workspace no-ops like an inactive one but keeps prompting
+	 * notifications.
 	 */
-	private stale = false;
+	private missingWorkspace = false;
 
 	/** Whether the user has sent at least one prompt in this session. */
 	private hasPrompted = false;
@@ -61,7 +62,7 @@ export class SessionState {
 	// Interaction tracking (per-interaction, reset after each stamp)
 	// ---------------------------------------------------------------------------
 
-	private newInteraction = false;
+	private newInteraction: boolean = false;
 
 	/**
 	 * Transcript messages accumulated from agent_end events.
@@ -117,8 +118,8 @@ export class SessionState {
 		return this.sessionKey ?? this.sessionId;
 	}
 
-	isStale(): boolean {
-		return this.stale;
+	isMissingWorkspace(): boolean {
+		return this.missingWorkspace;
 	}
 
 	isJjAvailable(): boolean {
@@ -156,9 +157,9 @@ export class SessionState {
 		this.sessionKey = key;
 	}
 
-	/** Mark the session stale (workspace deleted or jj disappeared). */
-	markStale(): void {
-		this.stale = true;
+	/** Mark the session's workspace as missing. */
+	markMissingWorkspace(): void {
+		this.missingWorkspace = true;
 	}
 
 	setWorkspacePath(path: string): void {
@@ -192,7 +193,7 @@ export class SessionState {
 		this.workspacePath = undefined;
 		this.sessionId = undefined;
 		this.sessionKey = undefined;
-		this.stale = false;
+		this.missingWorkspace = false;
 		this.hasPrompted = false;
 		this.resetInteraction();
 	}

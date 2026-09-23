@@ -1,73 +1,31 @@
+/**
+ * Integration tests for the range-publishing fold against real jj, driven
+ * through the registered command. The mechanism is the transaction recipe:
+ * create an empty child of the target, duplicate the delta onto the target,
+ * squash the copies into the child.
+ */
+
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import {
+	assistantMsg,
 	createRunner,
 	describeJj,
+	getSessionId,
+	initRepo,
 	installDefaultSubGeneratorMock,
-	makeRunnerCwd,
-	tempDirs,
-} from "./_helpers";
+	jj,
+	runSillajje,
+	sessionBookmark,
+	wsPath,
+} from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Run jj in the given repo. Uses shell form because execSync with array args ignores the cwd option. */
-function jj(args: string[], cwd: string): string {
-	const quoted = args.map((a) => `'${a.replace(/'/g, "'\\''")}'`);
-	const cmd = ["jj", ...quoted].join(" ");
-	return String(
-		execSync(cmd, {
-			cwd,
-			encoding: "utf-8",
-			stdio: "pipe",
-		}),
-	).trim();
-}
-
-/** Get the session ID, throwing if undefined. */
-function getSessionId(
-	runner: Awaited<ReturnType<typeof createRunner>>,
-): string {
-	const id = runner.createContext().sessionManager.getSessionId();
-	if (!id) throw new Error("sessionId should be defined after session_start");
-	return id;
-}
-
-/** Resolve the default workspace path for a given session and repo root. */
-function wsPath(repoRoot: string, sessionId: string): string {
-	const parts = repoRoot.split("/");
-	const repoSlug = parts[parts.length - 1];
-	return `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
-}
-
-function assistantMsg(text: string) {
-	return {
-		role: "assistant" as const,
-		content: [{ type: "text" as const, text }],
-		api: "anthropic-messages" as const,
-		provider: "anthropic" as const,
-		model: "test",
-		usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
-		stopReason: "stop" as const,
-		timestamp: Date.now(),
-	};
-}
-
-async function setupJjRepo(cwd: string): Promise<void> {
-	execSync("jj git init --config signing.backend=none", {
-		cwd,
-		stdio: "pipe",
-	});
-	execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
-}
-
-/**
- * Simulate a full interaction (input → agent_start → agent_end) that stamps
- * a change and creates the `sillajje/<sessionId>` bookmark.
- */
 async function simulateInteraction(
 	runner: Awaited<ReturnType<typeof createRunner>>,
 	prompt: string,
@@ -77,7 +35,7 @@ async function simulateInteraction(
 	await runner.emitBeforeAgentStart(prompt, undefined, "You are helpful.", {
 		skills: [],
 		contextFiles: [],
-		prompts: [],
+		cwd: "",
 	});
 	await runner.emit({ type: "agent_start" });
 	await runner.emit({
@@ -88,14 +46,6 @@ async function simulateInteraction(
 	await runner.emit({ type: "agent_settled" });
 }
 
-/** Get the registered sillajje command, throwing if missing. */
-function getSillajjeCommand(runner: Awaited<ReturnType<typeof createRunner>>) {
-	const cmd = runner.getCommand("sillajje");
-	if (!cmd) throw new Error("sillajje command not registered");
-	return cmd;
-}
-
-/** Replace the runner's no-op UI mock with one that records notifications. */
 function captureNotifications(
 	runner: Awaited<ReturnType<typeof createRunner>>,
 ): Array<{ msg: string; type: "info" | "warning" | "error" }> {
@@ -116,324 +66,375 @@ function captureNotifications(
 	return notifications;
 }
 
-/** Assert a value is defined and return it (avoids non-null assertions). */
-function expectDefined<T>(value: T | undefined): T {
-	expect(value).toBeDefined();
-	return value as T;
+/** The initial commit's change id in a fresh `initRepo`. */
+function baseChangeId(cwd: string): string {
+	return jj(["log", "-r", "@-", "--no-graph", "-T", "change_id"], cwd);
 }
 
-/**
- * Advance the main checkout: modify the working copy, describe it as an
- * upstream commit, and point the `main` bookmark at it.
- */
-function createUpstream(
+/** Children of a rev, as `{ id, description }`. */
+function childrenOf(
 	cwd: string,
-	file: string,
-	content: string,
-	message: string,
-): void {
-	execSync(`echo ${content} > ${file}`, { cwd });
-	jj(["describe", "-m", message], cwd);
-	jj(["bookmark", "set", "main", "-r", "@"], cwd);
-}
-
-/**
- * Commits directly on top of `<rev>` (repo-global): `{ parents, id, desc }`.
- * After a fold these are the preamble's merge commit (empty description,
- * two parents) and the folded commit (single parent, generated subject).
- */
-function revPlusCommits(
 	rev: string,
-	repo: string,
-): Array<{ parents: number; id: string; desc: string }> {
+): Array<{ id: string; description: string }> {
 	const out = jj(
 		[
 			"log",
 			"-r",
-			`${rev}+`,
+			`children(${rev})`,
 			"--no-graph",
 			"-T",
-			'parents.len() ++ "|" ++ change_id.short() ++ "|" ++ description.first_line() ++ "\\n"',
+			'change_id ++ "|" ++ description.first_line() ++ "\\n"',
 		],
-		repo,
+		cwd,
 	);
 	return out
 		.split("\n")
 		.filter(Boolean)
 		.map((line) => {
-			const [parents, id, desc] = line.split("|");
-			return { parents: Number(parents), id, desc: desc ?? "" };
+			const [id, ...rest] = line.split("|");
+			return { id: id ?? "", description: rest.join("|") };
 		});
+}
+
+/** A commit's full description. */
+function description(cwd: string, rev: string): string {
+	return jj(["log", "-r", rev, "--no-graph", "-T", "description"], cwd);
+}
+
+/** A commit's change id. */
+function changeId(cwd: string, rev: string): string {
+	return jj(["log", "-r", rev, "--no-graph", "-T", "change_id"], cwd);
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-// `simulateInteraction` stamps a change — install the canned sub-generator so
-// stamping never spawns a real `pi -p` subprocess. The same mock feeds the
-// fold's header generator, producing the subject "test subject".
 beforeEach(() => {
 	installDefaultSubGeneratorMock();
 });
 
 describeJj("sillajje fold", () => {
-	it("folds the current session into a single commit on <rev> and archives it", async () => {
-		const cwd = makeRunnerCwd();
-		tempDirs.push(cwd);
-		await setupJjRepo(cwd);
-
+	it("folds the current session into one child of main, leaving the source unchanged", async () => {
+		const cwd = initRepo();
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const notifications = captureNotifications(runner);
 		const sessionId = getSessionId(runner);
-		const path = wsPath(cwd, sessionId);
+		const workspace = wsPath(cwd, sessionId);
 
-		// Session work, then a stamped interaction (bookmark sillajje/<id>).
-		execSync("echo session-work > session.txt", { cwd: path });
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
+		await simulateInteraction(runner, "Session change", "Done.");
+		const sourceBefore = changeId(cwd, sessionBookmark(sessionId));
+
+		// Advance main.
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+
+		await runSillajje(runner, "fold -s @ -o main");
+
+		// Exactly one child of main, carrying the session work.
+		const children = childrenOf(cwd, "main");
+		expect(children).toHaveLength(1);
+		const folded = children[0];
+		const desc = description(cwd, folded.id);
+		expect(desc).toContain("test subject");
+		expect(desc).toContain("Summary:");
+		expect(desc).toContain("Ref:");
+		expect(desc).not.toContain("Meta:");
+		expect(desc).not.toContain("Loop:");
+		const files = jj(["file", "list", "-r", folded.id], cwd);
+		expect(files).toContain("session.txt");
+		expect(files).toContain("upstream.txt");
+
+		// The source branch is unchanged.
+		expect(changeId(cwd, sessionBookmark(sessionId))).toBe(sourceBefore);
+
+		// The success notification names the target.
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("folded onto main"),
+			}),
+		);
+	}, 30_000);
+
+	it("folds a rev source with -r", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		// main advances.
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		// feat branches from base.
+		jj(["new", base, "-m", "feat work"], cwd);
+		writeFileSync(join(cwd, "feat.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+		const featBefore = changeId(cwd, "feat");
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r feat -o main");
+
+		const children = childrenOf(cwd, "main");
+		expect(children).toHaveLength(1);
+		const files = jj(["file", "list", "-r", children[0].id], cwd);
+		expect(files).toContain("feat.txt");
+		expect(files).toContain("upstream.txt");
+		expect(changeId(cwd, "feat")).toBe(featBefore);
+	}, 30_000);
+
+	it("rolls the whole fold back on a conflict", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		// main and feat edit the same file differently.
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "file.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "file.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+		const featBefore = changeId(cwd, "feat");
+		const mainBefore = changeId(cwd, "main");
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r feat -o main");
+
+		// Nothing folded, no bookmark moved.
+		expect(childrenOf(cwd, "main")).toHaveLength(0);
+		expect(changeId(cwd, "main")).toBe(mainBefore);
+		expect(changeId(cwd, "feat")).toBe(featBefore);
+
+		const conflict = notifications.find(
+			(n) => n.type === "warning" && n.msg.includes("conflict"),
+		);
+		expect(conflict).toBeDefined();
+		expect(conflict?.msg).toContain("file.txt");
+		expect(
+			notifications.some(
+				(n) => n.type === "info" && n.msg.includes("folded onto"),
+			),
+		).toBe(false);
+	}, 30_000);
+
+	it("reports no-changes for an empty delta", async () => {
+		const cwd = initRepo();
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r main -o main");
+
+		expect(childrenOf(cwd, "main")).toHaveLength(0);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("no new changes"),
+			}),
+		);
+	}, 30_000);
+
+	it("appends only the new commits on a second fold", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "D"], cwd);
+		writeFileSync(join(cwd, "d.txt"), "d\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r feat -o main");
+		const firstFolded = childrenOf(cwd, "main")[0];
+
+		// Add a new commit to feat and fold again onto the first folded change.
+		jj(["new", "feat", "-m", "E"], cwd);
+		writeFileSync(join(cwd, "e.txt"), "e\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		await runSillajje(runner, `fold -r feat -o ${firstFolded.id}`);
+
+		const second = childrenOf(cwd, firstFolded.id);
+		expect(second).toHaveLength(1);
+		const files = jj(["file", "list", "-r", second[0].id], cwd);
+		expect(files).toContain("d.txt");
+		expect(files).toContain("e.txt");
+		expect(files).toContain("upstream.txt");
+
+		// The folded-source bookmark now records the new tip.
+		expect(changeId(cwd, "sillajje/folded/feat")).toBe(
+			changeId(cwd, "feat"),
+		);
+	}, 30_000);
+
+	it("--land advances the target bookmark; without it the bookmark is untouched", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+		const mainBefore = changeId(cwd, "main");
+
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "feat.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		// Without --land the target bookmark does not move.
+		await runSillajje(runner, "fold -r feat -o main");
+		expect(changeId(cwd, "main")).toBe(mainBefore);
+
+		// Add work and fold again with --land.
+		jj(["new", "feat", "-m", "feat2"], cwd);
+		writeFileSync(join(cwd, "feat2.txt"), "feat2\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+		await runSillajje(runner, "fold -r feat -o main --land");
+
+		const mainAfter = changeId(cwd, "main");
+		expect(mainAfter).not.toBe(mainBefore);
+		expect(childrenOf(cwd, mainBefore).map((c) => c.id)).toContain(
+			mainAfter,
+		);
+	}, 30_000);
+
+	it("--land errors when --onto is not a single local bookmark", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		// A target with no bookmark.
+		jj(["new", base, "-m", "target"], cwd);
+		writeFileSync(join(cwd, "target.txt"), "target\n");
+		const targetId = changeId(cwd, "@");
+
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "feat.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, `fold -r feat -o ${targetId} --land`);
+
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "warning",
+				msg: expect.stringContaining("exactly one local bookmark"),
+			}),
+		);
+	}, 30_000);
+
+	it("archives the session after a successful --archive fold", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
 		await simulateInteraction(runner, "Session change", "Done.");
 
-		// Upstream advance on main.
-		createUpstream(cwd, "upstream.txt", "upstream-work", "feat: upstream");
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
 
-		// Fold onto main.
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler("fold main", runner.createCommandContext());
+		await runSillajje(runner, "fold -s @ -o main --archive");
 
-		// Folded commit: a single-parent change on main with the mock subject.
-		const commits = revPlusCommits("main", cwd);
-		const folded = expectDefined(
-			commits.find((c) => c.desc === "test subject"),
+		// The workspace is gone; the bookmark survives as sillage.
+		expect(existsSync(workspace)).toBe(false);
+		expect(jj(["bookmark", "list"], cwd)).toContain(
+			sessionBookmark(sessionId),
 		);
-		expect(folded.parents).toBe(1);
-
-		// The folded tree carries BOTH the session work and the upstream
-		// content brought in by the preamble rebase.
-		const foldedFiles = jj(["file", "list", "-r", folded.id], cwd);
-		expect(foldedFiles).toContain("session.txt");
-		expect(foldedFiles).toContain("upstream.txt");
-
-		// Session archived: workspace directory gone, input blocked.
-		expect(existsSync(path)).toBe(false);
 		const inputResult = await runner.emitInput(
 			"more work",
 			undefined,
 			"interactive",
 		);
 		expect(inputResult).toEqual({ action: "handled" });
+	}, 30_000);
 
-		// The bookmark survives as sillage.
-		const bookmarks = jj(["bookmark", "list"], cwd);
-		expect(bookmarks).toContain(`sillajje/${sessionId}`);
-
-		// Success notification points at <rev>+.
-		expect(notifications).toContainEqual(
-			expect.objectContaining({
-				type: "info",
-				msg: expect.stringContaining(`session ${sessionId} folded`),
-			}),
-		);
-		expect(notifications).toContainEqual(
-			expect.objectContaining({
-				type: "info",
-				msg: expect.stringContaining("main+"),
-			}),
-		);
-	}, 15_000);
-
-	it("folds a different active session via --session", async () => {
-		const cwd = makeRunnerCwd();
-		tempDirs.push(cwd);
-		await setupJjRepo(cwd);
+	it("rejects --archive with a rev source", async () => {
+		const cwd = initRepo();
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
 
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const notifications = captureNotifications(runner);
-		const sessionId = getSessionId(runner);
-		const currentPath = wsPath(cwd, sessionId);
 
-		// Create a second sillajje session by hand: workspace + bookmark.
-		const otherId = "other-session-1";
-		const otherPath = `${cwd}/ws-${otherId}`;
-		jj(
-			[
-				"workspace",
-				"add",
-				"--name",
-				`sillajje-${otherId}`,
-				"--revision",
-				"@-",
-				otherPath,
-			],
-			cwd,
-		);
-		execSync("echo other-work > other.txt", { cwd: otherPath });
-		jj(["describe", "-m", "act: other"], otherPath);
-		jj(["bookmark", "set", `sillajje/${otherId}`, "-r", "@"], otherPath);
-		jj(["new"], otherPath);
-
-		// Upstream advance.
-		createUpstream(cwd, "upstream.txt", "upstream-work", "feat: upstream");
-
-		// Fold the other session onto main.
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler(
-			`fold main --session ${otherId}`,
-			runner.createCommandContext(),
-		);
-
-		// The target session's workspace is gone and its work folded.
-		expect(existsSync(otherPath)).toBe(false);
-		const commits = revPlusCommits("main", cwd);
-		const folded = expectDefined(
-			commits.find((c) => c.desc === "test subject"),
-		);
-		const foldedFiles = jj(["file", "list", "-r", folded.id], cwd);
-		expect(foldedFiles).toContain("other.txt");
+		await runSillajje(runner, "fold -r main -o main --archive");
 
 		expect(notifications).toContainEqual(
 			expect.objectContaining({
-				type: "info",
-				msg: expect.stringContaining(`session ${otherId} folded`),
+				type: "warning",
+				msg: expect.stringContaining(
+					"--archive requires a session source",
+				),
 			}),
 		);
+	}, 30_000);
 
-		// The current session is untouched — still active.
-		expect(existsSync(currentPath)).toBe(true);
-		const inputResult = await runner.emitInput(
-			"still here",
-			undefined,
-			"interactive",
-		);
-		expect(inputResult).toEqual({ action: "continue" });
-	}, 15_000);
-
-	it("reports an error for an invalid <rev> and leaves the session active", async () => {
-		const cwd = makeRunnerCwd();
-		tempDirs.push(cwd);
-		await setupJjRepo(cwd);
-
+	it("folds an archived session from its bookmark", async () => {
+		const cwd = initRepo();
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
-		const notifications = captureNotifications(runner);
+		captureNotifications(runner);
 		const sessionId = getSessionId(runner);
-		const path = wsPath(cwd, sessionId);
+		const workspace = wsPath(cwd, sessionId);
 
-		execSync("echo session-work > session.txt", { cwd: path });
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
 		await simulateInteraction(runner, "Session change", "Done.");
 
-		// Point `main` at the initial commit so the no-fold assertion below
-		// has a target rev to inspect.
-		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
 
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler(
-			"fold nonexistent-rev",
-			runner.createCommandContext(),
-		);
+		await runSillajje(runner, "archive");
+		expect(existsSync(workspace)).toBe(false);
 
-		// Error notification surfaces jj's failure.
-		expect(notifications).toContainEqual(
-			expect.objectContaining({
-				type: "error",
-				msg: expect.stringContaining("fold failed"),
-			}),
-		);
+		await runSillajje(runner, `fold -s ${sessionId} -o main`);
 
-		// Session not archived, nothing folded.
-		expect(existsSync(path)).toBe(true);
-		expect(revPlusCommits("main", cwd)).toHaveLength(0);
-	}, 15_000);
+		const children = childrenOf(cwd, "main");
+		expect(children).toHaveLength(1);
+		const files = jj(["file", "list", "-r", children[0].id], cwd);
+		expect(files).toContain("session.txt");
+	}, 30_000);
 
-	it("reports an error when folding an archived session", async () => {
-		const cwd = makeRunnerCwd();
-		tempDirs.push(cwd);
-		await setupJjRepo(cwd);
-
+	it("prints help for -h, --help, and a target-less invocation", async () => {
+		const cwd = initRepo();
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const notifications = captureNotifications(runner);
 
-		// Stamp a change so the session bookmark exists, then archive.
-		await simulateInteraction(runner, "Session change", "Done.");
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler("archive", runner.createCommandContext());
+		await runSillajje(runner, "fold");
+		await runSillajje(runner, "fold -h");
+		await runSillajje(runner, "fold --help");
 
-		// Fold targets the current (archived) session.
-		await cmd.handler("fold main", runner.createCommandContext());
-
-		expect(notifications).toContainEqual(
-			expect.objectContaining({
-				type: "error",
-				msg: expect.stringContaining("archived"),
-			}),
+		const helps = notifications.filter(
+			(n) => n.type === "info" && n.msg.includes("usage: /sillajje fold"),
 		);
-	}, 15_000);
-
-	it("reports an error when the session has no sillajje bookmark", async () => {
-		const cwd = makeRunnerCwd();
-		tempDirs.push(cwd);
-		await setupJjRepo(cwd);
-
-		const runner = await createRunner(cwd);
-		await runner.emit({ type: "session_start", reason: "startup" });
-		const notifications = captureNotifications(runner);
-
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler(
-			"fold main --session nonexistent-session",
-			runner.createCommandContext(),
-		);
-
-		expect(notifications).toContainEqual(
-			expect.objectContaining({
-				type: "error",
-				msg: expect.stringContaining("not a sillajje session"),
-			}),
-		);
-	});
-
-	it("aborts with a conflict warning without folding or archiving", async () => {
-		const cwd = makeRunnerCwd();
-		tempDirs.push(cwd);
-		await setupJjRepo(cwd);
-
-		// Base commit carries file.txt so both sides can edit it.
-		execSync("echo base > file.txt", { cwd });
-		jj(["describe", "-m", "base"], cwd);
-
-		const runner = await createRunner(cwd);
-		await runner.emit({ type: "session_start", reason: "startup" });
-		const notifications = captureNotifications(runner);
-		const sessionId = getSessionId(runner);
-		const path = wsPath(cwd, sessionId);
-
-		// Session edits file.txt; upstream edits it differently.
-		execSync("echo session-edit > file.txt", { cwd: path });
-		await simulateInteraction(runner, "Session change", "Done.");
-		createUpstream(cwd, "file.txt", "upstream-edit", "feat: upstream");
-
-		const cmd = getSillajjeCommand(runner);
-		await cmd.handler("fold main", runner.createCommandContext());
-
-		// Conflict warning lists the conflicting file.
-		const conflictNotif = notifications.find(
-			(n) => n.type === "warning" && n.msg.includes("conflict"),
-		);
-		expect(conflictNotif).toBeDefined();
-		expect(conflictNotif?.msg).toContain("file.txt");
-
-		// No success notification; session NOT archived; nothing folded.
-		expect(
-			notifications.some(
-				(n) => n.type === "info" && n.msg.includes("folded"),
-			),
-		).toBe(false);
-		expect(existsSync(path)).toBe(true);
-		expect(
-			revPlusCommits("main", cwd).filter(
-				(c) => c.desc === "test subject",
-			),
-		).toHaveLength(0);
-	}, 15_000);
+		expect(helps).toHaveLength(3);
+	}, 30_000);
 });

@@ -11,16 +11,16 @@ import {
 	ModelRuntime,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import type { RunSubagent } from "@pi-tre/sillajje-core";
+import { defaultOwner } from "@pi-tre/sillajje-workspace";
 import { afterEach, describe, expect } from "vitest";
-import { setTestExecWrapper, setTestSpawnFn } from "../../src/index.js";
-import type { SpawnFn } from "../../src/sub-generator.js";
+import { setTestPorts } from "../../src/index.js";
 
 export const tempDirs: string[] = [];
 
 afterEach(async () => {
 	// Reset the test seams so they never leak into later tests.
-	setTestSpawnFn(undefined);
-	setTestExecWrapper(undefined);
+	setTestPorts({ run: undefined, exec: undefined });
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -32,7 +32,7 @@ export function makeRunnerCwd(): string {
 	return dir;
 }
 
-export function resolveExtensionPath(): string {
+function resolveExtensionPath(): string {
 	const testDir = dirname(fileURLToPath(import.meta.url));
 	return resolve(testDir, "../../src/index.ts");
 }
@@ -120,6 +120,16 @@ export function wsPath(repoRoot: string, sessionId: string): string {
 	return `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
 }
 
+/** The qualified session key: `<user>/<host>/<id>`. */
+export function sessionKeyId(sessionId: string): string {
+	return `${defaultOwner()}/${sessionId}`;
+}
+
+/** The namespaced bookmark for a session: `sillajje/<user>/<host>/<id>`. */
+export function sessionBookmark(sessionId: string): string {
+	return `sillajje/${sessionKeyId(sessionId)}`;
+}
+
 /** Create a fresh jj repo with one described root change and an empty `@`. */
 export function initRepo(): string {
 	const cwd = makeRunnerCwd();
@@ -193,10 +203,8 @@ export function assistantMsg(
  * `installDefaultSubGeneratorMock`) so change stamping never runs a real
  * sub-generator during tests.
  */
-export const defaultSubGeneratorMock: SpawnFn = async () => ({
-	code: 0,
-	stdout: "test subject\ntest trace narrative",
-	stderr: "",
+const defaultSubGeneratorMock: RunSubagent = async () => ({
+	text: "test subject\ntest trace narrative",
 });
 
 /**
@@ -204,5 +212,5 @@ export const defaultSubGeneratorMock: SpawnFn = async () => ({
  * The shared `afterEach` in this module resets the seam afterwards.
  */
 export function installDefaultSubGeneratorMock(): void {
-	setTestSpawnFn(defaultSubGeneratorMock);
+	setTestPorts({ run: defaultSubGeneratorMock });
 }

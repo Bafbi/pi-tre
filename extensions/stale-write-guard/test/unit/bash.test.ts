@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractReadPaths } from "../../src/bash";
+import { extractReadPaths } from "../../src/bash.js";
 
 describe("extractReadPaths", () => {
 	it("returns the file of a plain cat", () => {

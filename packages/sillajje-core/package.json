@@ -1,0 +1,27 @@
+{
+	"name": "@pi-tre/sillajje-core",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./schema": {
+			"types": "./src/config.ts",
+			"default": "./src/config.ts"
+		}
+	},
+	"scripts": {
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"@pi-tre/sillajje-jj": "workspace:*",
+		"@pi-tre/sillajje-workspace": "workspace:*",
+		"@sinclair/typebox": "catalog:pi-dev"
+	}
+}

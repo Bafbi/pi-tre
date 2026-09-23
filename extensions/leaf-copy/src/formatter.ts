@@ -1,8 +1,12 @@
-import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
+/** The message shape `formatMessage` reads; pi's message types are assignable. */
+type FormattableMessage =
+	| {
+			role: "user";
+			content: string | Array<{ type: string; text?: string }>;
+	  }
+	| { role: "assistant"; content: Array<{ type: string; text?: string }> };
 
-export function formatMessage(
-	message: UserMessage | AssistantMessage,
-): string | null {
+export function formatMessage(message: FormattableMessage): string | null {
 	switch (message.role) {
 		case "user": {
 			const content = message.content;
@@ -10,7 +14,7 @@ export function formatMessage(
 				return content || null;
 			}
 			const parts = content.map((block) => {
-				if (block.type === "text") return block.text;
+				if (block.type === "text") return block.text ?? "";
 				if (block.type === "image") return "[image]";
 				return "";
 			});

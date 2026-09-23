@@ -16,8 +16,9 @@ import {
 	installDefaultSubGeneratorMock,
 	jj,
 	runSillajje,
+	sessionBookmark,
 	wsPath,
-} from "./_helpers";
+} from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -67,7 +68,7 @@ describeJj("sillajje rev stamp", () => {
 			cwd,
 		);
 		expect(desc).toContain("test subject");
-		expect(desc).toContain("Meta: trigger: rev");
+		expect(desc).toContain("Meta: source: rev");
 		expect(desc).toContain(`rev: ${strayId.slice(0, 8)}`);
 
 		// Nothing else moved: same bookmarks, same changes.
@@ -188,7 +189,7 @@ describeJj("sillajje rev stamp", () => {
 			"First interaction",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 		await runner.emit({ type: "agent_start" });
 		await runner.emit({
@@ -203,7 +204,7 @@ describeJj("sillajje rev stamp", () => {
 			"Pending interaction",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
 		// A rev stamp runs mid-interaction and must NOT touch the pending one.
@@ -222,7 +223,7 @@ describeJj("sillajje rev stamp", () => {
 			[
 				"log",
 				"-r",
-				`ancestors(sillajje/${sessionId})`,
+				`ancestors(${sessionBookmark(sessionId)})`,
 				"--no-graph",
 				"-T",
 				"description",
@@ -255,7 +256,7 @@ describeJj("sillajje rev stamp", () => {
 			cwd,
 		);
 		expect(desc).toContain("test subject");
-		expect(desc).toContain("Meta: trigger: rev");
+		expect(desc).toContain("Meta: source: rev");
 	}, 15_000);
 
 	it("relays jj's error when the target rev does not resolve", async () => {

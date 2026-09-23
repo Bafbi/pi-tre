@@ -22,7 +22,7 @@ import { isFailure, isSuccess } from "./types.js";
  * lets renderResult reuse the component across successive render calls via
  * context.lastComponent.
  */
-export class RepoQueryResultComponent extends Container {}
+class RepoQueryResultComponent extends Container {}
 
 /**
  * Terminal rows the streaming thought preview may occupy. The skipped-count
@@ -77,9 +77,9 @@ class ThoughtPreviewComponent implements Component {
 
 /** Per-call render state tracked on context.state. */
 export interface RepoQueryRenderState {
-	startedAt?: number;
-	endedAt?: number;
-	interval?: ReturnType<typeof setInterval>;
+	startedAt?: number | undefined;
+	endedAt?: number | undefined;
+	interval?: ReturnType<typeof setInterval> | undefined;
 }
 
 /**
@@ -278,9 +278,10 @@ function rebuildRepoQueryResultComponent(
 			let line = `  ${statusIcon(r.status, theme)} ${theme.fg("accent", r.identifier)}`;
 			if (r.localPath) line += theme.fg("dim", ` → ${r.localPath}`);
 			component.addChild(new Text(line, 0, 0));
-			if (r.warnings.length > 0) {
+			const firstWarning = r.warnings[0];
+			if (firstWarning !== undefined) {
 				component.addChild(
-					new Text(`    ${theme.fg("warning", r.warnings[0])}`, 0, 0),
+					new Text(`    ${theme.fg("warning", firstWarning)}`, 0, 0),
 				);
 			}
 			if (r.error) {
@@ -325,9 +326,10 @@ function rebuildRepoQueryResultComponent(
 
 	for (const r of details.results.slice(0, 3)) {
 		let line = `${statusIcon(r.status, theme)} ${theme.fg("accent", r.identifier)}`;
-		if (r.warnings.length > 0) {
-			line += ` ${theme.fg("warning", r.warnings[0].substring(0, 40))}`;
-			if (r.warnings[0].length > 40) line += theme.fg("dim", "...");
+		const firstWarning = r.warnings[0];
+		if (firstWarning !== undefined) {
+			line += ` ${theme.fg("warning", firstWarning.substring(0, 40))}`;
+			if (firstWarning.length > 40) line += theme.fg("dim", "...");
 		}
 		component.addChild(new Text(line, 0, 0));
 		if (r.error) {
@@ -367,14 +369,14 @@ export function renderCall(
 	theme: Theme,
 	context: ToolRenderLike,
 ): Component {
-	const state = context?.state as RepoQueryRenderState | undefined;
-	if (context?.executionStarted && state && state.startedAt === undefined) {
+	const state = context.state as RepoQueryRenderState | undefined;
+	if (context.executionStarted && state && state.startedAt === undefined) {
 		state.startedAt = Date.now();
 		state.endedAt = undefined;
 	}
 
 	const text =
-		context?.lastComponent instanceof Text
+		context.lastComponent instanceof Text
 			? context.lastComponent
 			: new Text("", 0, 0);
 
@@ -401,10 +403,10 @@ export function renderResult(
 	theme: Theme,
 	context: ToolRenderLike,
 ): Component {
-	const state = context?.state as RepoQueryRenderState | undefined;
+	const state = context.state as RepoQueryRenderState | undefined;
 
 	// Set startedAt if execution has started and we haven't tracked it yet
-	if (state && context?.executionStarted && state.startedAt === undefined) {
+	if (state && context.executionStarted && state.startedAt === undefined) {
 		state.startedAt = Date.now();
 		state.endedAt = undefined;
 	}
@@ -416,7 +418,7 @@ export function renderResult(
 		options.isPartial &&
 		state.interval === undefined
 	) {
-		state.interval = setInterval(() => context?.invalidate(), 1000);
+		state.interval = setInterval(() => context.invalidate(), 1000);
 	}
 
 	// Stop timer when the result is complete
@@ -429,7 +431,7 @@ export function renderResult(
 	}
 
 	const component =
-		context?.lastComponent instanceof RepoQueryResultComponent
+		context.lastComponent instanceof RepoQueryResultComponent
 			? context.lastComponent
 			: new RepoQueryResultComponent();
 

@@ -1,4 +1,4 @@
-export const DEFAULT_MTIME_TOLERANCE_MS = 2;
+const DEFAULT_MTIME_TOLERANCE_MS = 2;
 
 /**
  * Returns true when mutating an existing file is unsafe because the

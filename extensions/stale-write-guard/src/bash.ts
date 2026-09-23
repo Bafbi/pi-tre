@@ -38,7 +38,7 @@ function tokenize(segment: string): string[] | undefined {
 	let quote: string | undefined;
 
 	for (let i = 0; i < segment.length; i++) {
-		const ch = segment[i];
+		const ch = segment[i] ?? "";
 		if (quote !== undefined) {
 			if (ch === quote) {
 				quote = undefined;
@@ -54,7 +54,7 @@ function tokenize(segment: string): string[] | undefined {
 		if (ch === "\\") {
 			i++;
 			if (i >= segment.length) return undefined;
-			current += segment[i];
+			current += segment.charAt(i);
 			continue;
 		}
 		if (/\s/.test(ch)) {
@@ -80,10 +80,12 @@ function segmentPaths(segment: string): string[] {
 
 	// Skip environment assignments: FOO=1 cat file
 	let index = 0;
-	while (index < tokens.length && ENV_ASSIGNMENT.test(tokens[index])) index++;
+	while (index < tokens.length && ENV_ASSIGNMENT.test(tokens[index] ?? ""))
+		index++;
 	if (index >= tokens.length) return [];
 
 	const command = tokens[index];
+	if (command === undefined) return [];
 	index++;
 
 	if (WHOLE_FILE_READERS.has(command)) {

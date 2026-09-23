@@ -1,0 +1,27 @@
+[tasks.lint]
+extends = "ext:lint"
+
+[tasks.test]
+extends = "ext:test"
+
+[tasks.test-external]
+extends = "ext:test-external"
+
+[tasks.typecheck]
+extends = "ext:typecheck"
+
+[tasks.typecheck-strict]
+extends = "ext:typecheck-strict"
+
+[tasks.type-aware]
+extends = "ext:type-aware"
+
+[tasks.ci]
+extends = "ext:ci"
+
+[tasks.check]
+extends = "ext:check"
+
+[tasks.capture-fixtures]
+description = "Regenerate the jj output fixtures from the installed jj"
+run = "node scripts/capture-fixtures.ts"

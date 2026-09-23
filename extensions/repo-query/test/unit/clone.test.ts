@@ -13,7 +13,11 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { clearInFlightClones, ensureRepoCloned } from "../../src/clone.js";
+import {
+	type CloneResult,
+	clearInFlightClones,
+	ensureRepoCloned,
+} from "../../src/clone.js";
 import type { ParsedRepo } from "../../src/types.js";
 
 const tempDirs: string[] = [];
@@ -23,6 +27,16 @@ afterEach(async () => {
 		await rm(dir, { recursive: true, force: true });
 	}
 });
+
+type FailedClone = Extract<CloneResult, { status: "failed" }>;
+
+/** Assert a clone failed, narrowing the result for the following assertions. */
+function expectFailed(result: CloneResult): asserts result is FailedClone {
+	expect(result.status).toBe("failed");
+	if (result.status !== "failed") {
+		throw new Error("expected a failed clone");
+	}
+}
 
 function mockPi(
 	execImpl: (
@@ -175,7 +189,7 @@ describe("ensureRepoCloned", () => {
 			}),
 		);
 
-		expect(result.status).toBe("failed");
+		expectFailed(result);
 		expect(result.error).toContain("Failed to clone");
 		expect(result.error).toContain("fatal: not found");
 	});
@@ -197,7 +211,7 @@ describe("ensureRepoCloned", () => {
 			}),
 		);
 
-		expect(result.status).toBe("failed");
+		expectFailed(result);
 		expect(result.error).toContain("fatal: authentication failed");
 	});
 
@@ -226,7 +240,7 @@ describe("ensureRepoCloned", () => {
 			}),
 		);
 
-		expect(result.status).toBe("failed");
+		expectFailed(result);
 		expect(result.error).toContain("aborted");
 		expect(lsRemoteCalls).toBe(0);
 	});
@@ -257,7 +271,7 @@ describe("ensureRepoCloned", () => {
 			}),
 		);
 
-		expect(result.status).toBe("failed");
+		expectFailed(result);
 		expect(result.reason).toBe("collision");
 		expect(result.error).toContain("collision");
 		expect(result.error).toContain("https://github.com/owner/other.git");
@@ -312,7 +326,7 @@ describe("ensureRepoCloned", () => {
 			}),
 		);
 
-		expect(result.status).toBe("failed");
+		expectFailed(result);
 		expect(branchesTried).toEqual(["develop"]);
 		expect(result.error).toContain("ref 'develop'");
 	});
@@ -350,7 +364,7 @@ describe("ensureRepoCloned", () => {
 			}),
 		);
 
-		expect(result.status).toBe("failed");
+		expectFailed(result);
 		expect(result.error).toContain("ref 'mian'");
 		expect(result.error).toContain("main");
 		expect(result.error).not.toContain("develop");
@@ -380,7 +394,7 @@ describe("ensureRepoCloned", () => {
 			}),
 		);
 
-		expect(result.status).toBe("failed");
+		expectFailed(result);
 		expect(result.error).toContain("ref 'mian'");
 		expect(result.error).not.toContain("Did you mean");
 	});
@@ -414,7 +428,7 @@ describe("ensureRepoCloned", () => {
 			}),
 		);
 
-		expect(result.status).toBe("failed");
+		expectFailed(result);
 		expect(result.error).toContain("ref 'production'");
 		// "production" is too dissimilar from "main" and "develop" → no suggestion appended
 		expect(result.error).not.toContain("Did you mean");
@@ -554,7 +568,7 @@ describe("ensureRepoCloned", () => {
 				}),
 			);
 
-			expect(result.status).toBe("failed");
+			expectFailed(result);
 			expect(result.reason).toBe("timeout");
 			expect(result.error).toContain("timed out");
 			expect(readdirSync(tempspace)).toEqual([]);
@@ -582,7 +596,7 @@ describe("ensureRepoCloned", () => {
 				}),
 			);
 
-			expect(result.status).toBe("failed");
+			expectFailed(result);
 			expect(result.reason).toBe("aborted");
 			expect(result.error).toContain("aborted");
 			// The caller returns on abort; the shared clone cleans up after.
@@ -612,7 +626,7 @@ describe("ensureRepoCloned", () => {
 				}),
 			);
 
-			expect(result.status).toBe("failed");
+			expectFailed(result);
 			expect(result.error).not.toContain("secret");
 			expect(result.error).toContain("[credentials]");
 		});
@@ -644,7 +658,7 @@ describe("ensureRepoCloned", () => {
 				}),
 			);
 
-			expect(result.status).toBe("failed");
+			expectFailed(result);
 			expect(readdirSync(tempspace)).toEqual([]);
 		});
 
@@ -669,7 +683,7 @@ describe("ensureRepoCloned", () => {
 				}),
 			);
 
-			expect(result.status).toBe("failed");
+			expectFailed(result);
 			expect(result.reason).toBe("clone");
 			expect(existsSync(repoDir)).toBe(false);
 			expect(readdirSync(tempspace)).toEqual([]);
@@ -701,7 +715,7 @@ describe("ensureRepoCloned", () => {
 				}),
 			);
 
-			expect(result.status).not.toBe("reused");
+			expectFailed(result);
 			expect(result.reason).toBe("invalidTarget");
 		});
 
@@ -728,7 +742,7 @@ describe("ensureRepoCloned", () => {
 				}),
 			);
 
-			expect(result.status).toBe("failed");
+			expectFailed(result);
 			expect(result.reason).toBe("collision");
 			expect(result.error).toContain(
 				"https://github.com/owner/other.git",
@@ -806,7 +820,7 @@ describe("ensureRepoCloned", () => {
 				cloneSucceeds(),
 			);
 
-			expect(result.status).toBe("failed");
+			expectFailed(result);
 			expect(result.reason).toBe("invalidTarget");
 			expect(result.error).toContain(repoDir);
 			expect(result.error).toContain("must be removed");
@@ -830,7 +844,7 @@ describe("ensureRepoCloned", () => {
 				undefined,
 				cloneSucceeds(),
 			);
-			expect(first.status).toBe("failed");
+			expectFailed(first);
 
 			// The user follows the message and removes the named path.
 			rmSync(repoDir, { recursive: true, force: true });
@@ -935,7 +949,7 @@ describe("concurrent clone dedupe", () => {
 		});
 
 		const first = await ensureRepoCloned(repo, tempspace, undefined, pi);
-		expect(first.status).toBe("failed");
+		expectFailed(first);
 
 		const second = await ensureRepoCloned(repo, tempspace, undefined, pi);
 		expect(second.status).toBe("cloned");
@@ -969,6 +983,7 @@ describe("concurrent clone dedupe", () => {
 		releaseGate();
 		const [a, b] = await Promise.all([first, second]);
 
+		expectFailed(a);
 		expect(a.reason).toBe("aborted");
 		expect(b.status).toBe("cloned");
 		// The clone kept the shared signal; one caller's abort did not cancel it.
@@ -1003,7 +1018,9 @@ describe("concurrent clone dedupe", () => {
 		c2.abort();
 		const [a, b] = await Promise.all([first, second]);
 
+		expectFailed(a);
 		expect(a.reason).toBe("aborted");
+		expectFailed(b);
 		expect(b.reason).toBe("aborted");
 
 		releaseGate();
@@ -1089,6 +1106,7 @@ describe("concurrent clone dedupe", () => {
 
 		releaseGate();
 		const result = await caller;
+		expectFailed(result);
 		expect(result.reason).toBe("aborted");
 		await vi.waitFor(() => expect(readdirSync(tempspace)).toEqual([]));
 	});

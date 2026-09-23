@@ -17,19 +17,26 @@ sources = [
 	"{{ vars.monorepo }}/pnpm-lock.yaml",
 	"{{ vars.monorepo }}/packages/pi-subagent/src/**/*.ts",
 	"{{ vars.monorepo }}/packages/pi-config/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-core/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-jj/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-workspace/src/**/*.ts",
 ]
 
 [tasks.typecheck]
 extends = "ext:typecheck"
-# pi-subagent and pi-config are workspace dependencies. Their sources are part
-# of this task's inputs so a change there invalidates this typecheck. A
-# `depends` edge alone does not persist across separate mise invocations.
+# pi-subagent, pi-config, and the sillajje packages are workspace
+# dependencies. Their sources are part of this task's inputs so a change there
+# invalidates this typecheck. A `depends` edge alone does not persist across
+# separate mise invocations.
 sources = [
 	"src/**/*.ts",
 	"tsconfig.json",
 	"{{ vars.monorepo }}/tsconfig.base.json",
 	"{{ vars.monorepo }}/packages/pi-subagent/src/**/*.ts",
 	"{{ vars.monorepo }}/packages/pi-config/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-core/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-jj/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-workspace/src/**/*.ts",
 ]
 
 [tasks.typecheck-strict]
@@ -40,6 +47,9 @@ sources = [
 	"{{ vars.monorepo }}/tsconfig.base.json",
 	"{{ vars.monorepo }}/packages/pi-subagent/src/**/*.ts",
 	"{{ vars.monorepo }}/packages/pi-config/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-core/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-jj/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-workspace/src/**/*.ts",
 ]
 
 [tasks.type-aware]
@@ -50,6 +60,9 @@ sources = [
 	"{{ vars.monorepo }}/biome.json",
 	"{{ vars.monorepo }}/packages/pi-subagent/src/**/*.ts",
 	"{{ vars.monorepo }}/packages/pi-config/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-core/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-jj/src/**/*.ts",
+	"{{ vars.monorepo }}/packages/sillajje-workspace/src/**/*.ts",
 ]
 
 [tasks.ci]

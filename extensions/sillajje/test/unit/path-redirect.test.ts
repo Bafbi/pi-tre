@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redirect } from "../../src/path-redirect";
+import { redirect } from "../../src/path-redirect.js";
 
 const WS = "/home/user/.pi/sillajje/my-repo/abc123";
 const REPO = "/home/user/my-repo";

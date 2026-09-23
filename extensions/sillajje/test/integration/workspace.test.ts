@@ -3,7 +3,13 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { createRunner, describeJj, makeRunnerCwd, tempDirs } from "./_helpers";
+import {
+	createRunner,
+	describeJj,
+	makeRunnerCwd,
+	sessionBookmark,
+	tempDirs,
+} from "./_helpers.js";
 
 describeJj("sillajje workspace creation and prompt injection", () => {
 	it("session_start sets active status pill with workspace path", async () => {
@@ -31,12 +37,10 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 
 		expect(setStatus).toHaveBeenCalled();
-		const call = setStatus.mock.calls.find(
-			(c: [string, string | undefined]) => c[0] === "sillajje",
-		);
+		const call = setStatus.mock.calls.find((c) => c[0] === "sillajje");
 		expect(call).toBeDefined();
-		expect(call[1]).toContain("sillajje: [active]");
-		expect(call[1]).toContain(".pi/sillajje");
+		expect(call![1]).toContain("sillajje: [active]");
+		expect(call![1]).toContain(".pi/sillajje");
 	});
 
 	it("session_start creates a jj workspace", async () => {
@@ -79,7 +83,7 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 			encoding: "utf-8",
 			stdio: "pipe",
 		});
-		expect(workspaceList).toContain(`sillajje-${sessionId}`);
+		expect(workspaceList).toContain(sessionBookmark(sessionId));
 	});
 
 	it("before_agent_start creates the session bookmark for jj log visibility", async () => {
@@ -102,31 +106,31 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 			cwd,
 			encoding: "utf-8",
 		});
-		expect(before).not.toContain(`sillajje/${sessionId}`);
+		expect(before).not.toContain(sessionBookmark(sessionId));
 
 		// The first interaction creates the bookmark on the session working copy.
 		await runner.emitBeforeAgentStart(
 			"do something",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
 		const after = execSync("jj bookmark list", {
 			cwd,
 			encoding: "utf-8",
 		});
-		expect(after).toContain(`sillajje/${sessionId}`);
+		expect(after).toContain(sessionBookmark(sessionId));
 
 		// The bookmark points at the session workspace's working copy (@).
 		// Compare change ids (stable under rewrites) via `jj log` templates,
 		// which are stable across jj output-format changes.
 		const wsChangeId = execSync(
-			`jj log -r 'sillajje-${sessionId}@' --no-graph -T change_id`,
+			`jj log -r '${sessionBookmark(sessionId)}@' --no-graph -T change_id`,
 			{ cwd, encoding: "utf-8" },
 		).trim();
 		const bmChangeId = execSync(
-			`jj log -r 'sillajje/${sessionId}' --no-graph -T change_id`,
+			`jj log -r '${sessionBookmark(sessionId)}' --no-graph -T change_id`,
 			{ cwd, encoding: "utf-8" },
 		).trim();
 		expect(bmChangeId).toBe(wsChangeId);
@@ -149,7 +153,7 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 			"do something",
 			undefined,
 			basePrompt,
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
 		expect(result).toBeDefined();
@@ -194,7 +198,7 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 			"do something",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
 		expect(result?.systemPrompt).toContain("clean checkout");
@@ -219,7 +223,7 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 			"do something",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
 		expect(result?.systemPrompt).toContain(
@@ -251,7 +255,7 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 			"do something",
 			undefined,
 			"You are helpful.",
-			{ skills: [], contextFiles: [], prompts: [] },
+			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
 		expect(result?.systemPrompt).toContain("## Sillajje Workspace");

@@ -35,11 +35,13 @@ export interface SubagentOptions {
 	tempspace: string;
 	repos: ParsedRepo[];
 	query: string;
-	model?: string;
+	model?: string | undefined;
 	signal: AbortSignal | undefined;
-	onUpdate?: (
-		partial: AgentToolResult<{ answer: string; thought?: string }>,
-	) => void;
+	onUpdate?:
+		| ((
+				partial: AgentToolResult<{ answer: string; thought?: string }>,
+		  ) => void)
+		| undefined;
 }
 
 export interface ExplorationResult {
@@ -82,7 +84,11 @@ export async function runExplorer(
 
 	const { tempspace, repos, query, model, signal, onUpdate } = options;
 	const isSingle = repos.length === 1;
-	const cwd = isSingle ? join(tempspace, repos[0].dirName) : tempspace;
+	const firstRepo = repos[0];
+	const cwd =
+		isSingle && firstRepo !== undefined
+			? join(tempspace, firstRepo.dirName)
+			: tempspace;
 
 	const backend = createProcessBackend({
 		spawn: impl?.spawn,
@@ -224,6 +230,9 @@ function buildSystemPrompt(
 ): string {
 	if (isSingle) {
 		const repo = repos[0];
+		if (repo === undefined) {
+			return "You are a senior code exploration agent.";
+		}
 		return `You are a senior code exploration agent. You are in the root of the "${repo.displayName}" repository.
 
 Your task: answer this query using only the code in this repository.

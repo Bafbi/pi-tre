@@ -1,12 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { Check } from "@sinclair/typebox/value";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadSillajjeConfig, SillajjeConfigSchema } from "../../src/config";
+import { loadSillajjeConfig } from "../../src/config.js";
 
 const tempDirs: string[] = [];
 const ENV_VAR = "SILLAJJE_POST_INIT";
+
+const DEFAULT_STAMP_BODY = ["trace", "meta", "loop", "prompt", "response"];
+const DEFAULT_LOOP = ["tools", "call_count", "elapsed", "thinking_blocks"];
 
 function cleanUp() {
 	for (const d of tempDirs.splice(0)) {
@@ -44,6 +46,12 @@ function writeProjectConfig(repoRoot: string, config: Record<string, unknown>) {
 	writeFileSync(join(dir, "sillajje.json"), JSON.stringify(config));
 }
 
+/**
+ * `loadSillajjeConfig` is the adapter's wrapper over `@pi-tre/pi-config`:
+ * it forwards the core schema and the trust flag, then applies the
+ * `SILLAJJE_POST_INIT` override. The schema shape itself is owned and tested
+ * by `@pi-tre/sillajje-core`.
+ */
 describe("loadSillajjeConfig", () => {
 	afterEach(cleanUp);
 
@@ -130,13 +138,15 @@ describe("loadSillajjeConfig", () => {
 		expect(config.postInit).toEqual([]);
 	});
 
-	it("merges nested message config with the project winning per leaf", () => {
+	it("merges nested action config with the project winning per leaf", () => {
 		const configDir = makeConfigDir();
 		const repoRoot = makeRepoRoot();
 		writeGlobalConfig(configDir, {
-			message: { body: { trace: { detail: "step" } } },
+			actions: { stamp: { trace: { detail: "step" } } },
 		});
-		writeProjectConfig(repoRoot, { message: { header: "user_prompt" } });
+		writeProjectConfig(repoRoot, {
+			actions: { stamp: { header: { mode: "user_prompt" } } },
+		});
 
 		const config = loadSillajjeConfig({
 			repoRoot,
@@ -144,8 +154,8 @@ describe("loadSillajjeConfig", () => {
 			trusted: true,
 		});
 
-		expect(config.message?.header).toBe("user_prompt");
-		expect(config.message?.body?.trace?.detail).toBe("step");
+		expect(config.actions?.stamp?.header?.mode).toBe("user_prompt");
+		expect(config.actions?.stamp?.trace?.detail).toBe("step");
 	});
 
 	// -------------------------------------------------------------------
@@ -177,43 +187,34 @@ describe("loadSillajjeConfig", () => {
 	});
 
 	// -------------------------------------------------------------------
-	// message tree
+	// Schema defaults flow through the loader
 	// -------------------------------------------------------------------
 
-	it("missing message key applies all defaults", () => {
+	it("missing actions key applies all defaults", () => {
 		const configDir = makeConfigDir();
 		writeGlobalConfig(configDir, { debug: true });
 
 		const config = loadSillajjeConfig({ configDir });
 
-		expect(config.message?.header).toBe("one_line");
-		expect(config.message?.body?.trace?.enabled).toBe(true);
-		expect(config.message?.body?.trace?.detail).toBe("high");
-		expect(config.message?.body?.meta?.enabled).toBe(true);
-		expect(config.message?.body?.meta?.tools).toBe(true);
-		expect(config.message?.body?.meta?.call_count).toBe(true);
-		expect(config.message?.body?.meta?.elapsed).toBe(true);
-		expect(config.message?.body?.meta?.thinking_blocks).toBe(true);
-		expect(config.message?.body?.user_prompt).toBe(true);
-		expect(config.message?.body?.response).toBe(true);
+		expect(config.actions?.stamp?.body).toEqual(DEFAULT_STAMP_BODY);
+		expect(config.actions?.stamp?.header?.mode).toBe("one_line");
+		expect(config.actions?.stamp?.trace?.detail).toBe("high");
+		expect(config.actions?.stamp?.loop).toEqual(DEFAULT_LOOP);
+		expect(config.actions?.fold?.body).toEqual(["summary", "ref"]);
+		expect(config.actions?.fold?.summary?.detail).toBe("high");
 	});
 
-	it("partial message.body fills the missing fields with defaults", () => {
+	it("a partial actions.stamp.body keeps the missing sections out", () => {
 		const configDir = makeConfigDir();
 		writeGlobalConfig(configDir, {
-			message: { body: { user_prompt: false } },
+			actions: { stamp: { body: ["meta", "prompt"] } },
 		});
 
 		const config = loadSillajjeConfig({ configDir });
 
-		expect(config.message?.body?.user_prompt).toBe(false);
-		expect(config.message?.body?.response).toBe(true);
-		expect(config.message?.body?.trace?.enabled).toBe(true);
+		expect(config.actions?.stamp?.body).toEqual(["meta", "prompt"]);
+		expect(config.actions?.stamp?.trace?.detail).toBe("high");
 	});
-
-	// -------------------------------------------------------------------
-	// subGenerator tree
-	// -------------------------------------------------------------------
 
 	it("missing subGenerator key applies defaults", () => {
 		const configDir = makeConfigDir();
@@ -249,23 +250,16 @@ describe("loadSillajjeConfig", () => {
 		expect(config.workspacesRoot).toBe(`${homedir()}/.pi/sillajje`);
 	});
 
-	it("trace.detail rejects invalid values via the schema", () => {
-		const invalid = {
-			message: { body: { trace: { detail: "low" } } },
-		};
-		expect(Check(SillajjeConfigSchema, invalid)).toBe(false);
-	});
-
-	it("an invalid global config falls back to defaults entirely", () => {
+	it("an invalid global layer is skipped for the whole layer", () => {
 		const configDir = makeConfigDir();
 		writeGlobalConfig(configDir, {
 			debug: true,
-			message: { body: { trace: { detail: "low" } } },
+			actions: { stamp: { trace: { detail: "low" } } },
 		});
 
 		const config = loadSillajjeConfig({ configDir });
 
-		expect(config.message?.body?.trace?.detail).toBe("high");
+		expect(config.actions?.stamp?.trace?.detail).toBe("high");
 		expect(config.debug).toBe(false);
 	});
 });

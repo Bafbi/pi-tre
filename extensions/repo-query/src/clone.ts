@@ -19,7 +19,7 @@ const MAX_STDERR_CHARS = 200;
 const CLEANUP_RETRIES = 5;
 const CLEANUP_RETRY_DELAY_MS = 100;
 
-export type CloneFailureReason =
+type CloneFailureReason =
 	| "clone"
 	| "collision"
 	| "invalidTarget"
@@ -69,7 +69,8 @@ function getBranchSuggestions(
 	for (const line of lsRemoteStdout.split("\n")) {
 		const match = line.match(/^[a-f0-9]+\s+refs\/heads\/(.+)$/);
 		if (match) {
-			branches.push(match[1]);
+			const branch = match[1];
+			if (branch !== undefined) branches.push(branch);
 		}
 	}
 	if (branches.length === 0) return [];
@@ -298,11 +299,11 @@ export async function ensureRepoCloned(
 				callerSignal?.addEventListener("abort", onAbort, {
 					once: true,
 				});
-				shared.result.then(finish);
+				void shared.result.then(finish);
 			});
 		},
 	};
-	result.finally(() => {
+	void result.finally(() => {
 		if (inFlightClones.get(key) === shared) {
 			inFlightClones.delete(key);
 		}
@@ -372,8 +373,8 @@ async function runClone(
 		let cloneErrorTail = "";
 		try {
 			const result = await pi.exec("git", args, {
-				signal,
 				timeout: CLONE_TIMEOUT_MS,
+				...(signal !== undefined ? { signal } : {}),
 			});
 
 			if (signal?.aborted) {
@@ -447,8 +448,8 @@ async function branchFailure(
 			"git",
 			["ls-remote", "--heads", cloneSource],
 			{
-				signal,
 				timeout: 30_000,
+				...(signal !== undefined ? { signal } : {}),
 			},
 		);
 		if (lsResult.code === 0 && lsResult.stdout && repo.branch) {
@@ -486,7 +487,7 @@ async function targetHasResolvableHead(
 		const result = await pi.exec(
 			"git",
 			["-C", cloneTarget, "rev-parse", "-q", "--verify", "HEAD"],
-			{ signal, timeout: 10_000 },
+			{ timeout: 10_000, ...(signal !== undefined ? { signal } : {}) },
 		);
 		return result.code === 0 && result.stdout.trim().length > 0;
 	} catch {
@@ -510,7 +511,7 @@ async function checkExistingOrigin(
 		const origin = await pi.exec(
 			"git",
 			["-C", cloneTarget, "remote", "get-url", "origin"],
-			{ signal, timeout: 10_000 },
+			{ timeout: 10_000, ...(signal !== undefined ? { signal } : {}) },
 		);
 		if (origin.code === 0 && origin.stdout.trim()) {
 			const existingUrl = origin.stdout.trim();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SessionState } from "../../src/state";
+import { SessionState } from "../../src/state.js";
 
 describe("SessionState", () => {
 	it("defaults to inactive with no repo root", () => {
@@ -142,16 +142,16 @@ describe("SessionState", () => {
 		expect(s.getWorkspacePath()).toBe("/tmp/ws/repo/sess-001");
 	});
 
-	it("markStale marks the session stale and reset clears it", () => {
+	it("markMissingWorkspace marks the workspace missing and reset clears it", () => {
 		const s = new SessionState();
 		s.setDetection(true, "/repo");
-		expect(s.isStale()).toBe(false);
+		expect(s.isMissingWorkspace()).toBe(false);
 
-		s.markStale();
-		expect(s.isStale()).toBe(true);
+		s.markMissingWorkspace();
+		expect(s.isMissingWorkspace()).toBe(true);
 
 		s.reset();
-		expect(s.isStale()).toBe(false);
+		expect(s.isMissingWorkspace()).toBe(false);
 	});
 
 	it("getSessionKey falls back to sessionId and honors setSessionKey", () => {

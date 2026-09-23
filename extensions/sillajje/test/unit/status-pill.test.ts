@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
 import { sep } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SessionState } from "../../src/state";
-import { formatPill } from "../../src/status-pill";
+import { SessionState } from "../../src/state.js";
+import { formatPill } from "../../src/status-pill.js";
 
 function makeState(overrides: {
 	lifecycle?: "inactive" | "active" | "archived";

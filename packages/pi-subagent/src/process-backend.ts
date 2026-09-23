@@ -16,7 +16,7 @@ import type {
 	SubagentTask,
 	SubagentUsage,
 } from "./types.js";
-import { createSafeAccumulator, zeroUsage } from "./types.js";
+import { zeroUsage } from "./types.js";
 
 /** Default timeout for a child run: repo-query's proven 300 s. */
 export const DEFAULT_PROCESS_TIMEOUT_MS = 300_000;
@@ -48,11 +48,11 @@ export type ProcessSpawnFn = (
 
 export interface ProcessBackendOptions {
 	/** Spawn override for tests. Default: `node:child_process` spawn, no shell. */
-	spawn?: ProcessSpawnFn;
+	spawn?: ProcessSpawnFn | undefined;
 	/** Grace period between SIGTERM and SIGKILL. Default: `DEFAULT_KILL_GRACE_MS`. */
-	killGraceMs?: number;
+	killGraceMs?: number | undefined;
 	/** Hard cap on collected child stdout. Default: `DEFAULT_MAX_OUTPUT_BYTES`. */
-	maxOutputBytes?: number;
+	maxOutputBytes?: number | undefined;
 }
 
 interface ProtocolMessage {
@@ -123,7 +123,7 @@ interface ExitInfo {
 	aborted: boolean;
 	overflow: boolean;
 	stderr: string;
-	spawnError?: string;
+	spawnError?: string | undefined;
 }
 
 /**
