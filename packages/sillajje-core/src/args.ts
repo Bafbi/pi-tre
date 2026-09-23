@@ -21,8 +21,12 @@ export interface FlagDef {
 	key: string;
 	/** Every token that selects this flag, e.g. `["-r", "--rev"]`. */
 	aliases: readonly string[];
-	/** Whether the flag consumes the following token as its value. */
-	takesValue: boolean;
+	/**
+	 * Whether the flag consumes the following token as its value. `"optional"`
+	 * consumes it only when it is not a known flag alias; otherwise the flag is
+	 * present with an empty value.
+	 */
+	takesValue: boolean | "optional";
 }
 
 /** A subcommand's argument rules. */
@@ -109,11 +113,25 @@ export function parseCommandArgs(
 					: `${usage} (unexpected argument "${token}")`,
 			};
 		}
-		if (!flag.takesValue) {
+		if (flag.takesValue === false) {
 			values[flag.key] = true;
 			continue;
 		}
 		const value = tokens[i + 1];
+		if (flag.takesValue === "optional") {
+			const nextIsFlag =
+				value !== undefined &&
+				spec.flags.some((candidate) =>
+					candidate.aliases.includes(value),
+				);
+			if (value !== undefined && !nextIsFlag) {
+				values[flag.key] = value;
+				i += 1;
+			} else {
+				values[flag.key] = "";
+			}
+			continue;
+		}
 		if (value === undefined) {
 			return {
 				kind: "error",

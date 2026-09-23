@@ -55,18 +55,22 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-/** The fold input. */
+/** The fold input. One of `onto` (publish) or `update` (update) is required. */
 export interface FoldInput {
 	/** Session source: a session key, a session id, or `@`. */
 	session?: string | undefined;
 	/** Rev source: any single revision. Mutually exclusive with `session`. */
 	rev?: string | undefined;
-	/** The target revision the folded change is placed under. */
-	onto: string;
+	/** Publish mode: the target revision the whole folded change is placed under. */
+	onto?: string | undefined;
+	/** Update mode: the review bookmark to base on, append to, and advance. */
+	update?: string | undefined;
 	/** The caller's live session, for the current-session exemption. */
 	current?: CurrentSession | undefined;
 	/** A working directory for a rev or archived-session source. */
 	cwd?: string | undefined;
+	/** Name the folded change; `""` auto-names it `fold-<change id>`. */
+	name?: string | undefined;
 	/** Advance the single local bookmark `--onto` resolves to. */
 	land?: boolean | undefined;
 	/** Archive the session after a successful fold (session sources only). */
@@ -80,6 +84,8 @@ export type FoldResult =
 			subject: string;
 			rev: string;
 			ref: string;
+			/** The review bookmark advanced or named, when the fold named one. */
+			bookmark?: string | undefined;
 			/** The folded session, when the source was one. */
 			sessionKey?: string | undefined;
 			/** Whether the session was archived after the fold. */
@@ -135,7 +141,7 @@ export function getFoldConfig(cfg: SillajjeConfig): FoldConfig {
 interface FoldSource {
 	/** The resolved source tip. */
 	tip: Commit;
-	/** The folded-source bookmark name, `<name>` in `sillajje/folded/<name>`. */
+	/** The source half of the folded-source marker, `<name>` in `sillajje/folded/<name>/<target>`. */
 	name: string;
 	/** The session key, when the source is a session. */
 	sessionKey?: string;
@@ -168,20 +174,56 @@ async function resolveSingle(
  * bookmark. jj bookmark names reject `~`, `^`, `:`, `@`, and spaces, so the
  * fallback strips them.
  */
+/** The local bookmark names pointing at a commit. */
+async function localBookmarkNames(
+	jj: Jj,
+	commitId: string,
+	cwd: string,
+): Promise<string[]> {
+	return (await jj.bookmarks({ cwd }))
+		.filter(
+			(bookmark) =>
+				bookmark.remote === undefined &&
+				bookmark.target.includes(commitId),
+		)
+		.map((bookmark) => bookmark.name);
+}
+
+/**
+ * The folded-source bookmark name for a rev source: the single local
+ * bookmark at the tip, or a slug of the rev string when the rev carries no
+ * bookmark. jj bookmark names reject `~`, `^`, `:`, `@`, and spaces, so the
+ * fallback strips them.
+ */
 async function foldedSourceName(
 	jj: Jj,
 	tip: Commit,
 	rev: string,
 	cwd: string,
 ): Promise<string> {
-	const locals = (await jj.bookmarks({ cwd })).filter(
-		(bookmark) =>
-			bookmark.remote === undefined &&
-			bookmark.target.includes(tip.commitId),
-	);
-	const only = locals[0];
-	if (locals.length === 1 && only !== undefined) return only.name;
+	const names = await localBookmarkNames(jj, tip.commitId, cwd);
+	const only = names[0];
+	if (names.length === 1 && only !== undefined) return only;
 	return slugRev(rev);
+}
+
+/**
+ * The target half of the folded-source marker. A target that resolves to a
+ * single local bookmark keys by that bookmark name, so a review branch keeps
+ * one marker as it grows. Any other target keys by a slug of the rev string.
+ */
+async function foldedTargetName(
+	jj: Jj,
+	onto: string,
+	commit: Commit | undefined,
+	cwd: string,
+): Promise<string> {
+	if (commit !== undefined) {
+		const names = await localBookmarkNames(jj, commit.commitId, cwd);
+		const only = names[0];
+		if (names.length === 1 && only !== undefined) return only;
+	}
+	return slugRev(onto);
 }
 
 /** A bookmark-safe token for a rev that names no bookmark. */
@@ -289,21 +331,62 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 
 		const { tip } = source;
 		const sourceCwd = source.cwd;
-		const foldedBookmark = `sillajje/folded/${source.name}`;
 
-		// The delta base: the recorded folded-source tip, else the fork point.
+		// Two modes. Publish places a whole source delta under `-o`; update
+		// bases on the review bookmark's recorded tip, appends the delta onto
+		// that bookmark, and advances it.
+		const updateMode = input.update !== undefined;
+		if (
+			updateMode &&
+			(input.onto !== undefined ||
+				input.land === true ||
+				input.name !== undefined)
+		) {
+			return {
+				ok: false,
+				reason: "usage",
+				message:
+					"--update cannot be combined with -o, --land, or --name",
+			};
+		}
+		const targetRevInput = updateMode ? input.update : input.onto;
+		if (targetRevInput === undefined) {
+			return {
+				ok: false,
+				reason: "usage",
+				message: "fold needs -o <rev> or --update <bookmark>",
+			};
+		}
+		const targetRev: string = targetRevInput;
+
+		// The delta base. Publish uses the fork point. Update reads the review
+		// bookmark's marker and falls back to the fork point when none exists.
 		let base: Commit;
 		let delta: Commit[];
+		let targetCommit: Commit | undefined;
+		let targetName = "";
 		try {
-			const bookmarks = await jj.bookmarks({ cwd: sourceCwd });
-			const recorded = bookmarks.find(
-				(b) => b.name === foldedBookmark && b.remote === undefined,
-			);
+			const targets = await jj.log(targetRev, { cwd: sourceCwd });
+			targetCommit = targets.length === 1 ? targets[0] : undefined;
+			if (!updateMode) {
+				targetName = await foldedTargetName(
+					jj,
+					targetRev,
+					targetCommit,
+					sourceCwd,
+				);
+			}
+			const markerName = `sillajje/folded/${source.name}/${updateMode ? targetRev : targetName}`;
+			const recorded = updateMode
+				? (await jj.bookmarks({ cwd: sourceCwd })).find(
+						(b) => b.name === markerName && b.remote === undefined,
+					)
+				: undefined;
 			if (recorded !== undefined && recorded.target.length > 0) {
 				const recordedTarget = recorded.target[0];
 				if (recordedTarget === undefined) {
 					return fail(
-						`fold could not resolve ${foldedBookmark} to one commit`,
+						`fold could not resolve ${markerName} to one commit`,
 					);
 				}
 				const recordedCommits = await jj.log(recordedTarget, {
@@ -311,30 +394,37 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				});
 				if (recordedCommits.length !== 1) {
 					return fail(
-						`fold could not resolve ${foldedBookmark} to one commit`,
+						`fold could not resolve ${markerName} to one commit`,
 					);
 				}
 				const recordedCommit = recordedCommits[0];
 				if (recordedCommit === undefined) {
 					return fail(
-						`fold could not resolve ${foldedBookmark} to one commit`,
+						`fold could not resolve ${markerName} to one commit`,
 					);
 				}
 				base = recordedCommit;
 			} else {
+				if (updateMode) {
+					emitStatus(onStatus, {
+						kind: "info",
+						code: "fold_update_fallback",
+						message: `--update found no folded-source marker for ${targetRev}; folding from the fork point`,
+					});
+				}
 				const bases = await jj.log(
-					`fork_point(${tip.changeId} | ${input.onto})`,
+					`fork_point(${tip.changeId} | ${targetRev})`,
 					{ cwd: sourceCwd },
 				);
 				if (bases.length !== 1) {
 					return fail(
-						`fold could not find a single base for ${input.onto}`,
+						`fold could not find a single base for ${targetRev}`,
 					);
 				}
 				const baseCommit = bases[0];
 				if (baseCommit === undefined) {
 					return fail(
-						`fold could not find a single base for ${input.onto}`,
+						`fold could not find a single base for ${targetRev}`,
 					);
 				}
 				base = baseCommit;
@@ -351,12 +441,27 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			return { ok: false, reason: "no-changes" };
 		}
 
+		// The published content is the tree delta. A source that merged the
+		// target has a non-empty graph range but no net content; that is also a
+		// no-op. Compute it here, before any mutation and before the
+		// sub-generator spends a call.
+		let diff = "";
+		try {
+			diff = await jj.diffRange(base.commitId, tip.commitId, {
+				cwd: sourceCwd,
+			});
+		} catch (err) {
+			return fail(`fold diff generation failed: ${String(err)}`);
+		}
+		if (diff.trim().length === 0) {
+			return { ok: false, reason: "no-changes" };
+		}
+
 		// `--land` moves exactly one local bookmark pointing at the target.
 		let ontoBookmark: string | undefined;
 		if (input.land) {
 			try {
-				const targets = await jj.log(input.onto, { cwd: sourceCwd });
-				if (targets.length !== 1) {
+				if (targetCommit === undefined) {
 					return {
 						ok: false,
 						reason: "usage",
@@ -364,20 +469,10 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 							"--land needs --onto to resolve to exactly one revision",
 					};
 				}
-				const target = targets[0];
-				if (target === undefined) {
-					return {
-						ok: false,
-						reason: "usage",
-						message:
-							"--land needs --onto to resolve to exactly one revision",
-					};
-				}
-				const targetCommitId = target.commitId;
-				const local = (await jj.bookmarks({ cwd: sourceCwd })).filter(
-					(b) =>
-						b.remote === undefined &&
-						b.target.includes(targetCommitId),
+				const local = await localBookmarkNames(
+					jj,
+					targetCommit.commitId,
+					sourceCwd,
 				);
 				if (local.length !== 1) {
 					return {
@@ -394,7 +489,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 						message: `--land needs --onto to resolve to exactly one local bookmark; ${input.onto} matches ${local.length}`,
 					};
 				}
-				ontoBookmark = ontoLocal.name;
+				ontoBookmark = ontoLocal;
 			} catch (err) {
 				return fail(`fold --land resolution failed: ${String(err)}`);
 			}
@@ -404,9 +499,6 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		let body: string;
 		let subject: string;
 		try {
-			const diff = await jj.diff(`${base.commitId}..${tip.commitId}`, {
-				cwd: sourceCwd,
-			});
 			const subCtx: SubGeneratorContext = {
 				transcript: "",
 				diff,
@@ -454,11 +546,29 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 
 		emitStatus(onStatus, { kind: "phase", code: "folding" });
 
+		// The name this fold carries: update uses the review bookmark; publish
+		// uses --name (auto `fold-<change id>` when empty) or the target's local
+		// bookmark. `reviewBookmark` is the bookmark advanced to the fold.
+		const foldNameFor = (folded: Commit): string =>
+			updateMode
+				? targetRev
+				: input.name !== undefined
+					? input.name === ""
+						? `fold-${folded.changeId}`
+						: input.name
+					: targetName;
+		const reviewBookmarkFor = (folded: Commit): string | undefined =>
+			updateMode
+				? targetRev
+				: input.name !== undefined
+					? foldNameFor(folded)
+					: undefined;
+
 		// One transaction: empty child → duplicate delta → squash copies.
 		const recipe = async (tx: Tx): Promise<Commit | undefined> => {
 			const created = await tx.apply({
 				kind: "new",
-				revs: [input.onto],
+				revs: [targetRev],
 				edit: false,
 			});
 			if (!created.ok) return undefined;
@@ -470,7 +580,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			const duplicated = await tx.apply({
 				kind: "duplicate",
 				revset: `${base.commitId}..${tip.commitId}`,
-				destination: input.onto,
+				destination: targetRev,
 			});
 			if (!duplicated.ok) return undefined;
 			const { root, head } = copyRange(duplicated.value.created);
@@ -487,10 +597,21 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			const conflicts = await tx.conflicts(folded.changeId);
 			if (conflicts.length > 0) throw new FoldAbort(conflicts);
 
+			// Advance the review bookmark: the update target, or the --name.
+			const reviewBookmark = reviewBookmarkFor(folded);
+			if (reviewBookmark !== undefined) {
+				const named = await tx.apply({
+					kind: "bookmarkSet",
+					name: reviewBookmark,
+					rev: folded.changeId,
+				});
+				if (!named.ok) return undefined;
+			}
+
 			// Record the folded source tip for the next fold's delta base.
 			const recorded = await tx.apply({
 				kind: "bookmarkSet",
-				name: foldedBookmark,
+				name: `sillajje/folded/${source.name}/${foldNameFor(folded)}`,
 				rev: tip.changeId,
 			});
 			if (!recorded.ok) return undefined;
@@ -549,6 +670,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			subject,
 			rev: folded.changeId,
 			ref: `${base.changeId}..${tip.changeId}`,
+			bookmark: reviewBookmarkFor(folded),
 			sessionKey: source.sessionKey,
 			archived,
 		};
@@ -558,28 +680,36 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 /** The fold subcommand — publish a source range under a target. */
 export const FOLD_ARGS: CommandSpec = {
 	name: "fold",
-	usage: "fold (-s <id|@> | -r <rev>) -o <rev>",
+	usage: "fold (-s <id|@> | -r <rev>) (-o <rev> | --update <bookmark>) [--name [<branch>]] [--land] [--archive]",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "rev", aliases: ["-r", "--rev"], takesValue: true },
 		{ key: "onto", aliases: ["-o", "--onto"], takesValue: true },
+		{ key: "update", aliases: ["-u", "--update"], takesValue: true },
+		{ key: "name", aliases: ["--name"], takesValue: "optional" },
 		{ key: "land", aliases: ["--land"], takesValue: false },
 		{ key: "archive", aliases: ["--archive"], takesValue: false },
 	],
-	required: ["onto"],
-	exclusive: [["session", "rev"]],
+	exclusive: [
+		["session", "rev"],
+		["update", "onto"],
+		["update", "name"],
+		["update", "land"],
+	],
 };
 
 /** The fold subcommand's help. */
 export const FOLD_HELP: CommandHelp = {
 	usage: FOLD_ARGS.usage,
 	lines: [
-		"Publishes a source range as one clean change under a target.",
-		"  -s, --session <id>  fold a session; @ means this session (default)",
-		"  -r, --rev <rev>     fold a single revision",
-		"  -o, --onto <rev>    the target the folded change is placed under (required)",
-		"      --land          advance the target's single local bookmark",
-		"      --archive       archive the session after a successful fold",
-		"  -h, --help          show this help",
+		"Publishes a source delta as one clean change under a target.",
+		"  -s, --session <id>     fold a session; @ means this session (default)",
+		"  -r, --rev <rev>        fold a single revision",
+		"  -o, --onto <rev>       publish the whole delta under this revision",
+		"  -u, --update <branch>  append only the new work onto this review bookmark",
+		"      --name [<branch>]  name the folded change; empty names it fold-<change id>",
+		"      --land             advance --onto's single local bookmark",
+		"      --archive          archive the session after a successful fold",
+		"  -h, --help             show this help",
 	],
 };

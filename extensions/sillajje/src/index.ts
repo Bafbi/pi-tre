@@ -206,7 +206,7 @@ export default function (pi: ExtensionAPI) {
 				jj,
 				workspaces: workspacesFor(state.getRepoRoot() ?? wsPath),
 				onStatus: (event) => {
-					if (event.kind !== "phase") {
+					if (event.kind === "warning" || event.kind === "error") {
 						debug.error(
 							`stamp_${event.kind}_${event.code}`,
 							new Error(event.message),
@@ -249,6 +249,11 @@ export default function (pi: ExtensionAPI) {
 		return (s: StatusEvent) => {
 			if (s.kind === "phase") {
 				debug.event(`action_phase_${s.code}`, {});
+			} else if (s.kind === "info") {
+				debug.event(`action_info_${s.code}`, { message: s.message });
+				if (ctx.hasUI) {
+					ctx.ui.notify(`[sillajje] ${s.message}`, "info");
+				}
 			} else if (s.kind === "warning") {
 				debug.error(`action_warning_${s.code}`, new Error(s.message));
 				if (ctx.hasUI) {
@@ -1479,11 +1484,13 @@ export default function (pi: ExtensionAPI) {
 		const values = parseOrReport(ctx, args, FOLD_ARGS, FOLD_HELP, "fold");
 		if (values === undefined) return;
 
-		const onto = values.onto;
-		if (typeof onto !== "string") return;
+		const onto = typeof values.onto === "string" ? values.onto : undefined;
 		const session =
 			typeof values.session === "string" ? values.session : undefined;
 		const rev = typeof values.rev === "string" ? values.rev : undefined;
+		const name = typeof values.name === "string" ? values.name : undefined;
+		const update =
+			typeof values.update === "string" ? values.update : undefined;
 		const land = values.land === true;
 		const archive = values.archive === true;
 
@@ -1498,12 +1505,14 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		debug.event("fold_start", { session, rev, onto });
+		debug.event("fold_start", { session, rev, onto, update, name });
 		const fold = createFold(buildPorts(ctx, repoRoot));
 		const result = await fold({
 			session,
 			rev,
 			onto,
+			update,
+			name,
 			land,
 			archive,
 			current: {
@@ -1513,10 +1522,12 @@ export default function (pi: ExtensionAPI) {
 			cwd: repoRoot,
 		});
 
+		const targetLabel = update ?? onto ?? "the target";
 		if (result.ok) {
 			debug.event("fold_done", {
 				rev: result.rev,
 				ref: result.ref,
+				bookmark: result.bookmark,
 			});
 			// Archiving the current session is an adapter-side state change:
 			// the action archived the workspace, the adapter owns the session.
@@ -1530,15 +1541,20 @@ export default function (pi: ExtensionAPI) {
 				syncPill(ctx);
 			}
 			if (ctx.hasUI) {
+				const named =
+					result.bookmark !== undefined &&
+					result.bookmark !== targetLabel
+						? ` (named ${result.bookmark})`
+						: "";
 				ctx.ui.notify(
-					`[sillajje] folded onto ${onto} as ${result.rev}: ${result.subject}`,
+					`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${named}`,
 					"info",
 				);
 			}
 		} else if (result.reason === "no-changes") {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
-					`[sillajje] nothing to fold onto ${onto} — no new changes`,
+					`[sillajje] nothing to fold onto ${targetLabel} — no new changes`,
 					"info",
 				);
 			}

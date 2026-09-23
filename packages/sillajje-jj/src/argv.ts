@@ -73,6 +73,16 @@ export function diffArgv(revset: string): string[] {
 	return ["diff", "-r", revset];
 }
 
+/**
+ * `jj diff --from <from> --to <to>`. Unlike `diff -r <from>..<to>`, this
+ * diffs two trees and tolerates a range whose graph has gaps (a merge whose
+ * other parent is the range base). jj rejects the `-r` form with "Cannot diff
+ * revsets with gaps in."
+ */
+export function diffRangeArgv(from: string, to: string): string[] {
+	return ["diff", "--from", from, "--to", to];
+}
+
 export function conflictsArgv(revset?: string): string[] {
 	const argv = ["file", "list"];
 	if (revset !== undefined) argv.push("-r", revset);

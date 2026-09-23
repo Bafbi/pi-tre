@@ -13,6 +13,7 @@ import {
 	commitsAtOpArgv,
 	conflictsArgv,
 	diffArgv,
+	diffRangeArgv,
 	headOperationArgv,
 	logArgv,
 	mutationArgv,
@@ -424,6 +425,8 @@ export function createJj(exec: ExecFn, defaults: ExecOptions = {}): Jj {
 		log: async (revset, options) =>
 			decodeCommits(await queryString(logArgv(revset), options)),
 		diff: (revset, options) => queryString(diffArgv(revset), options),
+		diffRange: (from, to, options) =>
+			queryString(diffRangeArgv(from, to), options),
 		conflicts: async (revset, options) => {
 			const output = await queryString(conflictsArgv(revset), options);
 			return output

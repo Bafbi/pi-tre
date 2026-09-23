@@ -71,6 +71,29 @@ describe("parseCommandArgs", () => {
 		});
 	});
 
+	it("parses an optional-value flag with and without a value", () => {
+		const spec: CommandSpec = {
+			name: "fold",
+			usage: "fold --name [<branch>] --land",
+			flags: [
+				{ key: "name", aliases: ["--name"], takesValue: "optional" },
+				{ key: "land", aliases: ["--land"], takesValue: false },
+			],
+		};
+		expect(parseCommandArgs("--name review/feat", spec)).toEqual({
+			kind: "go",
+			values: { name: "review/feat" },
+		});
+		expect(parseCommandArgs("--name --land", spec)).toEqual({
+			kind: "go",
+			values: { name: "", land: true },
+		});
+		expect(parseCommandArgs("--name", spec)).toEqual({
+			kind: "go",
+			values: { name: "" },
+		});
+	});
+
 	it("tokenizes on any whitespace", () => {
 		expect(parseCommandArgs("  --rev\tabc123  ", STAMP_ARGS)).toEqual({
 			kind: "go",

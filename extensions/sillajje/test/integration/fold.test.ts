@@ -189,6 +189,98 @@ describeJj("sillajje fold", () => {
 		expect(changeId(cwd, "feat")).toBe(featBefore);
 	}, 30_000);
 
+	it("folds a rev source whose range contains a merge with the target", async () => {
+		const cwd = initRepo();
+
+		// A shared base with one file.
+		writeFileSync(join(cwd, "shared.txt"), "base\n");
+		jj(["describe", "-m", "base"], cwd);
+		const base = changeId(cwd, "@");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		// feat diverges from base.
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "shared.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		// main diverges from base with a conflicting edit.
+		jj(["new", base, "-m", "trunk"], cwd);
+		writeFileSync(join(cwd, "shared.txt"), "main\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		// feat merges main and resolves the conflict. This is the shape a
+		// session has after it incorporates the trunk before folding.
+		jj(["new", "feat", "main", "-m", "merge trunk"], cwd);
+		writeFileSync(join(cwd, "shared.txt"), "resolved\n");
+		jj(["new", "-m", "tip"], cwd);
+		jj(["bookmark", "create", "src", "-r", "@"], cwd);
+		// Move the working copy off the source so the harness's files do not get
+		// snapped into it.
+		jj(["new", "-m", "after"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r src -o main");
+
+		const children = childrenOf(cwd, "main");
+		// The source merge is itself a child of main; the folded change is the
+		// one carrying the generated body (`Ref:`).
+		const folded = children.find((c) =>
+			description(cwd, c.id).includes("Ref:"),
+		);
+		expect(folded).toBeDefined();
+		expect(
+			jj(["file", "show", "-r", folded?.id ?? "", "shared.txt"], cwd),
+		).toBe("resolved");
+		expect(
+			jj(["file", "list", "-r", folded?.id ?? ""], cwd).split("\n"),
+		).toEqual(["README.md", "shared.txt"]);
+		expect(notifications.some((n) => n.msg.includes("conflict"))).toBe(
+			false,
+		);
+	}, 30_000);
+
+	it("reports no-changes when a merge source adds no net content", async () => {
+		const cwd = initRepo();
+		writeFileSync(join(cwd, "base.txt"), "base\n");
+		jj(["describe", "-m", "base"], cwd);
+		const base = changeId(cwd, "@");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "trunk"], cwd);
+		writeFileSync(join(cwd, "trunk.txt"), "trunk\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "feat"], cwd);
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		jj(["new", "feat", "main", "-m", "merge trunk"], cwd);
+		// Bookmark the merge as the source, then move the working copy onto a
+		// child. The test harness writes into the working copy, and jj
+		// snapshots it; keeping the source off the working copy keeps its tree
+		// clean so the only question is the merge itself.
+		jj(["bookmark", "create", "src", "-r", "@"], cwd);
+		jj(["new", "-m", "after"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r src -o main");
+
+		const folded = childrenOf(cwd, "main").filter((c) =>
+			description(cwd, c.id).includes("Ref:"),
+		);
+		expect(folded).toHaveLength(0);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				msg: expect.stringContaining("no new changes"),
+			}),
+		);
+	}, 30_000);
+
 	it("rolls the whole fold back on a conflict", async () => {
 		const cwd = initRepo();
 		const base = baseChangeId(cwd);
@@ -246,7 +338,43 @@ describeJj("sillajje fold", () => {
 		);
 	}, 30_000);
 
-	it("appends only the new commits on a second fold", async () => {
+	it("appends only the new commits when --update targets the review branch", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "D"], cwd);
+		writeFileSync(join(cwd, "d.txt"), "d\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		// Publish the whole delta under main and name the review branch.
+		await runSillajje(runner, "fold -r feat -o main --name review");
+
+		// Add a new commit to feat and update the review branch.
+		jj(["new", "feat", "-m", "E"], cwd);
+		writeFileSync(join(cwd, "e.txt"), "e\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		await runSillajje(runner, "fold -r feat --update review");
+
+		const files = jj(["file", "list", "-r", "review"], cwd);
+		expect(files).toContain("d.txt");
+		expect(files).toContain("e.txt");
+
+		// The marker is keyed by source and target, and records the new tip.
+		expect(changeId(cwd, "sillajje/folded/feat/review")).toBe(
+			changeId(cwd, "feat"),
+		);
+	}, 30_000);
+
+	it("a plain fold ignores the recorded marker and re-aggregates from the fork point", async () => {
 		const cwd = initRepo();
 		const base = baseChangeId(cwd);
 
@@ -263,25 +391,54 @@ describeJj("sillajje fold", () => {
 		captureNotifications(runner);
 
 		await runSillajje(runner, "fold -r feat -o main");
-		const firstFolded = childrenOf(cwd, "main")[0];
 
-		// Add a new commit to feat and fold again onto the first folded change.
 		jj(["new", "feat", "-m", "E"], cwd);
 		writeFileSync(join(cwd, "e.txt"), "e\n");
 		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
 
-		await runSillajje(runner, `fold -r feat -o ${firstFolded.id}`);
+		// No --update: the whole range is published again, so the second
+		// folded change carries d.txt, not only e.txt.
+		await runSillajje(runner, "fold -r feat -o main");
 
-		const second = childrenOf(cwd, firstFolded.id);
-		expect(second).toHaveLength(1);
-		const files = jj(["file", "list", "-r", second[0].id], cwd);
-		expect(files).toContain("d.txt");
-		expect(files).toContain("e.txt");
-		expect(files).toContain("upstream.txt");
+		const foldedWithE = childrenOf(cwd, "main")
+			.map((c) => ({ c, files: jj(["file", "list", "-r", c.id], cwd) }))
+			.find((x) => x.files.includes("e.txt"));
+		expect(foldedWithE).toBeDefined();
+		expect(foldedWithE?.files).toContain("d.txt");
+	}, 30_000);
 
-		// The folded-source bookmark now records the new tip.
-		expect(changeId(cwd, "sillajje/folded/feat")).toBe(
+	it("keeps a separate marker per review branch", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "D"], cwd);
+		writeFileSync(join(cwd, "d.txt"), "d\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		// Two review branches, each named on its first fold.
+		await runSillajje(runner, `fold -r feat -o ${base} --name review-a`);
+		await runSillajje(runner, `fold -r feat -o ${base} --name review-b`);
+
+		jj(["new", "feat", "-m", "E"], cwd);
+		writeFileSync(join(cwd, "e.txt"), "e\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		await runSillajje(runner, "fold -r feat --update review-a");
+
+		// review-a moved forward; review-b still records the first tip.
+		expect(changeId(cwd, "sillajje/folded/feat/review-a")).toBe(
 			changeId(cwd, "feat"),
+		);
+		expect(changeId(cwd, "sillajje/folded/feat/review-b")).not.toBe(
+			changeId(cwd, "feat"),
+		);
+		expect(jj(["file", "list", "-r", "review-a"], cwd)).toContain("e.txt");
+		expect(jj(["file", "list", "-r", "review-b"], cwd)).not.toContain(
+			"e.txt",
 		);
 	}, 30_000);
 

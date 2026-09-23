@@ -34,9 +34,9 @@ The seal is transactional: if describe, bookmark, or the fresh change fails mid-
 
 Brings `<rev>` into a session's ancestry as a merge, keeping the session's own history. `-s` defaults to `@` (this session). The session stays active. A file-level conflict aborts with the file list; a failed `update-stale` after a successful rebase is a warning.
 
-### `/sillajje:fold (-s <id|@> | -r <rev>) -o <rev> [--land] [--archive] [-h | --help]`
+### `/sillajje:fold (-s <id|@> | -r <rev>) (-o <rev> | --update <bookmark>) [--name [<branch>]] [--land] [--archive] [-h | --help]`
 
-Publishes a source range as one clean change placed as a child of `<rev>`, and appends: each fold adds one change, so a pull-request branch grows without a force-push. The source branch survives. `-s` defaults to `@`; `-s` and `-r` are mutually exclusive. `--land` advances the single local bookmark that `--onto` resolves to. `--archive` retires a session source after a successful fold. The body is a generated summary and a `Ref:` line — no `Meta:` and no `Loop:`.
+Publishes a source delta as one clean change, and appends: each fold adds one change, so a pull-request branch grows without a force-push. `-o <rev>` publishes the whole source delta under a target (base `fork_point(source, target)`); `--update <bookmark>` appends only the work since that review bookmark's last fold and advances the bookmark. `--name [<branch>]` names the folded change with a bookmark — empty names it `fold-<change id>` — and keys the folded-source marker by that name; without `--name` the marker keys on `-o`'s bookmark. `--update` is exclusive with `-o`, `--land`, and `--name`. `--land` advances the single local bookmark that `--onto` resolves to. `--archive` retires a session source after a successful fold. `-s` defaults to `@`; `-s` and `-r` are mutually exclusive. The body is a generated summary and a `Ref:` line — no `Meta:` and no `Loop:`.
 
 ## Configuration
 

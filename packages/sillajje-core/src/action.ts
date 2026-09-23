@@ -25,6 +25,7 @@ export interface ProvenanceVersions {
  */
 export type StatusEvent =
 	| { kind: "phase"; code: string }
+	| { kind: "info"; code: string; message: string }
 	| { kind: "warning"; code: string; message: string }
 	| { kind: "error"; code: string; message: string };
 

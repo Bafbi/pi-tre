@@ -86,6 +86,25 @@ describe("Jj.diff", () => {
 	});
 });
 
+describe("Jj.diffRange", () => {
+	it("diffs two trees with --from/--to", async () => {
+		const { exec, calls } = recordingExec(() => ok("--- a\n+++ b\n"));
+		const jj = createJj(exec);
+
+		await expect(jj.diffRange("abc", "def")).resolves.toBe(
+			"--- a\n+++ b\n",
+		);
+		expect(calls[0]!.args).toEqual([
+			"diff",
+			"--from",
+			"abc",
+			"--to",
+			"def",
+			"--color=never",
+		]);
+	});
+});
+
 describe("Jj.conflicts", () => {
 	it("returns conflicted paths and exits 0", async () => {
 		const { exec, calls } = recordingExec(() => ok("a.txt\nb.txt\n"));

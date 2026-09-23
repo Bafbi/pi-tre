@@ -14,3 +14,13 @@
 - `--land` moves the target bookmark inside the transaction; `--archive` is session-source-only; both are opt-in, and fold is never automatic.
 - `--exclude` is deferred: it interacts with the base assumption, and the prototype did not exercise it.
 - Contradicts ADR 0004's "fold is the designated future consumer of `stampRev`"; that sentence is amended there.
+
+## Amendment: publish and update are separate modes
+
+`-o <rev>` publishes: it bases on `fork_point(source, target)` and writes the whole source delta as one change under the target. `--update <bookmark>` updates: it bases on the recorded folded-source tip and appends only the new work onto that bookmark, advancing it. `--update` is exclusive with `-o`, `--land`, and `--name`, and falls back to the fork point (with an info status) when no marker exists. `--name [<branch>]` names the folded change with a bookmark — `fold-<change id>` when empty — and keys the marker by that name; without `--name` the marker keys on the target's single local bookmark.
+
+The marker is `sillajje/folded/<source>/<target>`, so one source can feed several review branches.
+
+This supersedes the first consequence above ("later folds read `sillajje/folded/<name>`") and the default in the "Recorded base" choice. The recorded base remains, but only as the explicit `--update` path.
+
+Markers written before this amendment use `sillajje/folded/<name>`. The new key does not read them, so the first `--update` after upgrade finds no record, falls back to the fork point, and whole-folds once.

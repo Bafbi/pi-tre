@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	conflictsArgv,
 	diffArgv,
+	diffRangeArgv,
 	logArgv,
 	mutationArgv,
 	NOTHING_CHANGED,
@@ -87,6 +88,16 @@ describe("read argv", () => {
 
 	it("reads a diff for a revset", () => {
 		expect(diffArgv("@")).toEqual(["diff", "-r", "@"]);
+	});
+
+	it("reads a tree diff between two revisions", () => {
+		expect(diffRangeArgv("abc", "def")).toEqual([
+			"diff",
+			"--from",
+			"abc",
+			"--to",
+			"def",
+		]);
 	});
 
 	it("reads conflicted paths from the working copy", () => {

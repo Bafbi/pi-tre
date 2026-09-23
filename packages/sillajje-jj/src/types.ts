@@ -104,6 +104,8 @@ export type Tx = Pick<Jj, "apply"> & {
 export interface Jj {
 	log(revset: string, options?: ExecOptions): Promise<Commit[]>;
 	diff(revset: string, options?: ExecOptions): Promise<string>;
+	/** Tree diff between two revisions. Tolerates gaps a merge creates. */
+	diffRange(from: string, to: string, options?: ExecOptions): Promise<string>;
 	conflicts(revset?: string, options?: ExecOptions): Promise<string[]>;
 	bookmarks(options?: ExecOptions): Promise<Bookmark[]>;
 	workspaces(options?: ExecOptions): Promise<Workspace[]>;
