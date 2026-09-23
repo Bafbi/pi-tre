@@ -1303,6 +1303,10 @@ export default function (pi: ExtensionAPI) {
 			state.setSessionKey(info.sessionKey);
 			state.setActive();
 			state.setWorkspacePath(info.workspacePath);
+			// Archive cleared the cursor. Rebuild it from the last Stamp marker,
+			// or the next stamp projects the whole branch and re-includes the
+			// prompts and responses of already-stamped Interactions.
+			syncCursor(ctx);
 			debug.event("session_unarchived", {
 				sessionKey: info.sessionKey,
 				path: info.workspacePath,
