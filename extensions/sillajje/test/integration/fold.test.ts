@@ -10,13 +10,13 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import {
-	assistantMsg,
 	createRunner,
 	describeJj,
 	getSessionId,
 	initRepo,
 	installDefaultSubGeneratorMock,
 	jj,
+	recordInteraction,
 	runSillajje,
 	sessionBookmark,
 	wsPath,
@@ -32,17 +32,7 @@ async function simulateInteraction(
 	response: string,
 ): Promise<void> {
 	await runner.emitInput(prompt, undefined, "interactive");
-	await runner.emitBeforeAgentStart(prompt, undefined, "You are helpful.", {
-		skills: [],
-		contextFiles: [],
-		cwd: "",
-	});
-	await runner.emit({ type: "agent_start" });
-	await runner.emit({
-		type: "agent_end",
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		messages: [assistantMsg(response)] as any[],
-	});
+	recordInteraction(runner, prompt, response);
 	await runner.emit({ type: "agent_settled" });
 }
 

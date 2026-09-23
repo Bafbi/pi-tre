@@ -15,6 +15,9 @@ import {
 	initRepo,
 	installDefaultSubGeneratorMock,
 	jj,
+	recordAssistantMessage,
+	recordInteraction,
+	recordUserMessage,
 	runSillajje,
 	sessionBookmark,
 	wsPath,
@@ -185,39 +188,20 @@ describeJj("sillajje rev stamp", () => {
 
 		// Interaction 1 auto-stamps normally.
 		await runner.emitInput("First interaction", undefined, "interactive");
-		await runner.emitBeforeAgentStart(
-			"First interaction",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
-		await runner.emit({ type: "agent_start" });
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("First done.")] as any[],
-		});
+		recordInteraction(runner, "First interaction", "First done.");
+		await runner.emit({ type: "agent_settled" });
 
 		// Interaction 2 starts: its prompt is recorded as pending.
 		await runner.emitInput("Pending interaction", undefined, "interactive");
-		await runner.emitBeforeAgentStart(
-			"Pending interaction",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		recordUserMessage(runner, "Pending interaction");
 
 		// A rev stamp runs mid-interaction and must NOT touch the pending one.
 		await runSillajje(runner, `stamp -r ${strayId.slice(0, 8)}`);
 
 		// Interaction 2 ends — the pending interaction still auto-stamps.
-		await runner.emit({ type: "agent_start" });
 		writeFileSync(join(cwd, "pending.ts"), "// pending\n");
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("Pending done.")] as any[],
-		});
+		recordAssistantMessage(runner, assistantMsg("Pending done."));
+		await runner.emit({ type: "agent_settled" });
 
 		const log = jj(
 			[

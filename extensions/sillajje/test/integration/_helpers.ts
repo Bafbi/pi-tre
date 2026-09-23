@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Message } from "@earendil-works/pi-ai";
 import {
 	discoverAndLoadExtensions,
 	ExtensionRunner,
@@ -17,6 +18,12 @@ import { afterEach, describe, expect } from "vitest";
 import { setTestPorts } from "../../src/index.js";
 
 export const tempDirs: string[] = [];
+
+/**
+ * The full SessionManager behind each runner, so tests can write to the
+ * session log. The runner's context exposes only the read-only view.
+ */
+const sessionManagers = new WeakMap<ExtensionRunner, SessionManager>();
 
 afterEach(async () => {
 	// Reset the test seams so they never leak into later tests.
@@ -51,6 +58,11 @@ export async function createRunner(
 
 	// Use a file-backed session so sillajje's TUI + non-ephemeral gate passes.
 	const sessionManager = SessionManager.create(cwd, join(cwd, "sessions"));
+	// Bind the one core action the adapter uses. The real host calls
+	// `runner.bindCore`; the harness binds `appendEntry` directly so the
+	// Stamp marker write works.
+	loaded.runtime.appendEntry = (customType, data) =>
+		sessionManager.appendCustomEntry(customType, data);
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(cwd, "auth.json"),
 		allowModelNetwork: false,
@@ -63,6 +75,7 @@ export async function createRunner(
 		sessionManager,
 		modelRegistry,
 	);
+	sessionManagers.set(runner, sessionManager);
 
 	// Set TUI mode with a minimal UI mock so sillajje's mode gate passes.
 	runner.setUIContext(
@@ -76,6 +89,47 @@ export async function createRunner(
 	);
 
 	return runner;
+}
+
+/** The full session manager behind a runner created by `createRunner`. */
+export function getSessionManager(runner: ExtensionRunner): SessionManager {
+	const sessionManager = sessionManagers.get(runner);
+	if (!sessionManager) {
+		throw new Error(
+			"getSessionManager: runner was not created by createRunner",
+		);
+	}
+	return sessionManager;
+}
+
+/**
+ * Write a user prompt and an assistant response into the session log at the
+ * current leaf. The adapter reads the Interaction transcript from the branch.
+ */
+export function recordInteraction(
+	runner: ExtensionRunner,
+	prompt: string,
+	response: string,
+): void {
+	recordUserMessage(runner, prompt);
+	recordAssistantMessage(runner, assistantMsg(response));
+}
+
+/** Write a user message into the session log at the current leaf. */
+export function recordUserMessage(runner: ExtensionRunner, text: string): void {
+	getSessionManager(runner).appendMessage({
+		role: "user",
+		content: text,
+		timestamp: Date.now(),
+	} as Message);
+}
+
+/** Write an assistant message into the session log at the current leaf. */
+export function recordAssistantMessage(
+	runner: ExtensionRunner,
+	message: unknown,
+): void {
+	getSessionManager(runner).appendMessage(message as Message);
 }
 
 /** Requires jj on PATH — skips when absent. */

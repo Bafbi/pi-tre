@@ -30,6 +30,12 @@ export { FOLD_BODY_SECTIONS, LOOP_FIELDS, STAMP_BODY_SECTIONS };
 /** What a stamp's generated message was produced from. */
 export type StampSource = "interaction" | "diff" | "rev";
 
+/** The Interaction's session entry range. */
+export interface InteractionRange {
+	first: string;
+	last: string;
+}
+
 /**
  * A stamp's provenance facts — what the message was generated from. They
  * render in the `Meta:` section on every stamp; the interaction fields of a
@@ -41,6 +47,8 @@ export interface StampProvenance {
 	sessionKey?: string | undefined;
 	/** Target rev (Rev stamp). */
 	rev?: string | undefined;
+	/** Interaction's session entry range, when the host records one. */
+	interactionRange?: InteractionRange | undefined;
 	/** Sub-generator model used for the generated message. */
 	model: string;
 	/** Sub-generator fallbacks that fired, e.g. `["header"]`. */
@@ -119,6 +127,11 @@ export function buildMeta(provenance: StampProvenance): string {
 	}
 	if (provenance.rev !== undefined) {
 		line2.push(`rev: ${provenance.rev}`);
+	}
+	if (provenance.interactionRange !== undefined) {
+		line2.push(
+			`interaction: ${provenance.interactionRange.first}..${provenance.interactionRange.last}`,
+		);
 	}
 	line2.push(`model: ${provenance.model}`);
 	line2.push(`pi: ${provenance.env.piVersion}`);

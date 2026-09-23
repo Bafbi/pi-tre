@@ -168,191 +168,24 @@ describe("SessionState", () => {
 	});
 });
 
-// ---------------------------------------------------------------------------
-// Interaction tracking
-// ---------------------------------------------------------------------------
-
-describe("SessionState interaction tracking", () => {
-	it("startInteraction with undefined streamingBehavior marks new interaction", () => {
+describe("SessionState interaction cursor", () => {
+	it("defaults to null and can be set and cleared", () => {
 		const s = new SessionState();
-		s.startInteraction(undefined);
-		expect(s.hasNewInteraction()).toBe(true);
+		expect(s.getCursorId()).toBeNull();
+
+		s.setCursorId("entry-1");
+		expect(s.getCursorId()).toBe("entry-1");
+
+		s.setCursorId(null);
+		expect(s.getCursorId()).toBeNull();
 	});
 
-	it("startInteraction with followUp marks new interaction", () => {
+	it("reset clears the cursor", () => {
 		const s = new SessionState();
-		s.startInteraction("followUp");
-		expect(s.hasNewInteraction()).toBe(true);
-	});
-
-	it("startInteraction with steer does NOT mark new interaction", () => {
-		const s = new SessionState();
-		s.startInteraction("steer");
-		expect(s.hasNewInteraction()).toBe(false);
-	});
-
-	it("recordAgentMessages stores messages", () => {
-		const s = new SessionState();
-		s.startInteraction(undefined);
-		const msgs = [
-			{ role: "user", content: "Hello", timestamp: 1000 },
-			{
-				role: "assistant",
-				content: [{ type: "text", text: "Hi" }],
-				timestamp: 2000,
-			},
-		] as any[];
-		s.recordAgentMessages(msgs);
-
-		const result = s.getInteractionMessages();
-		expect(result).toBeDefined();
-		expect(result).toHaveLength(2);
-	});
-
-	it("recordAgentMessages accumulates across calls", () => {
-		const s = new SessionState();
-		s.startInteraction(undefined);
-		s.recordAgentMessages([
-			{ role: "user", content: "A", timestamp: 1000 },
-		] as any[]);
-		s.recordAgentMessages([
-			{
-				role: "assistant",
-				content: [{ type: "text", text: "B" }],
-				timestamp: 2000,
-			},
-		] as any[]);
-
-		const result = s.getInteractionMessages();
-		expect(result).toHaveLength(2);
-	});
-
-	it("getInteractionMessages returns undefined with no new interaction", () => {
-		const s = new SessionState();
-		s.recordAgentMessages([
-			{ role: "user", content: "test", timestamp: 1000 },
-		] as any[]);
-		expect(s.getInteractionMessages()).toBeUndefined();
-	});
-
-	it("getInteractionMessages returns undefined with no messages", () => {
-		const s = new SessionState();
-		s.startInteraction(undefined);
-		expect(s.getInteractionMessages()).toBeUndefined();
-	});
-
-	it("recordAgentEndError and lastAgentRunWasError track error state", () => {
-		const s = new SessionState();
-		expect(s.lastAgentRunWasError()).toBe(false);
-		s.recordAgentEndError();
-		expect(s.lastAgentRunWasError()).toBe(true);
-		s.clearPendingFinalize();
-		expect(s.lastAgentRunWasError()).toBe(false);
-	});
-
-	it("enableInteractionIfNotSteering enables new interaction when no steering was recorded", () => {
-		const s = new SessionState();
-		// Simulate: a fresh prompt — input fires with undefined streamingBehavior
-		s.startInteraction(undefined);
-		// After stamp, reset is called
-		s.resetInteraction();
-		expect(s.hasNewInteraction()).toBe(false);
-		// Now a queued follow-up comes in via before_agent_start (no preceding input)
-		// lastStreamingBehavior is undefined after reset → treated as non-steer
-		s.enableInteractionIfNotSteering();
-		expect(s.hasNewInteraction()).toBe(true);
-	});
-
-	it("enableInteractionIfNotSteering enables after followUp and reset", () => {
-		const s = new SessionState();
-		// Simulate: input fires with "followUp"
-		s.startInteraction("followUp");
-		expect(s.hasNewInteraction()).toBe(true);
-		// After stamp, reset
-		s.resetInteraction();
-		expect(s.hasNewInteraction()).toBe(false);
-		// Now a queued follow-up comes via before_agent_start without input.
-		// lastStreamingBehavior was reset, so it's undefined → non-steer.
-		s.enableInteractionIfNotSteering();
-		expect(s.hasNewInteraction()).toBe(true);
-	});
-
-	it("enableInteractionIfNotSteering does NOT enable after steer input", () => {
-		const s = new SessionState();
-		// Normal steer flow: input fires with "steer", then before_agent_start fires
-		s.startInteraction("steer");
-		expect(s.hasNewInteraction()).toBe(false);
-		s.enableInteractionIfNotSteering();
-		// Should still be false because lastStreamingBehavior is "steer"
-		expect(s.hasNewInteraction()).toBe(false);
-	});
-
-	it("startInteraction + enableInteractionIfNotSteering without reset: steer stays false", () => {
-		const s = new SessionState();
-		// Normal steer flow: input fires with steer, then before_agent_start fires
-		s.startInteraction("steer");
-		expect(s.hasNewInteraction()).toBe(false);
-		s.enableInteractionIfNotSteering();
-		// Should still be false because lastStreamingBehavior is "steer"
-		expect(s.hasNewInteraction()).toBe(false);
-	});
-
-	it("lastStreamingBehavior is reset by resetInteraction", () => {
-		const s = new SessionState();
-		s.startInteraction("followUp");
-		s.resetInteraction();
-		// After reset, enableInteractionIfNotSteering should default to
-		// treating undefined as non-steer (new interaction)
-		s.enableInteractionIfNotSteering();
-		expect(s.hasNewInteraction()).toBe(true);
-	});
-
-	it("resetInteraction clears all interaction state", () => {
-		const s = new SessionState();
-		s.startInteraction(undefined);
-		s.recordAgentMessages([
-			{ role: "user", content: "test", timestamp: 1000 },
-		] as any[]);
-		s.recordAgentEndError();
-
-		s.resetInteraction();
-
-		expect(s.hasNewInteraction()).toBe(false);
-		expect(s.getInteractionMessages()).toBeUndefined();
-		expect(s.hasPendingFinalize()).toBe(false);
-		expect(s.lastAgentRunWasError()).toBe(false);
-	});
-
-	it("reset clears interaction tracking", () => {
-		const s = new SessionState();
-		s.startInteraction(undefined);
-		s.recordAgentMessages([
-			{ role: "user", content: "test", timestamp: 1000 },
-		] as any[]);
+		s.setCursorId("entry-1");
 
 		s.reset();
 
-		expect(s.hasNewInteraction()).toBe(false);
-		expect(s.getInteractionMessages()).toBeUndefined();
-	});
-
-	it("pending finalize: mark, clear, and reset semantics", () => {
-		const s = new SessionState();
-
-		// Default: not pending.
-		expect(s.hasPendingFinalize()).toBe(false);
-
-		// Error-terminal agent_end marks the interaction pending.
-		s.markPendingFinalize();
-		expect(s.hasPendingFinalize()).toBe(true);
-
-		// A retry continuation (agent_start) clears it.
-		s.clearPendingFinalize();
-		expect(s.hasPendingFinalize()).toBe(false);
-
-		// resetInteraction (called after a stamp) clears it too.
-		s.markPendingFinalize();
-		s.resetInteraction();
-		expect(s.hasPendingFinalize()).toBe(false);
+		expect(s.getCursorId()).toBeNull();
 	});
 });

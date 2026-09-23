@@ -59,19 +59,19 @@ export function deriveInteractionData(
 
 	if (userMsgs.length === 0 || assistantMsgs.length === 0) return undefined;
 
-	// Prompt: first user message text
-	const firstUser = userMsgs[0];
-	if (firstUser === undefined) return undefined;
-	let prompt = "";
-	if (typeof firstUser.content === "string") {
-		prompt = firstUser.content.trim();
-	} else {
-		prompt = (firstUser.content ?? [])
-			.filter((b) => "type" in b && b.type === "text")
-			.map((b) => (b as { text: string }).text)
-			.join("\n")
-			.trim();
-	}
+	// Prompt: every user message text, joined. A run folds a steering or
+	// follow-up prompt into the same Interaction, so all of them belong to it.
+	const prompt = userMsgs
+		.map((msg) => {
+			if (typeof msg.content === "string") return msg.content.trim();
+			return (msg.content ?? [])
+				.filter((b) => "type" in b && b.type === "text")
+				.map((b) => (b as { text: string }).text)
+				.join("\n")
+				.trim();
+		})
+		.filter((text) => text.length > 0)
+		.join("\n\n");
 
 	// Response: last assistant message text
 	const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
