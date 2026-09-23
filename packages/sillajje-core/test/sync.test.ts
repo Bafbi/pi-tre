@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	createSync,
 	parseCommandArgs,
+	renderHelp,
 	type StatusEvent,
 	SYNC_ARGS,
 	SYNC_HELP,
@@ -262,7 +263,9 @@ describe("SYNC_ARGS", () => {
 		expect(parseCommandArgs("", SYNC_ARGS)).toEqual({ kind: "help" });
 	});
 
-	it("has a usage line in its help", () => {
-		expect(SYNC_HELP.usage).toContain("usage: /sillajje sync");
+	it("renders its usage line with the caller's prefix", () => {
+		expect(renderHelp(SYNC_HELP, "/sillajje:")).toContain(
+			"usage: /sillajje:sync",
+		);
 	});
 });

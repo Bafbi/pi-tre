@@ -3,7 +3,7 @@
  *
  * With derived interaction data the message generates from interaction + diff
  * (the `agent_end` auto-stamp); without it the message generates from the diff
- * alone (the manual `/sillajje stamp`). Whether a stamp seals is decided by
+ * alone (the manual stamp). Whether a stamp seals is decided by
  * which action the adapter calls, never by a rev string.
  */
 

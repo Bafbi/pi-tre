@@ -12,11 +12,11 @@ _Avoid_: Turn, round, exchange
 The cumulative trail of jj changes left by agent sessions — fully reviewable via `jj log`, `jj show`, and `jj diff`.
 
 **Sync**:
-A `/sillajje sync -s <id|@> -o <rev>` subcommand that brings a target revision into a session's ancestry as a merge commit, keeping the session's own history intact. The session remains active afterward.
+A `/sillajje:sync -s <id|@> -o <rev>` subcommand that brings a target revision into a session's ancestry as a merge commit, keeping the session's own history intact. The session remains active afterward.
 _Avoid_: Rebase (as the subcommand name — it asserts the wrong mechanics), Merge, Update (the jj operation underneath is `jj rebase`)
 
 **Fold**:
-A `/sillajje fold` subcommand that publishes a source range as one clean change: it aggregates the changes between a base and a source tip into a single change placed as a child of a target. The source branch survives, and folding again onto the previous folded change appends only the delta. The message is a generated Header and Summary plus a `Ref:` line, never the agent trace. `--land` advances the target bookmark; `--archive` retires a session source.
+A `/sillajje:fold` subcommand that publishes a source range as one clean change: it aggregates the changes between a base and a source tip into a single change placed as a child of a target. The source branch survives, and folding again onto the previous folded change appends only the delta. The message is a generated Header and Summary plus a `Ref:` line, never the agent trace. `--land` advances the target bookmark; `--archive` retires a session source.
 _Avoid_: Squash (jj's `jj squash` is the primitive underneath; Fold is the publish act)
 
 **Folded source**:
@@ -28,11 +28,11 @@ Sealing a change with a generated commit message: the Sub-generator produces the
 _Avoid_: Committing (stamping is the session-level act; the jj mechanics underneath are incidental)
 
 **Session stamp**:
-A stamp bound to a sillajje session. It always targets that session's working copy and performs the full seal — workspace prep, describe, session bookmark move, and a fresh empty change — as one transaction: either the whole seal appears or nothing does. It fires on the `agent_end` auto-stamp (with the pending Interaction transcript), `/sillajje stamp -s @` on the current session, and `/sillajje stamp -s <id>` on another live session (both diff-only; a foreign transcript is never borrowed).
+A stamp bound to a sillajje session. It always targets that session's working copy and performs the full seal — workspace prep, describe, session bookmark move, and a fresh empty change — as one transaction: either the whole seal appears or nothing does. It fires on the `agent_end` auto-stamp (with the pending Interaction transcript), `/sillajje:stamp -s @` on the current session, and `/sillajje:stamp -s <id>` on another live session (both diff-only; a foreign transcript is never borrowed).
 _Avoid_: Manual stamp (the same entry point serves both entries)
 
 **Rev stamp**:
-A stamp bound to a revision, not to a session. `/sillajje stamp -r <rev>` accepts any revision jj resolves and generates a conventional-commit header from `jj diff -r <rev>`, then describes that change only — no bookmark move, no `jj new`, no `update-stale`. A single `jj describe` is one jj operation, so the stamp is atomic. `--rev @` describes the caller's working copy without sealing it.
+A stamp bound to a revision, not to a session. `/sillajje:stamp -r <rev>` accepts any revision jj resolves and generates a conventional-commit header from `jj diff -r <rev>`, then describes that change only — no bookmark move, no `jj new`, no `update-stale`. A single `jj describe` is one jj operation, so the stamp is atomic. `--rev @` describes the caller's working copy without sealing it.
 _Avoid_: Diff stamp (that names the source axis, not the session link)
 
 **Interaction stamp**:
@@ -88,7 +88,7 @@ Each Pi session gets its own jj workspace (`sillajje/<session-key>`), so concurr
 
 ## Bookmark lifecycle
 
-The `sillajje/<session-key>` bookmark is created at the start of the first interaction (`before_agent_start`) and updated on every Session stamp: the `agent_end` auto-stamp, `/sillajje stamp -s @` on the current session, and `/sillajje stamp -s <id>` from another conversation. Creating it early means the session's `sillajje/<session-key>` ref resolves from the very first interaction (e.g. for `jj show`, `jj diff`, or unarchive). A Rev stamp (`-r <rev>`) never moves a bookmark.
+The `sillajje/<session-key>` bookmark is created at the start of the first interaction (`before_agent_start`) and updated on every Session stamp: the `agent_end` auto-stamp, `/sillajje:stamp -s @` on the current session, and `/sillajje:stamp -s <id>` from another conversation. Creating it early means the session's `sillajje/<session-key>` ref resolves from the very first interaction (e.g. for `jj show`, `jj diff`, or unarchive). A Rev stamp (`-r <rev>`) never moves a bookmark.
 
 ## Log revsets
 

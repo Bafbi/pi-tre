@@ -18,7 +18,7 @@ import {
 } from "./action.js";
 import type { CommandHelp, CommandSpec, SessionFailure } from "./args.js";
 
-/** The `/sillajje sync` input. */
+/** The sync input. */
 export interface SyncInput {
 	/** The session to sync: a session key, a session id, or `@` for the caller's. */
 	target: string;
@@ -109,10 +109,10 @@ export function createSync(
 	};
 }
 
-/** `/sillajje sync` — bring a revision into a session's ancestry. */
+/** The sync subcommand — bring a revision into a session's ancestry. */
 export const SYNC_ARGS: CommandSpec = {
 	name: "sync",
-	usage: "usage: /sillajje sync [-s|--session <id>] -o|--onto <rev>",
+	usage: "sync [-s|--session <id>] -o|--onto <rev>",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "onto", aliases: ["-o", "--onto"], takesValue: true },
@@ -120,7 +120,7 @@ export const SYNC_ARGS: CommandSpec = {
 	required: ["onto"],
 };
 
-/** `/sillajje sync` help. */
+/** The sync subcommand's help. */
 export const SYNC_HELP: CommandHelp = {
 	usage: SYNC_ARGS.usage,
 	lines: [

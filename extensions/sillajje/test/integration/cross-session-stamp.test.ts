@@ -1,5 +1,5 @@
 /**
- * Integration tests for cross-session stamping (`/sillajje stamp -s <id>`)
+ * Integration tests for cross-session stamping (`/sillajje:stamp -s <id>`)
  * against real jj, driven through the registered command.
  */
 

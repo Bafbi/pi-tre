@@ -433,7 +433,7 @@ describeJj("sillajje fold", () => {
 		await runSillajje(runner, "fold --help");
 
 		const helps = notifications.filter(
-			(n) => n.type === "info" && n.msg.includes("usage: /sillajje fold"),
+			(n) => n.type === "info" && n.msg.includes("usage: /sillajje:fold"),
 		);
 		expect(helps).toHaveLength(3);
 	}, 30_000);
