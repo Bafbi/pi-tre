@@ -295,8 +295,26 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 					input.current ?? {},
 				);
 				if (resolved.ok) {
+					// Fold the sealed stamp, not the mutable workspace working
+					// copy. The session bookmark points at the last stamped change;
+					// `@` is the fresh empty child the next interaction stamps, so
+					// recording it as the base would swallow the next stamp's work.
+					const bookmark = workspaces.bookmarkName(
+						resolved.sessionKey,
+					);
+					let tip: Commit;
+					try {
+						tip = await resolveSingle(
+							jj,
+							bookmark,
+							resolved.wsPath,
+						);
+					} catch {
+						// A session with no bookmark yet folds its working copy.
+						tip = await resolveSingle(jj, "@", resolved.wsPath);
+					}
 					source = {
-						tip: await resolveSingle(jj, "@", resolved.wsPath),
+						tip,
 						name: resolved.sessionKey,
 						sessionKey: resolved.sessionKey,
 						cwd: resolved.wsPath,

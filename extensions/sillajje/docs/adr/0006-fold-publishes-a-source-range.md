@@ -21,6 +21,8 @@
 
 The marker is `sillajje/folded/<source>/<target>`, so one source can feed several review branches.
 
+A session source folds from its last seal: the tip is the `sillajje/<session>` bookmark (the last stamped change), never the workspace working copy. After a stamp the workspace `@` is a fresh empty child, and the next interaction stamps it, so taking `@` as the base or the recorded tip would swallow the next stamp's work.
+
 This supersedes the first consequence above ("later folds read `sillajje/folded/<name>`") and the default in the "Recorded base" choice. The recorded base remains, but only as the explicit `--update` path.
 
 Markers written before this amendment use `sillajje/folded/<name>`. The new key does not read them, so the first `--update` after upgrade finds no record, falls back to the fork point, and whole-folds once.

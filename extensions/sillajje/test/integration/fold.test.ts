@@ -160,6 +160,34 @@ describeJj("sillajje fold", () => {
 		);
 	}, 30_000);
 
+	it("updates a session from its last stamp, not the workspace working copy", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		writeFileSync(join(workspace, "one.txt"), "one\n");
+		await simulateInteraction(runner, "First", "Done.");
+
+		// Advance main.
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+
+		await runSillajje(runner, "fold -s @ -o main --name review");
+
+		// A second interaction stamps new work on top of the first stamp.
+		writeFileSync(join(workspace, "two.txt"), "two\n");
+		await simulateInteraction(runner, "Second", "Done.");
+		await runSillajje(runner, "fold -s @ --update review");
+
+		const files = jj(["file", "list", "-r", "review"], cwd);
+		expect(files).toContain("one.txt");
+		expect(files).toContain("two.txt");
+	}, 30_000);
+
 	it("folds a rev source with -r", async () => {
 		const cwd = initRepo();
 		const base = baseChangeId(cwd);

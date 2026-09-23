@@ -20,7 +20,7 @@ A `/sillajje:fold` subcommand that publishes a source delta as one clean change.
 _Avoid_: Squash (jj's `jj squash` is the primitive underneath; Fold is the publish act)
 
 **Folded source**:
-The source tip last published by a Fold, recorded as a `sillajje/folded/<source>/<target>` bookmark. The target half is the review branch the fold was named with (`--name`), or `--update`'s bookmark, or the target's single local bookmark. `--update` reads the marker as the next Fold's base, so folding again publishes only what is new.
+The source tip last published by a Fold, recorded as a `sillajje/folded/<source>/<target>` bookmark. The target half is the review branch the fold was named with (`--name`), or `--update`'s bookmark, or the target's single local bookmark. For a session source the recorded tip is the last seal (the session bookmark), not the workspace working copy, because `@` is the fresh empty child the next interaction stamps. `--update` reads the marker as the next Fold's base, so folding again publishes only what is new.
 _Avoid_: Fold base, checkpoint
 
 **Stamping**:

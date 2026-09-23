@@ -86,6 +86,7 @@ function makeJj(opts?: {
 		if (revset === "main") return [MAIN];
 		if (revset === PREV.commitId) return [PREV];
 		if (revset.startsWith("fork_point")) return [BASE];
+		if (revset.startsWith("sillajje/")) return [TIP];
 		if (revset.includes("..")) return delta;
 		throw new Error(`unexpected log revset: ${revset}`);
 	});
