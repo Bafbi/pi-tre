@@ -103,3 +103,49 @@ describe("resolveTarget", () => {
 		expect(target).toEqual({ ok: false, reason: "not-a-session" });
 	});
 });
+
+describe("resolveBaseSource", () => {
+	it("resolves an archived session to its bookmark", async () => {
+		const { ws } = binding({
+			bookmarks: [bookmark("alice/laptop/gone")],
+		});
+
+		await expect(ws.resolveBaseSource("gone")).resolves.toEqual({
+			ok: true,
+			sessionKey: "alice/laptop/gone",
+			revision: "sillajje/alice/laptop/gone",
+		});
+	});
+
+	it("resolves a live session to its bookmark", async () => {
+		const { ws } = binding({
+			bookmarks: [bookmark("alice/laptop/other")],
+			workspaces: [workspace("alice/laptop/other", "/ws/other")],
+		});
+
+		await expect(ws.resolveBaseSource("other")).resolves.toEqual({
+			ok: true,
+			sessionKey: "alice/laptop/other",
+			revision: "sillajje/alice/laptop/other",
+		});
+	});
+
+	it("reports not-a-session when no bookmark exists", async () => {
+		const { ws } = binding({});
+
+		await expect(ws.resolveBaseSource("ghost")).resolves.toEqual({
+			ok: false,
+			reason: "not-a-session",
+		});
+	});
+
+	it("reports foreign when the bookmark belongs to another owner", async () => {
+		const { ws } = binding({
+			bookmarks: [bookmark("bob/desktop/other")],
+		});
+
+		await expect(
+			ws.resolveBaseSource("bob/desktop/other"),
+		).resolves.toEqual({ ok: false, reason: "foreign" });
+	});
+});

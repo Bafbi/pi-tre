@@ -17,8 +17,12 @@ _Avoid_: Repo name (it is the basename, not the full path)
 ### Lifecycle
 
 **Workspace**:
-A jj workspace — a separate checkout directory tied to a specific commit. Sillajje creates it at `<workspacesRoot>/<repo-slug>/<session-id>/`, but the registration, not the path, is the identity: jj may record a workspace elsewhere. Each Pi session creates one, and the agent runs inside it. A new workspace branches from the `trunk()` revset, never from the main checkout's working copy, so unlanded work on the main checkout stays out of the session.
+A jj workspace — a separate checkout directory tied to a specific commit. Sillajje creates it at `<workspacesRoot>/<repo-slug>/<session-id>/`, but the registration, not the path, is the identity: jj may record a workspace elsewhere. Each Pi session creates one, and the agent runs inside it. A new workspace branches from its session's Base — `trunk()` unless the creating command names one. The default never picks the main checkout's working copy, so unlanded work on the main checkout stays out of the session.
 _Avoid_: Sandbox, clone, checkout
+
+**Base**:
+The revision a session's workspace branches from: `trunk()` by default, or the revision a creating command names. The base is resolved to a commit id when the workspace is created, so moving a bookmark later does not move an existing session.
+_Avoid_: Parent (that is jj's edge, not the chosen start), origin, fork point (pi's `/fork` and a Fold's base are different things)
 
 **Workspace name**:
 The jj workspace name, `sillajje/<session-key>` — the same string as the session's bookmark. It identifies the repo-side registration. The workspace directory path uses the unqualified session id and omits the owner.

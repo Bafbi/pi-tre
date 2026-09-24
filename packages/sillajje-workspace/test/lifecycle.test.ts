@@ -127,6 +127,28 @@ describe("ensure", () => {
 		]);
 	});
 
+	it("branches from an explicit base revision", async () => {
+		const wsRoot = tempDir("sillajje-ws-root-");
+		const { ws, state } = binding({}, "/home/me/code/foo", wsRoot);
+
+		const result = await ws.ensure("abc", {
+			base: "sillajje/alice/laptop/src",
+		});
+
+		expect(result.ok).toBe(true);
+		expect(state.loggedRevsets).toEqual(["sillajje/alice/laptop/src"]);
+		expect(state.added[0]!.revision).toBe("trunk-commit");
+	});
+
+	it("defaults to trunk() when no base is named", async () => {
+		const wsRoot = tempDir("sillajje-ws-root-");
+		const { ws, state } = binding({}, "/home/me/code/foo", wsRoot);
+
+		await ws.ensure("abc");
+
+		expect(state.loggedRevsets).toEqual(["trunk()"]);
+	});
+
 	it("reports reused for a registered workspace whose directory exists", async () => {
 		const wsRoot = tempDir("sillajje-ws-root-");
 		const path = `${wsRoot}/foo/abc`;

@@ -8,6 +8,8 @@ export interface FakeJjState {
 	forgotten: string[];
 	/** Read verbs invoked, in order; used to assert the trusted path skips jj. */
 	reads: string[];
+	/** Revsets passed to `jj.log`, in order. */
+	loggedRevsets: string[];
 	/** When set, `workspaceAdd` rejects with this message. */
 	addError?: string;
 	/** When set, `workspaceForget` rejects with this message. */
@@ -30,6 +32,7 @@ export function fakeJj(overrides: Partial<FakeJjState> = {}): {
 		added: [],
 		forgotten: [],
 		reads: [],
+		loggedRevsets: [],
 		logResult: [
 			{
 				commitId: "trunk-commit",
@@ -42,8 +45,9 @@ export function fakeJj(overrides: Partial<FakeJjState> = {}): {
 	};
 
 	const jj: Jj = {
-		log: async () => {
+		log: async (revset) => {
 			state.reads.push("log");
+			state.loggedRevsets.push(revset);
 			return state.logResult;
 		},
 		diff: async () => "",
