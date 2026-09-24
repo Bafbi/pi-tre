@@ -121,7 +121,7 @@ describe("ensure", () => {
 		expect(state.added).toEqual([
 			{
 				name: "sillajje/alice/laptop/abc",
-				revision: "trunk()",
+				revision: "trunk-commit",
 				path: `${wsRoot}/foo/abc`,
 			},
 		]);

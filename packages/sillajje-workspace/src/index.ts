@@ -185,10 +185,25 @@ export function createWorkspaces(
 	 */
 	const baseRevision = "trunk()";
 
-	/** Whether `trunk()` resolves to `root()` — the repo has no trunk to branch from. */
-	const trunkIsRoot = async (): Promise<boolean> => {
+	/**
+	 * Resolve the base once: the revision to branch from and whether it is
+	 * `root()`. A separate probe and `workspace add` could disagree if a
+	 * concurrent bookmark update lands between them.
+	 */
+	const resolveBase = async (): Promise<{
+		revision: string;
+		fromRoot: boolean;
+	}> => {
 		const [trunk] = await jj.log(baseRevision, jjOptions);
-		return trunk === undefined || trunk.parents.length === 0;
+		if (trunk === undefined) {
+			// `trunk()` always resolves (to `root()` at worst); this is defensive,
+			// and the following `workspace add` surfaces the error.
+			return { revision: baseRevision, fromRoot: true };
+		}
+		return {
+			revision: trunk.commitId,
+			fromRoot: trunk.parents.length === 0,
+		};
 	};
 
 	/**
@@ -252,13 +267,10 @@ export function createWorkspaces(
 					continue;
 				}
 
-				const fromRoot = await trunkIsRoot();
+				const { revision, fromRoot } = await resolveBase();
 				mkdirSync(dirname(path), { recursive: true });
 				await forgetQuietly(name);
-				await jj.workspaceAdd(
-					{ name, revision: baseRevision, path },
-					jjOptions,
-				);
+				await jj.workspaceAdd({ name, revision, path }, jjOptions);
 				return {
 					ok: true,
 					status: "created",
