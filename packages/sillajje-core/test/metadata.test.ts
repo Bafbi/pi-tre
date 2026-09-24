@@ -103,6 +103,21 @@ describe("buildMeta", () => {
 		);
 	});
 
+	it("renders the Interaction's session entry range when the host records one", () => {
+		const result = buildMeta(
+			prov({
+				sessionKey: "test-session",
+				interactionRange: { first: "e1", last: "e9" },
+			}),
+		);
+
+		expect(result).toContain("interaction: e1..e9");
+	});
+
+	it("omits the Interaction range when the host records none", () => {
+		expect(buildMeta(prov())).not.toContain("interaction:");
+	});
+
 	it("appends the jj version when the adapter read one", () => {
 		const result = buildMeta(
 			prov({

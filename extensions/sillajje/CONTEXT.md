@@ -5,7 +5,7 @@ Auto-versioning for Pi agent sessions built on jj. Every agent interaction becom
 ## Language
 
 **Interaction**:
-A single user prompt followed by all agent tool calls and responses until the agent emits a final text response (not a tool call). The boundary of one jj change.
+One continuous agent run: the prompt that starts it, any steering or follow-up prompts delivered while it runs, and all agent tool calls and responses until the agent stops. The boundary of one jj change.
 _Avoid_: Turn, round, exchange
 
 **Sillage**:
@@ -28,7 +28,7 @@ Sealing a change with a generated commit message: the Sub-generator produces the
 _Avoid_: Committing (stamping is the session-level act; the jj mechanics underneath are incidental)
 
 **Session stamp**:
-A stamp bound to a sillajje session. It always targets that session's working copy and performs the full seal — workspace prep, describe, session bookmark move, and a fresh empty change — as one transaction: either the whole seal appears or nothing does. It fires on the `agent_end` auto-stamp (with the pending Interaction transcript), `/sillajje:stamp -s @` on the current session, and `/sillajje:stamp -s <id>` on another live session (both diff-only; a foreign transcript is never borrowed).
+A stamp bound to a sillajje session. It always targets that session's working copy and performs the full seal — workspace prep, describe, session bookmark move, and a fresh empty change — as one transaction: either the whole seal appears or nothing does. It fires on the `agent_settled` auto-stamp (with the pending Interaction transcript), `/sillajje:stamp -s @` on the current session, and `/sillajje:stamp -s <id>` on another live session (both diff-only; a foreign transcript is never borrowed).
 _Avoid_: Manual stamp (the same entry point serves both entries)
 
 **Rev stamp**:
@@ -36,8 +36,12 @@ A stamp bound to a revision, not to a session. `/sillajje:stamp -r <rev>` accept
 _Avoid_: Diff stamp (that names the source axis, not the session link)
 
 **Interaction stamp**:
-A stamp whose message is generated from an Interaction transcript plus the diff. It is the layer-2 context of the `agent_end` Session stamp on the current session. A session stamp without a transcript, a cross-session stamp, and every Rev stamp generate from the diff alone.
+A stamp whose message is generated from an Interaction transcript plus the diff. It is the layer-2 context of the `agent_settled` Session stamp on the current session. A session stamp without a transcript, a cross-session stamp, and every Rev stamp generate from the diff alone.
 _Avoid_: Auto-stamp (what differs is the source, not who triggered it)
+
+**Stamp marker**:
+A session entry written after each Session stamp, recording the stamped revision. It is the cursor that tells the extension which Interactions are already stamped and survives a reload.
+_Avoid_: Checkpoint (that is a Fold's base), Bookmark (jj's session ref is a different thing)
 
 **Diff stamp**:
 A stamp whose message is generated from the diff alone — the `-s @` current-session stamp, the `-s <id>` cross-session stamp, and every Rev stamp. Its Header is a conventional commit without an interaction-type prefix.
@@ -88,7 +92,7 @@ Each Pi session gets its own jj workspace (`sillajje/<session-key>`), so concurr
 
 ## Bookmark lifecycle
 
-The `sillajje/<session-key>` bookmark is created at the start of the first interaction (`before_agent_start`) and updated on every Session stamp: the `agent_end` auto-stamp, `/sillajje:stamp -s @` on the current session, and `/sillajje:stamp -s <id>` from another conversation. Creating it early means the session's `sillajje/<session-key>` ref resolves from the very first interaction (e.g. for `jj show`, `jj diff`, or unarchive). A Rev stamp (`-r <rev>`) never moves a bookmark.
+The `sillajje/<session-key>` bookmark is created at the start of the first interaction (`before_agent_start`) and updated on every Session stamp: the `agent_settled` auto-stamp, `/sillajje:stamp -s @` on the current session, and `/sillajje:stamp -s <id>` from another conversation. Creating it early means the session's `sillajje/<session-key>` ref resolves from the very first interaction (e.g. for `jj show`, `jj diff`, or unarchive). A Rev stamp (`-r <rev>`) never moves a bookmark.
 
 ## Log revsets
 

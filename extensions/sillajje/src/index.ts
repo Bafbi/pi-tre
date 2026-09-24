@@ -2,11 +2,11 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-import type { Message } from "@earendil-works/pi-ai";
 import {
 	createLocalBashOperations,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
+	type ExtensionContext,
 	type UserBashEventResult,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -43,7 +43,11 @@ import {
 } from "@pi-tre/sillajje-workspace";
 import { loadSillajjeConfig } from "./config.js";
 import { createDebugLogger } from "./debug-log.js";
-import { deriveInteractionData } from "./derive.js";
+import {
+	lastStampMarkerId,
+	projectInteraction,
+	STAMP_MARKER_TYPE,
+} from "./interaction.js";
 import { redirect } from "./path-redirect.js";
 import { SessionState } from "./state.js";
 import { formatPill } from "./status-pill.js";
@@ -466,9 +470,26 @@ export default function (pi: ExtensionAPI) {
 	// session_start — detect jj, determine state
 	// -----------------------------------------------------------------------
 
+	// The cursor is the last Stamp marker on the branch. Rebuild it on load and
+	// after tree navigation, so a reload or a fork resumes there.
+	const syncCursor = (ctx: ExtensionContext, reason?: string) => {
+		const marker = lastStampMarkerId(ctx.sessionManager.getBranch());
+		if (marker !== null) {
+			state.setCursorId(marker);
+			return;
+		}
+		// No Stamp marker. On a reload, leave the cursor null so an in-flight
+		// Interaction is recovered. Otherwise baseline to the current leaf so a
+		// resumed session does not re-stamp its history.
+		state.setCursorId(
+			reason === "reload" ? null : ctx.sessionManager.getLeafId(),
+		);
+	};
+
 	pi.on("session_start", async (_event, ctx) => {
 		debug.event("session_start", { mode: ctx.mode, reason: _event.reason });
 		state.reset();
+		syncCursor(ctx, _event.reason);
 
 		// Sillajje only activates in interactive TUI mode with a file-backed session.
 		// Print mode (-p), RPC, JSON, and --no-session are excluded.
@@ -579,7 +600,15 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// -----------------------------------------------------------------------
-	// before_agent_start — inject workspace path + capture prompt
+	// session_tree — reconstruct the Interaction cursor on branch navigation
+	// -----------------------------------------------------------------------
+
+	pi.on("session_tree", async (_event, ctx) => {
+		syncCursor(ctx);
+	});
+
+	// -----------------------------------------------------------------------
+	// before_agent_start — inject workspace path + create session bookmark
 	// -----------------------------------------------------------------------
 
 	pi.on("before_agent_start", async (event, ctx) => {
@@ -600,21 +629,6 @@ export default function (pi: ExtensionAPI) {
 			);
 			return undefined;
 		}
-
-		// Record the user prompt as a message so the full transcript is
-		// available to the stamp action at agent_end (which only carries
-		// assistant messages).
-		state.recordAgentMessages([
-			{
-				role: "user",
-				content: event.prompt,
-				timestamp: Date.now(),
-			} as Message,
-		]);
-
-		// Ensure interaction flag is set — covers queued follow-ups that
-		// may bypass the `input` event (where `startInteraction` normally runs).
-		state.enableInteractionIfNotSteering();
 
 		const wsPath = state.getWorkspacePath();
 		if (!wsPath) return undefined;
@@ -671,29 +685,20 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// -----------------------------------------------------------------------
-	// agent_start — mark start time for elapsed tracking
+	// markStamped — write the Stamp marker and advance the cursor
 	// -----------------------------------------------------------------------
 
-	pi.on("agent_start", async () => {
-		debug.event("agent_start");
-		if (state.isInactive()) return undefined;
-		// An `agent_start` after a deferred error end is a retry/compact
-		// continuation — the interaction is still live, so drop the
-		// pending-finalize flag.
-		state.clearPendingFinalize();
-		return undefined;
-	});
+	/** Write the Stamp marker and advance the cursor to it. */
+	const markStamped = (ctx: ExtensionContext, rev: string | null) => {
+		pi.appendEntry(STAMP_MARKER_TYPE, { rev });
+		state.setCursorId(ctx.sessionManager.getLeafId());
+	};
 
 	// -----------------------------------------------------------------------
-	// agent_end — capture agent response + stamp the jj change
+	// stampPending — project the pending Interaction and stamp it
 	// -----------------------------------------------------------------------
 
-	const stampChange = async (ctx: {
-		hasUI: boolean;
-		ui: {
-			notify: (msg: string, type: "info" | "warning" | "error") => void;
-		};
-	}) => {
+	const stampPending = async (ctx: ExtensionContext) => {
 		const sessionId = state.getSessionId();
 		const wsPath = state.getWorkspacePath();
 		if (!sessionId || !wsPath) {
@@ -702,40 +707,24 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const sessionKey = state.getSessionKey() ?? sessionId;
-
-		if (!state.hasNewInteraction()) {
-			debug.event("stamp_skip", { reason: "no_new_interaction" });
+		const projected = projectInteraction(
+			ctx.sessionManager.getBranch(),
+			state.getCursorId(),
+		);
+		if (!projected) {
+			debug.event("stamp_skip", { reason: "no_interaction" });
 			return;
 		}
 
-		const messages = state.getInteractionMessages();
-		if (!messages) {
-			debug.event("stamp_skip", { reason: "no_messages" });
-			state.resetInteraction();
-			return;
-		}
-
-		// The adapter owns the pi-shaped transcript seam; the action takes the
-		// derived data.
-		const interaction = deriveInteractionData(messages);
-		if (!interaction) {
-			debug.event("stamp_skip", { reason: "no_interaction_data" });
-			createStatusSink(ctx)({
-				kind: "error",
-				code: "derive_interaction_failed",
-				message:
-					"transcript lacks required interaction data (no user or assistant message)",
-			});
-			state.resetInteraction();
-			return;
-		}
-
-		debug.event("stamp_change", { messageCount: messages.length });
+		debug.event("stamp_change", {
+			firstEntryId: projected.range?.first,
+			lastEntryId: projected.range?.last,
+		});
 
 		const result = await buildStamp(ctx).session({
 			target: sessionKey,
 			current: { sessionKey, wsPath },
-			interaction,
+			interaction: projected,
 		});
 
 		if (result.ok) {
@@ -750,20 +739,16 @@ export default function (pi: ExtensionAPI) {
 			debug.error("stamp_failed", new Error("stamp returned failed"));
 		}
 
-		// Always reset interaction state — even on failure we clean up for the next one.
-		state.resetInteraction();
+		// Advance the Stamp marker whether the stamp succeeded, failed, or
+		// found no changes, so the next Interaction starts after it.
+		markStamped(ctx, result.ok ? result.rev : null);
 	};
 
 	// -----------------------------------------------------------------------
 	// stampManual — /sillajje:stamp command
 	// -----------------------------------------------------------------------
 
-	const stampManual = async (ctx: {
-		hasUI: boolean;
-		ui: {
-			notify: (msg: string, type: "info" | "warning" | "error") => void;
-		};
-	}) => {
+	const stampManual = async (ctx: ExtensionContext) => {
 		const sessionId = state.getSessionId();
 		const wsPath = state.getWorkspacePath();
 		if (!sessionId || !wsPath) {
@@ -781,10 +766,6 @@ export default function (pi: ExtensionAPI) {
 
 		debug.event("stamp_manual_start");
 
-		// A manual stamp seals the working copy, which covers any pending
-		// (error-ended) interaction — nothing left to finalize later.
-		state.clearPendingFinalize();
-
 		const result = await buildStamp(ctx).session({
 			target: sessionKey,
 			current: { sessionKey, wsPath },
@@ -795,10 +776,9 @@ export default function (pi: ExtensionAPI) {
 				subject: result.subject,
 				rev: result.rev,
 			});
-			// The manual stamp sealed the working copy, which covers the pending
-			// interaction — clear its transcript so a subsequent automatic stamp
-			// doesn't reuse stale interaction metadata.
-			state.resetInteraction();
+			// A manual stamp consumes the pending Interaction: write a Stamp
+			// marker so the next auto-stamp starts after it.
+			markStamped(ctx, result.rev);
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					`[sillajje] workspace stamped: ${result.subject}`,
@@ -823,67 +803,29 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	pi.on("agent_end", async (event, ctx) => {
-		debug.event("agent_end", { messageCount: event.messages.length });
-		if (state.isInactive()) return undefined;
+	// -----------------------------------------------------------------------
+	// agent_settled — the true end of a run; stamp the pending Interaction
+	// -----------------------------------------------------------------------
+
+	pi.on("agent_settled", async (_event, ctx) => {
+		debug.event("agent_settled");
+		if (state.isInactive()) return;
 
 		// Missing workspace (deleted, or jj gone): don't stamp.
-		if (state.isMissingWorkspace()) return undefined;
+		if (state.isMissingWorkspace()) return;
 		if (isWorkspaceGone()) {
 			markMissingWorkspaceAndNotify(
 				ctx,
 				"workspace directory no longer exists",
 			);
-			return undefined;
+			return;
 		}
 		if (!(await isJjOnPath(jj))) {
 			markMissingWorkspaceAndNotify(ctx, "jj is no longer on PATH");
-			return undefined;
+			return;
 		}
 
-		// Store messages from this agent run. Messages accumulate across retry
-		// segments so the full transcript is available at stamp time.
-		state.recordAgentMessages(event.messages as Message[]);
-
-		// Check if this run ended in an error.
-		const assistantMsgs = event.messages.filter(
-			(m) => (m as { role: string }).role === "assistant",
-		);
-		const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
-
-		// A run that ended in an error (stopReason "error" — timeout, 5xx,
-		// rate limit, network...) is not necessarily the end of the
-		// interaction: Pi auto-retries (or compacts-and-retries on context
-		// overflow), which fires `agent_start` again mid-interaction.
-		// Stamping here would seal a partial interaction and reset the
-		// interaction state, so the true final `agent_end` would skip
-		// stamping entirely. Defer instead: the continuation's `agent_start`
-		// clears the pending flag; otherwise the interaction is finalized
-		// on the next `input` or at `session_shutdown`.
-		if (
-			lastAssistant &&
-			(lastAssistant as { stopReason?: string }).stopReason === "error"
-		) {
-			debug.event("stamp_deferred", { reason: "agent_run_error" });
-			state.recordAgentEndError();
-			state.markPendingFinalize();
-			return undefined;
-		}
-
-		// Stamp the change. `agent_settled` would be ideal (fires after
-		// retries/compactions), but it does not reliably reach extension
-		// handlers in this Pi version. `agent_end` is the next best point.
-		await stampChange(ctx);
-		return undefined;
-	});
-
-	// -----------------------------------------------------------------------
-	// agent_settled — kept for logging; actual stamping moved to agent_end
-	// because agent_settled does not reliably reach extension handlers.
-	// -----------------------------------------------------------------------
-
-	pi.on("agent_settled", async () => {
-		debug.event("agent_settled");
+		await stampPending(ctx);
 	});
 
 	// -----------------------------------------------------------------------
@@ -969,21 +911,7 @@ export default function (pi: ExtensionAPI) {
 			return { action: "handled" as const };
 		}
 
-		// A previous interaction that ended in an error (and was not retried)
-		// is finalized now, before the new interaction overwrites its prompt
-		// and response. Stamping seals it as its own change and starts fresh.
-		if (
-			state.hasPendingFinalize() &&
-			!state.isInactive() &&
-			!state.isMissingWorkspace()
-		) {
-			await stampChange(ctx);
-		}
-
 		state.markPrompted();
-
-		// Detect new interaction vs steering: `steer` folds into the current one.
-		state.startInteraction(event.streamingBehavior);
 
 		if (state.isInactive()) return undefined;
 		if (state.isMissingWorkspace()) {
@@ -1052,11 +980,9 @@ export default function (pi: ExtensionAPI) {
 		const sessionId = state.getSessionId();
 		if (!repoRoot || !wsPath || !sessionId) return;
 
-		// Finalize an interaction that ended in an error and was never
-		// retried — otherwise its work is left un-stamped in the working copy.
-		if (state.hasPendingFinalize()) {
-			await stampChange(ctx);
-		}
+		// Flush a completed but unstamped Interaction so its work is not left
+		// un-stamped in the working copy.
+		await stampPending(ctx);
 
 		if (!state.hasUserPrompted()) {
 			const workspaces = workspacesFor(repoRoot);
@@ -1145,7 +1071,7 @@ export default function (pi: ExtensionAPI) {
 		if (targetKey === state.getSessionKey()) {
 			state.setArchived();
 			state.clearWorkspacePath();
-			state.resetInteraction();
+			state.setCursorId(null);
 		}
 
 		syncPill(ctx);
@@ -1275,9 +1201,6 @@ export default function (pi: ExtensionAPI) {
 			// alone. Stamping the current session keeps today's
 			// state resets (it covers any pending interaction).
 			const stampingCurrent = targetKey === state.getSessionKey();
-			if (stampingCurrent) {
-				state.clearPendingFinalize();
-			}
 
 			debug.event("stamp_session_start", {
 				sessionKey: targetKey,
@@ -1299,8 +1222,8 @@ export default function (pi: ExtensionAPI) {
 				});
 				if (stampingCurrent) {
 					// Sealing the working copy covers the pending
-					// interaction — clear its transcript.
-					state.resetInteraction();
+					// Interaction — advance the Stamp marker.
+					markStamped(ctx, sessionResult.rev);
 				}
 				if (ctx.hasUI) {
 					ctx.ui.notify(
@@ -1390,6 +1313,10 @@ export default function (pi: ExtensionAPI) {
 			state.setSessionKey(info.sessionKey);
 			state.setActive();
 			state.setWorkspacePath(info.workspacePath);
+			// Archive cleared the cursor. Rebuild it from the last Stamp marker,
+			// or the next stamp projects the whole branch and re-includes the
+			// prompts and responses of already-stamped Interactions.
+			syncCursor(ctx);
 			debug.event("session_unarchived", {
 				sessionKey: info.sessionKey,
 				path: info.workspacePath,
@@ -1537,7 +1464,7 @@ export default function (pi: ExtensionAPI) {
 			) {
 				state.setArchived();
 				state.clearWorkspacePath();
-				state.resetInteraction();
+				state.setCursorId(null);
 				syncPill(ctx);
 			}
 			if (ctx.hasUI) {

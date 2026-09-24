@@ -14,6 +14,8 @@ import {
 	initRepo,
 	installDefaultSubGeneratorMock,
 	jj,
+	recordAssistantMessage,
+	recordUserMessage,
 	runSillajje,
 	sessionBookmark,
 	wsPath,
@@ -116,24 +118,15 @@ describeJj("sillajje cross-session stamp", () => {
 			undefined,
 			"interactive",
 		);
-		await runner.emitBeforeAgentStart(
-			"My pending interaction",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		recordUserMessage(runner, "My pending interaction");
 
 		// Stamp the foreign session mid-interaction.
 		await runSillajje(runner, `stamp -s ${otherId}`);
 
-		// The issuer's interaction still auto-stamps at agent_end.
-		await runner.emit({ type: "agent_start" });
+		// The issuer's interaction still auto-stamps at settle.
 		writeFileSync(join(workspace, "own.ts"), "// own\n");
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("Own work done.")] as any[],
-		});
+		recordAssistantMessage(runner, assistantMsg("Own work done."));
+		await runner.emit({ type: "agent_settled" });
 
 		const ownLog = jj(
 			[

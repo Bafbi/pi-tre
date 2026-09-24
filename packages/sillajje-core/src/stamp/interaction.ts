@@ -153,6 +153,7 @@ export async function stampInteractionPath(
 	const metadata = buildMeta({
 		source: "interaction",
 		sessionKey,
+		interactionRange: data.range,
 		model: cfg.model,
 		fallbacks,
 		env: deps.env,

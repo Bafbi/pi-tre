@@ -1,0 +1,275 @@
+<!-- Copy to .scratch/<topic>/<report_name>.html. Replace the title, summary, and sections. Keep the CSS. -->
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Interaction lifecycle: evaluation</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Interaction lifecycle: evaluation</h1>
+		<p class="sub">The diagnosis holds. The cure is right in direction, under-specified in two places, and oversells the test payoff.</p>
+		<div class="meta">
+			<span class="chip">2026-09-23</span>
+			<span class="chip">scope: extensions/sillajje + @pi-tre/sillajje-core</span>
+			<span class="chip">verdict: valid, revise before implementing</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#accurate">What holds</a>
+		<a href="#flaws">What does not</a>
+		<a href="#proscons">Pros and cons</a>
+		<a href="#alternatives">Alternatives</a>
+		<a href="#open">Open questions</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>The recommendation is <strong>valid as a diagnosis and worth doing as a refactor</strong>, but it is not ready to implement as written. It correctly names the problem: interaction-scoped state and the rule that acts on it are split between <code>state.ts</code> and five pi handlers plus <code>stampChange</code>. Two claims need correction, and one design decision is left open.</p>
+		<ol>
+			<li><strong>The seam is incomplete.</strong> The proposed vocabulary <code>onPrompt · onAgentStart · onAgentEnd · takeForStamp</code> has no slot for <code>before_agent_start</code> (records the prompt, enables the interaction) or <code>session_shutdown</code> (flushes a pending interaction). Those are two of the five handlers the recommendation says it is consolidating.</li>
+			<li><strong>The type boundary contradicts itself.</strong> The module cannot "own the transcript" and "never take pi types" at once, because the transcript is <code>Message[]</code> until <code>deriveInteractionData</code> runs at stamp time. The recommendation must pick: the module holds a structural message type and owns derivation, or the adapter keeps the transcript and the module owns only flags and timing.</li>
+			<li><strong>The test payoff is real but modest.</strong> <code>stampChange</code> already centralizes the decision body; the scatter is in the triggers and the flags. Roughly 250 of the 924 lines in <code>change-stamping.test.ts</code> cover lifecycle timing. Even after extraction, one end-to-end wiring test must stay, because the guarantee ("a partial interaction is never sealed") is a jj-level fact no unit test can assert.</li>
+		</ol>
+		<p>The best form is a small state machine that <em>owns the interaction-scoped state</em> and returns an explicit decision, which also removes about 100 lines from <code>SessionState</code>. Do it after the check gate is green.</p>
+	</section>
+
+	<section id="accurate">
+		<h2>What holds</h2>
+		<h3>State and rule are separated</h3>
+		<p><code>state.ts</code> is 294 lines of getters and setters. Interaction-scoped fields — <code>newInteraction</code>, <code>messages</code>, <code>lastRunEndedInError</code>, <code>lastStreamingBehavior</code>, <code>pendingFinalize</code> — live beside session-scoped fields like <code>repoRoot</code>, <code>workspacePath</code>, and <code>lifecycle</code>. The two concerns share one holder.</p>
+		<h3>The deferral rule is subtle and spread out</h3>
+		<p>The rule "an error <code>agent_end</code> is not the end of the interaction" is stated in a long comment on <code>pendingFinalize</code>, enforced in <code>agent_end</code>, cleared in <code>agent_start</code>, and consumed in <code>input</code> and <code>session_shutdown</code>. Reading one of those does not explain the others. This is the strongest argument for the change.</p>
+		<h3>Illegal flag combinations are implicit</h3>
+		<p><code>pendingFinalize</code> implies <code>lastRunEndedInError</code>, which implies <code>newInteraction</code>, which implies non-empty <code>messages</code>. Nothing encodes that. A state machine makes the legal states finite and the transitions explicit.</p>
+		<h3>The deletion test is applied correctly</h3>
+		<p>The recommendation notes that deleting <code>SessionState</code> alone would only move fields, and that the deepening is the state machine. That is the right reading.</p>
+	</section>
+
+	<section id="flaws">
+		<h2>What does not</h2>
+
+		<h3>1. The seam drops two of the five events</h3>
+		<p>The recommendation's own problem statement lists five handlers: <code>input</code>, <code>before_agent_start</code>, <code>agent_start</code>, <code>agent_end</code>, <code>session_shutdown</code>. The proposed interface lists four methods and omits two of them.</p>
+		<ul>
+			<li><code>before_agent_start</code> does two interaction things: it appends the user prompt to the transcript, and it calls <code>enableInteractionIfNotSteering()</code> as a fallback for queued follow-ups that bypass <code>input</code>. Both must move into the module.</li>
+			<li><code>session_shutdown</code> calls <code>stampChange</code> when <code>hasPendingFinalize()</code>. The module needs a flush entry point.</li>
+		</ul>
+		<p>A seam that misses events cannot become the single home for the rule.</p>
+
+		<h3>2. "Owns the transcript" and "never pi types" cannot both be true</h3>
+		<p>The module must accumulate messages across retry segments and derive <code>InteractionData</code> only at the end. Derivation needs every message: <code>response</code> is the last assistant message, <code>elapsedMs</code> is last minus first timestamp, and tool names are unioned across all assistant messages. So the transcript has to live somewhere until <code>takeForStamp</code>.</p>
+		<p>Today the core boundary already speaks <code>InteractionData</code>, not <code>Message[]</code> (see <code>packages/sillajje-core/src/stamp/types.ts</code>). That is the right boundary. But the <em>lifecycle module</em> sits on the pi side of it and needs the raw entries. The clean resolution is a local structural type:</p>
+		<pre><code>type InteractionMessage = { role: string; content: unknown; timestamp: number };</code></pre>
+		<p>The module owns <code>InteractionMessage[]</code> and the derivation. The adapter converts pi <code>Message[]</code> to <code>InteractionMessage[]</code> at the edge. This is a real change to <code>derive.ts</code>, not a detail the recommendation can skip.</p>
+
+		<h3>3. The scatter is smaller than stated</h3>
+		<p><code>stampChange</code> already holds the decision body: check session and workspace, check <code>hasNewInteraction</code>, fetch messages, derive, call the action, reset. The five handlers only hold <em>triggers</em> and flag writes. Moving the flags and the decision into a module concentrates the rule, but the handlers do not contain "five fragments of the decision" as the text implies. The win is real; the size is smaller.</p>
+
+		<h3>4. The test claim is half true</h3>
+		<p><code>test/unit/state.test.ts</code> already unit-tests the flag mechanics — steer, follow-up, pending mark/clear/reset — in 358 lines. What is only end-to-end is the <em>decision to act</em>: that an error <code>agent_end</code> defers, that a retry resumes, that a next prompt flushes. Extracting the module moves those decisions to plain-data tests. But the three deferral tests in <code>change-stamping.test.ts</code> also assert jj facts (the sealed change contains <code>a.ts</code> and <code>b.ts</code>, not a partial set). Those assertions cannot move. Expect to move the decision assertions and keep a smaller integration test.</p>
+
+		<h3>5. Timing against the red gate</h3>
+		<p><code>AGENTS.md</code> states the gate is temporarily red: <code>typecheck-tests</code>, <code>typecheck-strict</code>, <code>//:lint</code>, <code>//:knip</code>, <code>//:ast-grep</code>, and <code>leaf-copy:test</code> fail on findings the in-progress refactor owns. Adding a structural refactor on top makes a new failure hard to attribute. Sequence it after <code>mise run check-baseline</code> is clean.</p>
+	</section>
+
+	<section id="proscons">
+		<h2>Pros and cons</h2>
+		<table>
+			<thead>
+				<tr><th>Dimension</th><th>Pro</th><th>Con</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Locality</td>
+					<td>One file answers "when does an interaction stamp?" The error/defer/retry rule gets one home.</td>
+					<td>Adds a second holder beside <code>SessionState</code>; the boundary between session state and interaction state must be drawn and kept.</td>
+				</tr>
+				<tr>
+					<td>Correctness</td>
+					<td>An explicit phase removes illegal flag combinations. The steer-preserves-live subtlety becomes a transition, not a comment.</td>
+					<td>The current code is correct and freshly fixed (commit <code>3045039</code>). A rewrite risks regressing a rule that just landed.</td>
+				</tr>
+				<tr>
+					<td>Tests</td>
+					<td>Decision tests run over plain data, no runner, no jj, no sub-generator mock.</td>
+					<td>Only the decision assertions move. The end-to-end wiring test and the jj content assertions stay. Net suite reduction is small.</td>
+				</tr>
+				<tr>
+					<td>Leverage</td>
+					<td>A new settle signal or queue rule changes one interface instead of five call sites.</td>
+					<td>No such rule is pending. The leverage is speculative; the churn is immediate.</td>
+				</tr>
+				<tr>
+					<td>Type boundary</td>
+					<td>Aligns with the existing direction: the core never sees pi types.</td>
+					<td>Requires <code>derive.ts</code> to work over a structural message type, which the recommendation does not budget.</td>
+				</tr>
+				<tr>
+					<td>Placement</td>
+					<td>The rule is host-agnostic and could live in <code>@pi-tre/sillajje-core</code>.</td>
+					<td>The event names are pi-shaped and no second host exists. Core placement is a premature package boundary.</td>
+				</tr>
+			</tbody>
+		</table>
+	</section>
+
+	<section id="alternatives">
+		<h2>Alternatives</h2>
+		<p>Four shapes, from smallest to largest.</p>
+
+		<h3>A. Pure decision function, state stays in <code>SessionState</code></h3>
+		<pre><code>type Decision =
+  | { kind: "stamp"; messages: InteractionMessage[] }
+  | { kind: "defer" }
+  | { kind: "none" };
+
+function decide(event: LifecycleEvent, view: InteractionView): Decision;</code></pre>
+		<p>Handlers call <code>decide</code>, then apply the result. Pros: smallest change, trivially unit-testable, no new holder. Cons: state and rule stay in different files, which is the original complaint. This is the minimum that answers "why didn't it stamp?" from one function.</p>
+
+		<h3>B. State machine that owns interaction state (recommended)</h3>
+		<pre><code>type Phase = "idle" | "live" | "errored";
+
+class Interaction {
+  onPrompt(behavior: string | undefined): Decision;
+  onBeforeAgentStart(prompt: string): void;
+  onAgentStart(): void;
+  onAgentEnd(messages: InteractionMessage[], stopReason?: string): Decision;
+  flush(): Decision;                       // session_shutdown
+  consume(): InteractionData | undefined;  // after a stamp
+}</code></pre>
+		<p><code>SessionState</code> drops the five interaction fields and their methods, about 100 lines. The adapter keeps only session lifecycle, and each handler becomes one call plus a switch on the decision. This is the recommendation done properly: the module owns the state, the decision is explicit, and <code>consume</code> makes the "reset even on failure" contract visible.</p>
+		<div class="callout warn">
+			<p><code>consume</code> must run whether the stamp succeeded, failed, or returned <code>no-changes</code>. Today the code resets in all three cases. If the interface hides that, a future change will reintroduce a stale-transcript bug. Name the method so the contract is obvious, and test all three outcomes.</p>
+		</div>
+
+		<h3>C. Pure reducer</h3>
+		<pre><code>type Event =
+  | { type: "prompt"; behavior?: string }
+  | { type: "beforeAgentStart"; prompt: string }
+  | { type: "agentStart" }
+  | { type: "agentEnd"; messages: InteractionMessage[]; stopReason?: string }
+  | { type: "flush" }
+  | { type: "stamped" };
+
+function reduce(state: InteractionState, event: Event): [InteractionState, Effect];</code></pre>
+		<p>Pure, deterministic, the easiest to test and to reason about. Cons: an effect channel is more machinery than this codebase uses anywhere else, and <code>SessionState</code> is an imperative class. It is the more correct option and the less idiomatic one. Prefer B unless you expect the state space to grow.</p>
+
+		<h3>D. Leave it, do a targeted cleanup</h3>
+		<p>The deferral rule is correct, freshly fixed, and well-commented. The real defect is that interaction state shares a holder with session state. A smaller move — split <code>SessionState</code> into <code>SessionState</code> and a plain <code>InteractionState</code> holder, no behavior change — captures most of the locality without touching the handlers. Then extract the decision function later. This is the lowest-risk option while the gate is red.</p>
+	</section>
+
+	<section id="open">
+		<h2>Open questions</h2>
+		<ul>
+			<li><strong>Where does the module live?</strong> Extension (<code>extensions/sillajje/src/interaction.ts</code>) until a second host exists, or <code>@pi-tre/sillajje-core</code> now? The events are pi-shaped; the rule is host-agnostic. Extension is the smaller commitment.</li>
+			<li><strong>Does the module own derivation?</strong> If yes, <code>derive.ts</code> moves or becomes generic over <code>InteractionMessage</code>. If no, the module owns flags and timing only, and the transcript stays in the adapter. The first is cleaner; the second is less churn.</li>
+			<li><strong>Imperative class or reducer?</strong> B matches the codebase; C is purer. Pick based on whether more lifecycle rules are coming.</li>
+			<li><strong>When?</strong> Now, or after <code>mise run check-baseline</code> is clean? The recommendation does not address the red gate.</li>
+		</ul>
+	</section>
+
+	<footer>Generated by the agent. Grounded in extensions/sillajje/src/{index,state,derive}.ts, packages/sillajje-core/src/stamp/types.ts, test/unit/state.test.ts, test/integration/change-stamping.test.ts, and ADR 0003/0005 at the working-copy commit.</footer>
+</main>
+</body>
+</html>

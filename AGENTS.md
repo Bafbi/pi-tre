@@ -99,10 +99,9 @@ hermetic default and the mise `[env]` injection.
 - If the change spans multiple extensions or the root: `mise run check`
 - Fix any failures after changes. Do not bypass the check.
 
-The gate is temporarily red. `typecheck-tests`, `typecheck-strict`, `//:lint`,
-`//:knip`, `//:ast-grep`, and `leaf-copy:test` fail on findings the refactor
-owns. Run `mise run check-baseline` to tell a new regression from this list.
-Each task leaves `check` as the refactor clears it.
+The gate is green. Run `mise run check-baseline` after a change to tell a new
+regression from the recorded set; `check-baseline.txt` is empty when nothing is
+known-red.
 
 ## VCS
 - You do not care about VCS.

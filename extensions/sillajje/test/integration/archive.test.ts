@@ -6,7 +6,9 @@ import {
 	createRunner,
 	describeJj,
 	installDefaultSubGeneratorMock,
+	jj,
 	makeRunnerCwd,
+	recordInteraction,
 	runSillajje,
 	sessionBookmark,
 	tempDirs,
@@ -31,19 +33,6 @@ function wsPath(repoRoot: string, sessionId: string): string {
 	return `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
 }
 
-function assistantMsg(text: string) {
-	return {
-		role: "assistant" as const,
-		content: [{ type: "text" as const, text }],
-		api: "anthropic-messages" as const,
-		provider: "anthropic" as const,
-		model: "test",
-		usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
-		stopReason: "stop" as const,
-		timestamp: Date.now(),
-	};
-}
-
 async function setupJjRepo(cwd: string): Promise<string> {
 	execSync("jj git init --config signing.backend=none", {
 		cwd,
@@ -63,17 +52,7 @@ async function simulateInteraction(
 	response: string,
 ): Promise<void> {
 	await runner.emitInput(prompt, undefined, "interactive");
-	await runner.emitBeforeAgentStart(prompt, undefined, "You are helpful.", {
-		skills: [],
-		contextFiles: [],
-		cwd: "",
-	});
-	await runner.emit({ type: "agent_start" });
-	await runner.emit({
-		type: "agent_end",
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		messages: [assistantMsg(response)] as any[],
-	});
+	recordInteraction(runner, prompt, response);
 	await runner.emit({ type: "agent_settled" });
 }
 
@@ -266,4 +245,28 @@ describeJj("sillajje archive / unarchive", () => {
 		);
 		expect(inputAfter).toEqual({ action: "continue" });
 	}, 10_000);
+
+	it("restores the cursor after unarchive so old prompts are not re-stamped", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+
+		await simulateInteraction(runner, "First change", "Done.");
+
+		// Archive clears the cursor; unarchive must rebuild it from the last
+		// Stamp marker.
+		await runSillajje(runner, "archive");
+		await runSillajje(runner, `unarchive ${sessionId}`);
+
+		await simulateInteraction(runner, "Second change", "Done again.");
+
+		// The second change holds only the second Interaction's transcript.
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("Second change");
+		expect(show).not.toContain("First change");
+	}, 15_000);
 });

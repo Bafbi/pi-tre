@@ -71,7 +71,7 @@ function userMsgBlocks(
 }
 
 describe("deriveInteractionData", () => {
-	it("derives prompt from the first user message text", () => {
+	it("derives prompt from a user message text", () => {
 		const msgs: Message[] = [
 			userMsg("Hello, world!"),
 			assistantMsg("Hi there!"),
@@ -80,6 +80,19 @@ describe("deriveInteractionData", () => {
 		const data = deriveInteractionData(msgs);
 		expect(data).toBeDefined();
 		expect(data!.prompt).toBe("Hello, world!");
+	});
+
+	it("joins every user message into the prompt, folding a steer or follow-up", () => {
+		const msgs: Message[] = [
+			userMsg("First task", 1000),
+			assistantMsg("Working", { timestamp: 2000 }),
+			userMsg("Actually, use TypeScript", 3000),
+			assistantMsg("Final response", { timestamp: 4000 }),
+		];
+
+		const data = deriveInteractionData(msgs);
+		expect(data!.prompt).toBe("First task\n\nActually, use TypeScript");
+		expect(data!.response).toBe("Final response");
 	});
 
 	it("derives prompt from user message with content blocks", () => {

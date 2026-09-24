@@ -18,7 +18,11 @@ import type {
 } from "../action.js";
 import type { SessionFailure } from "../args.js";
 import type { NarrativeDetail } from "../config.js";
-import type { LoopField, StampBodySection } from "../metadata.js";
+import type {
+	InteractionRange,
+	LoopField,
+	StampBodySection,
+} from "../metadata.js";
 
 // ---------------------------------------------------------------------------
 // Input data
@@ -32,6 +36,11 @@ export interface InteractionData {
 	toolCallCount: number;
 	thinkingBlocks: number;
 	elapsedMs: number;
+	/**
+	 * The Interaction's session entry range, when the host records one. It
+	 * renders in `Meta:` so a change maps back to the session log.
+	 */
+	range?: InteractionRange | undefined;
 }
 
 /** Input for the Session stamp: the full seal at a session's working copy. */

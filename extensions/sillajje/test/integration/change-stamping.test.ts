@@ -4,15 +4,20 @@ import { join } from "node:path";
 import type { RunSubagent } from "@pi-tre/sillajje-core";
 import { beforeEach, expect, it, vi } from "vitest";
 import { setTestPorts } from "../../src/index.js";
+import { STAMP_MARKER_TYPE } from "../../src/interaction.js";
 import {
 	assistantMsg,
 	createRunner,
 	describeJj,
 	getSessionId,
+	getSessionManager,
 	initRepo,
 	installDefaultSubGeneratorMock,
 	jj,
 	makeRunnerCwd,
+	recordAssistantMessage,
+	recordInteraction,
+	recordUserMessage,
 	sessionBookmark,
 	tempDirs,
 	wsPath,
@@ -36,17 +41,7 @@ async function simulateInteraction(
 	response: string,
 ): Promise<void> {
 	await runner.emitInput(prompt, undefined, "interactive");
-	await runner.emitBeforeAgentStart(prompt, undefined, "You are helpful.", {
-		skills: [],
-		contextFiles: [],
-		cwd: "",
-	});
-	await runner.emit({ type: "agent_start" });
-	await runner.emit({
-		type: "agent_end",
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		messages: [assistantMsg(response)] as any[],
-	});
+	recordInteraction(runner, prompt, response);
 	await runner.emit({ type: "agent_settled" });
 }
 
@@ -98,12 +93,6 @@ describeJj("sillajje change stamping", () => {
 
 		// Simulate tool calls.
 		await runner.emitInput("Add a login page", undefined, "interactive");
-		await runner.emitBeforeAgentStart(
-			"Add a login page",
-			undefined,
-			"You are a helpful assistant.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
 		await runner.emitToolCall({
 			type: "tool_call",
 			toolCallId: "tc-1",
@@ -116,19 +105,16 @@ describeJj("sillajje change stamping", () => {
 			toolName: "bash",
 			input: { command: "echo done" },
 		});
-		await runner.emit({ type: "agent_start" });
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [
-				assistantMsg("I created the login page.", {
-					toolCalls: [
-						{ id: "tc-1", name: "write" },
-						{ id: "tc-2", name: "bash" },
-					],
-				}),
-			] as any[],
-		});
+		recordUserMessage(runner, "Add a login page");
+		recordAssistantMessage(
+			runner,
+			assistantMsg("I created the login page.", {
+				toolCalls: [
+					{ id: "tc-1", name: "write" },
+					{ id: "tc-2", name: "bash" },
+				],
+			}),
+		);
 		await runner.emit({ type: "agent_settled" });
 
 		// The bookmark is set on the stamped commit in the repo.
@@ -142,13 +128,110 @@ describeJj("sillajje change stamping", () => {
 		expect(show).toContain("sillajje/");
 		expect(show).toContain("I created the login page.");
 		expect(show).toMatch(/\d+\.\ds/);
+		// Provenance: the Interaction's session entry range.
+		expect(show).toMatch(/interaction: \S+\.\.\S+/);
 
 		// Bookmark should exist.
 		const bookmarks = jj(["bookmark", "list"], cwd);
 		expect(bookmarks).toContain(sessionBookmark(sessionId));
 	}, 10_000);
 
-	it("steering does NOT create a new change", async () => {
+	it("reconstructs the cursor on session_start so a reload does not re-stamp", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+
+		await simulateInteraction(runner, "First task", "First done.");
+
+		// A reload resets the in-memory state and rebuilds the cursor from the
+		// Stamp marker on the branch.
+		await runner.emit({ type: "session_start", reason: "reload" });
+
+		await simulateInteraction(runner, "Second task", "Second done.");
+
+		// The second change holds only the second Interaction's transcript.
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("Second task");
+		expect(show).not.toContain("First task");
+	}, 30_000);
+
+	it("recovers a completed but unstamped Interaction after a reload", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+
+		// A completed Interaction whose run never settled.
+		await runner.emitInput("Lost task", undefined, "interactive");
+		recordInteraction(runner, "Lost task", "Lost done.");
+
+		// A reload rebuilds the cursor before the Interaction.
+		await runner.emit({ type: "session_start", reason: "reload" });
+
+		// The next settle stamps the recovered Interaction.
+		await runner.emit({ type: "agent_settled" });
+
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("Lost task");
+	}, 30_000);
+
+	it("baselines a markerless resumed session so history is not re-stamped", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+
+		// Existing history with no Stamp marker: a session from before
+		// sillajje tracked it.
+		recordUserMessage(runner, "Old history");
+		recordAssistantMessage(runner, assistantMsg("Old reply"));
+
+		await runner.emit({ type: "session_start", reason: "resume" });
+		const sessionId = getSessionId(runner);
+
+		await simulateInteraction(runner, "New task", "New done.");
+
+		// The change holds only the new Interaction, not the history.
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("New task");
+		expect(show).not.toContain("Old history");
+	}, 30_000);
+
+	it("reconstructs the cursor on session_tree after branch navigation", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+
+		await simulateInteraction(runner, "First task", "First done.");
+		await simulateInteraction(runner, "Second task", "Second done.");
+
+		// Navigate back to the first Stamp marker: the branch no longer
+		// contains the second Interaction.
+		const sessionManager = getSessionManager(runner);
+		const firstMarker = sessionManager
+			.getBranch()
+			.find(
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === STAMP_MARKER_TYPE,
+			);
+		if (!firstMarker) throw new Error("expected a Stamp marker");
+		sessionManager.branch(firstMarker.id);
+		await runner.emit({
+			type: "session_tree",
+			newLeafId: firstMarker.id,
+			oldLeafId: null,
+		});
+
+		await simulateInteraction(runner, "Third task", "Third done.");
+
+		// The third change holds only the third Interaction's transcript.
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("Third task");
+		expect(show).not.toContain("Second task");
+	}, 30_000);
+
+	it("folds a steering prompt into the current change", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
 
@@ -165,39 +248,26 @@ describeJj("sillajje change stamping", () => {
 
 		const sessionId = getSessionId(runner);
 
-		// --- First interaction ---
-		await simulateInteraction(runner, "Do the first thing", "First done.");
-
-		// Record bookmark position.
-		const bmBefore = jj(
-			["bookmark", "list", "--revision", sessionBookmark(sessionId)],
-			cwd,
-		);
-
-		// --- Steering ---
+		// One run: the initial prompt, then a steering prompt, then the final
+		// response. Both prompts belong to the same Interaction.
+		await runner.emitInput("Do the first thing", undefined, "interactive");
+		recordUserMessage(runner, "Do the first thing");
 		await runner.emitInput(
 			"Actually, use TypeScript instead",
 			undefined,
 			"interactive",
 			"steer",
 		);
-		await runner.emit({ type: "agent_start" });
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("Updated.")] as any[],
-		});
+		recordUserMessage(runner, "Actually, use TypeScript instead");
+		recordAssistantMessage(runner, assistantMsg("Updated."));
 		await runner.emit({ type: "agent_settled" });
 
-		// Bookmark should NOT have moved.
-		const bmAfter = jj(
-			["bookmark", "list", "--revision", sessionBookmark(sessionId)],
-			cwd,
-		);
-		expect(bmAfter).toBe(bmBefore);
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("Do the first thing");
+		expect(show).toContain("Actually, use TypeScript instead");
 	}, 10_000);
 
-	it("multiple agent segments accumulate elapsed time", async () => {
+	it("folds a follow-up segment into the current change", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
 
@@ -214,60 +284,20 @@ describeJj("sillajje change stamping", () => {
 
 		const sessionId = getSessionId(runner);
 
-		// --- Interaction with a followUp: two agent segments ---
+		// One run with a follow-up segment. Both prompts fold into the same
+		// Interaction, and the change is sealed once at settle.
 		await runner.emitInput("Do something", undefined, "interactive");
-		await runner.emitBeforeAgentStart(
-			"Do something",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		recordUserMessage(runner, "Do something");
+		recordAssistantMessage(runner, assistantMsg("Attempt 1"));
 
-		// Segment 1
-		await runner.emit({ type: "agent_start" });
-		await new Promise((r) => setTimeout(r, 10));
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("Attempt 1")] as any[],
-		});
-
-		// Segment 2 (follow-up)
 		await runner.emitInput("Do more", undefined, "interactive", "followUp");
-		await runner.emitBeforeAgentStart(
-			"Do more",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
-		await runner.emit({ type: "agent_start" });
-		await new Promise((r) => setTimeout(r, 15));
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("Do more done.")] as any[],
-		});
+		recordUserMessage(runner, "Do more");
+		recordAssistantMessage(runner, assistantMsg("Do more done."));
 		await runner.emit({ type: "agent_settled" });
 
-		// Both interactions should appear in the log. With the canned
-		// sub-generator the subject is fixed, so assert on the body's
-		// Prompt section instead of the subject line.
-		const log = jj(
-			[
-				"log",
-				"-r",
-				`ancestors(${sessionBookmark(sessionId)})`,
-				"--no-graph",
-				"-T",
-				"description",
-			],
-			cwd,
-		);
-		expect(log).toContain("Do something");
-		expect(log).toContain("Do more");
-
-		// The latest stamp should have Meta: line with elapsed
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("Do something");
+		expect(show).toContain("Do more");
 		expect(show).toContain("Meta:");
 	}, 30_000);
 
@@ -312,7 +342,7 @@ describeJj("sillajje change stamping", () => {
 		expect(log).toContain("Add dashboard");
 	}, 30_000);
 
-	it("followUp creates its own change on the next agent_settled", async () => {
+	it("folds a follow-up prompt into the current change", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
 
@@ -329,45 +359,22 @@ describeJj("sillajje change stamping", () => {
 
 		const sessionId = getSessionId(runner);
 
-		// --- First interaction ---
-		await simulateInteraction(runner, "First task", "First done.");
-
-		// --- Follow-up (streamingBehavior = "followUp") ---
+		await runner.emitInput("First task", undefined, "interactive");
+		recordUserMessage(runner, "First task");
+		recordAssistantMessage(runner, assistantMsg("First done."));
 		await runner.emitInput(
 			"Follow-up task",
 			undefined,
 			"interactive",
 			"followUp",
 		);
-		await runner.emitBeforeAgentStart(
-			"Follow-up task",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
-		await runner.emit({ type: "agent_start" });
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("Follow-up done.")] as any[],
-		});
+		recordUserMessage(runner, "Follow-up task");
+		recordAssistantMessage(runner, assistantMsg("Follow-up done."));
 		await runner.emit({ type: "agent_settled" });
 
-		// Both should appear — assert on the body's Prompt section since the
-		// canned sub-generator fixes the subject line.
-		const log = jj(
-			[
-				"log",
-				"-r",
-				`ancestors(${sessionBookmark(sessionId)})`,
-				"--no-graph",
-				"-T",
-				"description",
-			],
-			cwd,
-		);
-		expect(log).toContain("First task");
-		expect(log).toContain("Follow-up task");
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("First task");
+		expect(show).toContain("Follow-up task");
 	}, 30_000);
 
 	it("manual /sillajje:stamp -s @ records the diff source in the provenance", async () => {
@@ -390,6 +397,16 @@ describeJj("sillajje change stamping", () => {
 		// No interaction sections — the message generated from the diff alone.
 		expect(show).not.toContain("Prompt:");
 		expect(show).not.toContain("Response:");
+
+		// The manual stamp consumed the pending Interaction: it wrote a Stamp marker.
+		const markers = getSessionManager(runner)
+			.getBranch()
+			.filter(
+				(entry) =>
+					entry.type === "custom" &&
+					entry.customType === STAMP_MARKER_TYPE,
+			);
+		expect(markers).toHaveLength(1);
 	}, 15_000);
 
 	it("a target-less /sillajje:stamp shows help and seals nothing", async () => {
@@ -541,12 +558,6 @@ describeJj("sillajje change stamping", () => {
 			undefined,
 			"interactive",
 		);
-		await runner.emitBeforeAgentStart(
-			"Use tools to demonstrate meta toggles",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
 		await runner.emitToolCall({
 			type: "tool_call",
 			toolCallId: "tc-1",
@@ -559,12 +570,8 @@ describeJj("sillajje change stamping", () => {
 			toolName: "read",
 			input: { path: "test.txt", content: "test" },
 		});
-		await runner.emit({ type: "agent_start" });
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("Used tools.")] as any[],
-		});
+		recordUserMessage(runner, "Use tools to demonstrate meta toggles");
+		recordAssistantMessage(runner, assistantMsg("Used tools."));
 		await runner.emit({ type: "agent_settled" });
 
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
@@ -715,7 +722,7 @@ describeJj("sillajje change stamping", () => {
 		);
 	}, 30_000);
 
-	it("does not stamp mid-interaction on an error agent_end; stamps at the true end (retry scenario)", async () => {
+	it("stamps one change at the true end after an error segment", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
 
@@ -734,17 +741,10 @@ describeJj("sillajje change stamping", () => {
 
 		// The interaction starts normally.
 		await runner.emitInput("Fix the login bug", undefined, "interactive");
-		await runner.emitBeforeAgentStart(
-			"Fix the login bug",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
-		await runner.emit({ type: "agent_start" });
 
 		// Segment 1 writes a.ts, then the run ends in a transient error
-		// (e.g. provider timeout). Pi emits agent_end with the error message
-		// and auto-retries: agent_start fires again mid-interaction.
+		// (e.g. provider timeout). Pi retries the same Interaction, so both
+		// segments share one settle.
 		await runner.emitToolCall({
 			type: "tool_call",
 			toolCallId: "tc-1",
@@ -752,12 +752,8 @@ describeJj("sillajje change stamping", () => {
 			input: { path: "a.ts", content: "// a" },
 		});
 		writeFileSync(join(workspace, "a.ts"), "// a\n");
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [errorMsg("request timed out")] as any[],
-		});
-		await runner.emit({ type: "agent_start" });
+		recordUserMessage(runner, "Fix the login bug");
+		recordAssistantMessage(runner, errorMsg("request timed out"));
 
 		// Segment 2 (the retry continuation) writes b.ts on the same interaction.
 		await runner.emitToolCall({
@@ -767,13 +763,9 @@ describeJj("sillajje change stamping", () => {
 			input: { path: "b.ts", content: "// b" },
 		});
 		writeFileSync(join(workspace, "b.ts"), "// b\n");
+		recordAssistantMessage(runner, assistantMsg("Fixed the login bug."));
 
 		// The interaction truly ends here.
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("Fixed the login bug.")] as any[],
-		});
 		await runner.emit({ type: "agent_settled" });
 
 		// The stamp must happen only at the true end: the bookmarked change
@@ -789,7 +781,7 @@ describeJj("sillajje change stamping", () => {
 		expect(status).not.toContain("b.ts");
 	}, 30_000);
 
-	it("finalizes an error-ended interaction as its own change when the next prompt arrives", async () => {
+	it("stamps a final error interaction as its own change before the next one", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
 
@@ -806,15 +798,8 @@ describeJj("sillajje change stamping", () => {
 		const sessionId = getSessionId(runner);
 		const workspace = wsPath(cwd, sessionId);
 
-		// Interaction 1 ends in a FINAL error — no retry continuation follows.
+		// Interaction 1 ends in a FINAL error and settles as its own change.
 		await runner.emitInput("First task", undefined, "interactive");
-		await runner.emitBeforeAgentStart(
-			"First task",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
-		await runner.emit({ type: "agent_start" });
 		await runner.emitToolCall({
 			type: "tool_call",
 			toolCallId: "tc-1",
@@ -822,22 +807,12 @@ describeJj("sillajje change stamping", () => {
 			input: { path: "a.ts", content: "// a" },
 		});
 		writeFileSync(join(workspace, "a.ts"), "// a\n");
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [errorMsg("provider unavailable")] as any[],
-		});
+		recordUserMessage(runner, "First task");
+		recordAssistantMessage(runner, errorMsg("provider unavailable"));
+		await runner.emit({ type: "agent_settled" });
 
-		// Interaction 2: the next prompt finalizes interaction 1 as its own
-		// change, then stamps interaction 2 normally.
+		// Interaction 2 stamps its own change.
 		await runner.emitInput("Next task", undefined, "interactive");
-		await runner.emitBeforeAgentStart(
-			"Next task",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
-		await runner.emit({ type: "agent_start" });
 		await runner.emitToolCall({
 			type: "tool_call",
 			toolCallId: "tc-2",
@@ -845,11 +820,8 @@ describeJj("sillajje change stamping", () => {
 			input: { path: "b.ts", content: "// b" },
 		});
 		writeFileSync(join(workspace, "b.ts"), "// b\n");
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [assistantMsg("Next task done.")] as any[],
-		});
+		recordUserMessage(runner, "Next task");
+		recordAssistantMessage(runner, assistantMsg("Next task done."));
 		await runner.emit({ type: "agent_settled" });
 
 		// Both interactions were stamped as separate changes.
@@ -874,7 +846,7 @@ describeJj("sillajje change stamping", () => {
 		expect(show).not.toContain("a.ts");
 	}, 30_000);
 
-	it("finalizes an error-ended interaction at session_shutdown when never retried", async () => {
+	it("flushes an unstamped Interaction at session_shutdown", async () => {
 		const cwd = makeRunnerCwd();
 		tempDirs.push(cwd);
 
@@ -891,15 +863,8 @@ describeJj("sillajje change stamping", () => {
 		const sessionId = getSessionId(runner);
 		const workspace = wsPath(cwd, sessionId);
 
-		// Interaction ends in a FINAL error — no retry, no next prompt.
+		// An Interaction is recorded but the run never settles.
 		await runner.emitInput("Last task", undefined, "interactive");
-		await runner.emitBeforeAgentStart(
-			"Last task",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
-		await runner.emit({ type: "agent_start" });
 		await runner.emitToolCall({
 			type: "tool_call",
 			toolCallId: "tc-1",
@@ -907,13 +872,10 @@ describeJj("sillajje change stamping", () => {
 			input: { path: "a.ts", content: "// a" },
 		});
 		writeFileSync(join(workspace, "a.ts"), "// a\n");
-		await runner.emit({
-			type: "agent_end",
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			messages: [errorMsg("provider unavailable")] as any[],
-		});
+		recordUserMessage(runner, "Last task");
+		recordAssistantMessage(runner, errorMsg("provider unavailable"));
 
-		// Session ends — the pending interaction must be stamped anyway.
+		// Session ends — the unstamped Interaction is stamped anyway.
 		await runner.emit({ type: "session_shutdown", reason: "quit" });
 
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
