@@ -14,7 +14,7 @@ Sillajje derives the interaction lifecycle from pi's session log instead of trac
 
 - **Interaction is the session-level run.** A steering or follow-up prompt folds into the current change. `CONTEXT.md` reflects this.
 - **The derived prompt joins every user message in the run**, so a folded steering or follow-up prompt reaches the change body. `deriveInteractionData` owns this, not the core.
-- **The session log is the source of truth.** `session_start` and `session_tree` reconstruct the cursor from the last Stamp marker; `session_shutdown` flushes a completed but unstamped Interaction.
+- **The session log is the source of truth.** `session_start` and `session_tree` reconstruct the cursor from the last Stamp marker; `session_shutdown` flushes a completed but unstamped Interaction. A markerless session baselines the cursor to the current leaf on load, except on a reload, where the cursor stays `null` so an in-flight Interaction is recovered.
 - **A manual `/sillajje stamp -s @` writes a Stamp marker too**, so it consumes the pending Interaction and the next auto-stamp does not re-seal it.
 - **The stamp's `Meta:` section records the Interaction's session entry range** as `interaction: <first>..<last>`, so a reviewer can map a change back to the session file. The range travels on `InteractionData.range`; the Session stamp input shape is unchanged.
 - **Tests move to pure projection fixtures plus behavior-level seam tests.** The flag-level `SessionState` interaction tests and the synthetic event sequences are deleted.

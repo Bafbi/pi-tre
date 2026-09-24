@@ -176,6 +176,26 @@ describeJj("sillajje change stamping", () => {
 		expect(show).toContain("Lost task");
 	}, 30_000);
 
+	it("baselines a markerless resumed session so history is not re-stamped", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+
+		// Existing history with no Stamp marker: a session from before
+		// sillajje tracked it.
+		recordUserMessage(runner, "Old history");
+		recordAssistantMessage(runner, assistantMsg("Old reply"));
+
+		await runner.emit({ type: "session_start", reason: "resume" });
+		const sessionId = getSessionId(runner);
+
+		await simulateInteraction(runner, "New task", "New done.");
+
+		// The change holds only the new Interaction, not the history.
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("New task");
+		expect(show).not.toContain("Old history");
+	}, 30_000);
+
 	it("reconstructs the cursor on session_tree after branch navigation", async () => {
 		const cwd = initRepo();
 		const runner = await createRunner(cwd);

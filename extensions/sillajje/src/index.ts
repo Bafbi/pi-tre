@@ -472,14 +472,24 @@ export default function (pi: ExtensionAPI) {
 
 	// The cursor is the last Stamp marker on the branch. Rebuild it on load and
 	// after tree navigation, so a reload or a fork resumes there.
-	const syncCursor = (ctx: ExtensionContext) => {
-		state.setCursorId(lastStampMarkerId(ctx.sessionManager.getBranch()));
+	const syncCursor = (ctx: ExtensionContext, reason?: string) => {
+		const marker = lastStampMarkerId(ctx.sessionManager.getBranch());
+		if (marker !== null) {
+			state.setCursorId(marker);
+			return;
+		}
+		// No Stamp marker. On a reload, leave the cursor null so an in-flight
+		// Interaction is recovered. Otherwise baseline to the current leaf so a
+		// resumed session does not re-stamp its history.
+		state.setCursorId(
+			reason === "reload" ? null : ctx.sessionManager.getLeafId(),
+		);
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
 		debug.event("session_start", { mode: ctx.mode, reason: _event.reason });
 		state.reset();
-		syncCursor(ctx);
+		syncCursor(ctx, _event.reason);
 
 		// Sillajje only activates in interactive TUI mode with a file-backed session.
 		// Print mode (-p), RPC, JSON, and --no-session are excluded.
