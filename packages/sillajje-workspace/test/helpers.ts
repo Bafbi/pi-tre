@@ -1,4 +1,4 @@
-import type { Bookmark, Jj, Workspace } from "@pi-tre/sillajje-jj";
+import type { Bookmark, Commit, Jj, Workspace } from "@pi-tre/sillajje-jj";
 
 /** Mutable state a fake `Jj` reads and records into. */
 export interface FakeJjState {
@@ -12,8 +12,8 @@ export interface FakeJjState {
 	addError?: string;
 	/** When set, `workspaceForget` rejects with this message. */
 	forgetError?: string;
-	/** When true, `log` rejects — used to exercise the `@` fallback. */
-	logError?: boolean;
+	/** Result `jj.log` returns. Empty simulates a repo with no `trunk()`. */
+	logResult: Commit[];
 }
 
 /**
@@ -30,14 +30,21 @@ export function fakeJj(overrides: Partial<FakeJjState> = {}): {
 		added: [],
 		forgotten: [],
 		reads: [],
+		logResult: [
+			{
+				commitId: "trunk-commit",
+				changeId: "trunk-change",
+				parents: ["parent"],
+				description: "trunk",
+			},
+		],
 		...overrides,
 	};
 
 	const jj: Jj = {
 		log: async () => {
 			state.reads.push("log");
-			if (state.logError) throw new Error("revset @- not found");
-			return [];
+			return state.logResult;
 		},
 		diff: async () => "",
 		diffRange: async () => "",

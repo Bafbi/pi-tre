@@ -20,7 +20,7 @@ const workspaces = createWorkspaces(jj, {
 
 ## Lifecycle
 
-`ensure(sessionId)` creates or reuses a workspace, or reports `archived` when a surviving bookmark has no workspace. `lookup(key)` returns a registered root. `archive(key)` forgets the workspace and removes its directory, reporting `removed`, `already-gone`, or `failed`. `unarchive(key)` recreates the directory from the session bookmark.
+`ensure(sessionId)` creates or reuses a workspace, or reports `archived` when a surviving bookmark has no workspace. A new workspace branches from `trunk()`; a created result carries `fromRoot`, true when `trunk()` resolved to `root()` so the caller can warn. `lookup(key)` returns a registered root. `archive(key)` forgets the workspace and removes its directory, reporting `removed`, `already-gone`, or `failed`. `unarchive(key)` recreates the directory from the session bookmark.
 
 ## Session targeting
 
