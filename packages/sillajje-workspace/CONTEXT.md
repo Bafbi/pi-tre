@@ -17,7 +17,7 @@ _Avoid_: Repo name (it is the basename, not the full path)
 ### Lifecycle
 
 **Workspace**:
-A jj workspace — a separate checkout directory tied to a specific commit. Sillajje creates it at `<workspacesRoot>/<repo-slug>/<session-id>/`, but the registration, not the path, is the identity: jj may record a workspace elsewhere. Each Pi session creates one, and the agent runs inside it.
+A jj workspace — a separate checkout directory tied to a specific commit. Sillajje creates it at `<workspacesRoot>/<repo-slug>/<session-id>/`, but the registration, not the path, is the identity: jj may record a workspace elsewhere. Each Pi session creates one, and the agent runs inside it. A new workspace branches from the `trunk()` revset, never from the main checkout's working copy, so unlanded work on the main checkout stays out of the session.
 _Avoid_: Sandbox, clone, checkout
 
 **Workspace name**:

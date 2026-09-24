@@ -114,29 +114,17 @@ describe("ensure", () => {
 				workspaceName: "sillajje/alice/laptop/abc",
 				workspacePath: `${wsRoot}/foo/abc`,
 			},
+			fromRoot: false,
 		});
 		// Forget runs before add, so a phantom registration cannot fail the add.
 		expect(state.forgotten).toEqual(["sillajje/alice/laptop/abc"]);
 		expect(state.added).toEqual([
 			{
 				name: "sillajje/alice/laptop/abc",
-				revision: "@-",
+				revision: "trunk-commit",
 				path: `${wsRoot}/foo/abc`,
 			},
 		]);
-	});
-
-	it("falls back to @ when @- does not exist", async () => {
-		const wsRoot = tempDir("sillajje-ws-root-");
-		const { ws, state } = binding(
-			{ logError: true },
-			"/home/me/code/foo",
-			wsRoot,
-		);
-
-		await ws.ensure("abc");
-
-		expect(state.added[0]!.revision).toBe("@");
 	});
 
 	it("reports reused for a registered workspace whose directory exists", async () => {
@@ -180,9 +168,22 @@ describe("ensure", () => {
 				workspaceName: "sillajje/alice/laptop/abc-2",
 				workspacePath: `${wsRoot}/foo/abc-2`,
 			},
+			fromRoot: false,
 		});
 		expect(existsSync(orphan)).toBe(true);
 		expect(state.added[0]!.name).toBe("sillajje/alice/laptop/abc-2");
+	});
+
+	it("flags fromRoot when trunk() resolves to root()", async () => {
+		const wsRoot = tempDir("sillajje-ws-root-");
+		const { ws } = binding({ logResult: [] }, "/home/me/code/foo", wsRoot);
+
+		const result = await ws.ensure("abc");
+
+		expect(result.ok).toBe(true);
+		if (result.ok && result.status === "created") {
+			expect(result.fromRoot).toBe(true);
+		}
 	});
 
 	it("recreates a registered workspace whose directory is missing", async () => {

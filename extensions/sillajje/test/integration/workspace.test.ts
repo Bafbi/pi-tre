@@ -6,9 +6,11 @@ import { expect, it, vi } from "vitest";
 import {
 	createRunner,
 	describeJj,
+	getSessionId,
 	makeRunnerCwd,
 	sessionBookmark,
 	tempDirs,
+	wsPath,
 } from "./_helpers.js";
 
 describeJj("sillajje workspace creation and prompt injection", () => {
@@ -67,9 +69,6 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 			cwd,
 			stdio: "pipe",
 		});
-		// Create an initial commit so @- exists.
-		execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
-		execSync("jj new -m 'second'", { cwd, stdio: "pipe" });
 
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
@@ -84,6 +83,74 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 			stdio: "pipe",
 		});
 		expect(workspaceList).toContain(sessionBookmark(sessionId));
+	});
+
+	it("branches the session workspace from trunk, not the main working copy", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+		writeFileSync(join(cwd, "README.md"), "# Test\n");
+		execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+		// Pin trunk() to the landed commit so the assertion is about the base
+		// revision, not jj's remote-bookmark default.
+		execSync(`jj config set --repo 'revset-aliases."trunk()"' main`, {
+			cwd,
+			stdio: "pipe",
+		});
+		// Unlanded work on the main checkout must not leak into the session.
+		execSync("jj new -m 'unlanded'", { cwd, stdio: "pipe" });
+
+		const notifications: Array<{ msg: string; type: string }> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push({ msg, type }),
+		});
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+		const parentChangeId = execSync(
+			"jj log -r '@-' --no-graph -T change_id",
+			{ cwd: workspace, encoding: "utf-8", stdio: "pipe" },
+		).trim();
+		const trunkChangeId = execSync(
+			"jj log -r 'trunk()' --no-graph -T change_id",
+			{ cwd, encoding: "utf-8", stdio: "pipe" },
+		).trim();
+
+		expect(parentChangeId).toBe(trunkChangeId);
+		// A configured trunk means no empty-tree warning.
+		expect(
+			notifications.some(
+				(n) => n.type === "warning" && n.msg.includes("trunk()"),
+			),
+		).toBe(false);
+	});
+
+	it("warns when trunk() resolves to root()", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+
+		const notifications: Array<{ msg: string; type: string }> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push({ msg, type }),
+		});
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		expect(
+			notifications.some(
+				(n) => n.type === "warning" && n.msg.includes("trunk()"),
+			),
+		).toBe(true);
 	});
 
 	it("before_agent_start creates the session bookmark for jj log visibility", async () => {

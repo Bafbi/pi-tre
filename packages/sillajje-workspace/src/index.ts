@@ -56,7 +56,17 @@ export type ArchiveOutcome =
  * session that must be unarchived explicitly.
  */
 export type EnsureResult =
-	| { ok: true; status: "reused" | "created"; workspace: WorkspaceInfo }
+	| { ok: true; status: "reused"; workspace: WorkspaceInfo }
+	| {
+			ok: true;
+			status: "created";
+			workspace: WorkspaceInfo;
+			/**
+			 * True when the workspace branched from `root()` because the repo has
+			 * no `trunk()`: the session starts from an empty tree.
+			 */
+			fromRoot: boolean;
+	  }
 	| { ok: false; reason: "archived" };
 
 export type SessionTargetResolution =
@@ -166,13 +176,34 @@ export function createWorkspaces(
 	const qualify = (target: string): string =>
 		target.includes("/") ? target : `${owner}/${target}`;
 
-	const resolveBaseRevision = async (): Promise<"@-" | "@"> => {
-		try {
-			await jj.log("@-", jjOptions);
-			return "@-";
-		} catch {
-			return "@";
+	/**
+	 * New sessions branch from the trunk revset, not the main working copy's
+	 * parent. `trunk()` is the repo's integration point (jj's built-in default
+	 * is the latest `main`/`master`/`trunk` remote bookmark, overridable via
+	 * `revset-aliases."trunk()"`), so a session never inherits unlanded work
+	 * from the main checkout.
+	 */
+	const baseRevision = "trunk()";
+
+	/**
+	 * Resolve the base once: the revision to branch from and whether it is
+	 * `root()`. A separate probe and `workspace add` could disagree if a
+	 * concurrent bookmark update lands between them.
+	 */
+	const resolveBase = async (): Promise<{
+		revision: string;
+		fromRoot: boolean;
+	}> => {
+		const [trunk] = await jj.log(baseRevision, jjOptions);
+		if (trunk === undefined) {
+			// `trunk()` always resolves (to `root()` at worst); this is defensive,
+			// and the following `workspace add` surfaces the error.
+			return { revision: baseRevision, fromRoot: true };
 		}
+		return {
+			revision: trunk.commitId,
+			fromRoot: trunk.parents.length === 0,
+		};
 	};
 
 	/**
@@ -236,8 +267,8 @@ export function createWorkspaces(
 					continue;
 				}
 
+				const { revision, fromRoot } = await resolveBase();
 				mkdirSync(dirname(path), { recursive: true });
-				const revision = await resolveBaseRevision();
 				await forgetQuietly(name);
 				await jj.workspaceAdd({ name, revision, path }, jjOptions);
 				return {
@@ -248,6 +279,7 @@ export function createWorkspaces(
 						workspaceName: name,
 						workspacePath: path,
 					},
+					fromRoot,
 				};
 			}
 		},

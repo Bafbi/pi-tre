@@ -54,7 +54,12 @@ describeJj("sillajje rev stamp", () => {
 		// Baselines after session_start — workspace creation itself adds a
 		// working-copy change to the log, and the stamp must add none.
 		const bookmarksBefore = jj(["bookmark", "list"], cwd);
-		const logBefore = jj(["log", "--no-graph", "-T", "change_id"], cwd);
+		const changeIds = () =>
+			jj(["log", "--no-graph", "-T", 'change_id ++ "\\n"'], cwd)
+				.split("\n")
+				.filter(Boolean)
+				.sort();
+		const logBefore = changeIds();
 
 		await runSillajje(runner, `stamp -r ${strayId.slice(0, 8)}`);
 
@@ -74,11 +79,10 @@ describeJj("sillajje rev stamp", () => {
 		expect(desc).toContain("Meta: source: rev");
 		expect(desc).toContain(`rev: ${strayId.slice(0, 8)}`);
 
-		// Nothing else moved: same bookmarks, same changes.
+		// Nothing else moved: same bookmarks, same changes. jj does not promise
+		// an order for the visible heads, so compare the id set.
 		expect(jj(["bookmark", "list"], cwd)).toBe(bookmarksBefore);
-		expect(jj(["log", "--no-graph", "-T", "change_id"], cwd)).toBe(
-			logBefore,
-		);
+		expect(changeIds()).toEqual(logBefore);
 	}, 15_000);
 
 	it("accepts -r @ and stays describe-only (no seal)", async () => {

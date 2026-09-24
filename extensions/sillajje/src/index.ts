@@ -581,6 +581,12 @@ export default function (pi: ExtensionAPI) {
 						`[sillajje] workspace ready at ${info.workspacePath}`,
 						"info",
 					);
+					if (result.status === "created" && result.fromRoot) {
+						ctx.ui.notify(
+							'[sillajje] trunk() resolves to root(): the session workspace is an empty tree. Set revset-aliases."trunk()" to a bookmark.',
+							"warning",
+						);
+					}
 				}
 			} catch (err) {
 				debug.error("workspace_creation_failed", err);
