@@ -18,6 +18,18 @@ export type {
 } from "./action.js";
 export { emitStatus } from "./action.js";
 export {
+	ARCHIVE_ARGS,
+	ARCHIVE_HELP,
+	type ArchiveInput,
+	type ArchiveResult,
+	createArchive,
+	createUnarchive,
+	UNARCHIVE_ARGS,
+	UNARCHIVE_HELP,
+	type UnarchiveInput,
+	type UnarchiveResult,
+} from "./archive.js";
+export {
 	type ArgValue,
 	type CommandHelp,
 	type CommandSpec,

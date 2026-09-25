@@ -84,6 +84,8 @@ export type BaseSourceResolution =
 	| { ok: false; reason: "not-a-session" | "foreign" | "ambiguous" };
 
 export interface Workspaces {
+	/** The running process's owner: `<user>/<host>`. */
+	owner: string;
 	/** Canonical session key: a raw id gains the owner, a full key passes through. */
 	sessionKey(target: string): string;
 	/** The owner half of a session key: `<user>/<host>`. */
@@ -249,6 +251,7 @@ export function createWorkspaces(
 	};
 
 	return {
+		owner,
 		sessionKey: qualify,
 		ownerOf,
 		unqualified,

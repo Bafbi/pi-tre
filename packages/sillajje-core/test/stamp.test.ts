@@ -196,6 +196,7 @@ function fakeWorkspaces(
 	) => Promise<SessionTargetResolution>,
 ): Workspaces {
 	return {
+		owner: "test-owner/host",
 		sessionKey: (target) =>
 			target.includes("/") ? target : `test-owner/${target}`,
 		ownerOf: (key) => key.split("/").slice(0, 2).join("/"),

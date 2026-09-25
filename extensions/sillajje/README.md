@@ -10,19 +10,19 @@ All commands run as `/sillajje:<subcommand>` from any conversation inside a sill
 
 Reports the current session: lifecycle state, workspace path, and session ID.
 
-### `/sillajje:archive`
+### `/sillajje:archive [-s | --session <id>] [-h | --help]`
 
-Archives the current session: keeps the `sillajje/<session-id>` bookmark, deletes the workspace directory. An archived session accepts no prompts until unarchived.
+Archives a session: keeps the `sillajje/<session-id>` bookmark, deletes the workspace directory. An archived session accepts no prompts until unarchived. `-s` defaults to `@` (this session).
 
-### `/sillajje:unarchive <session-id>`
+### `/sillajje:unarchive [-s | --session <id>] [-h | --help]`
 
-Recreates the workspace for an archived session.
+Recreates the workspace for an archived session. `-s` defaults to `@` (this session), so a bare `/sillajje:unarchive` restores the session you are in.
 
 ### `/sillajje:new [-o | --onto <rev>] [-s | --onto-session <id>] [-h | --help]`
 
 Starts a new pi session whose workspace branches from a chosen base instead of `trunk()`. The new session has fresh history; the workspace tree carries the continuity.
 
-- **bare** — same as `-s @`: continues from this session's last seal. Use pi's `/new` to start from `trunk()`.
+- **bare** — when a session exists, same as `-s @`: continues from this session's last seal. With no session the parser prints this usage. Use pi's `/new` to start from `trunk()`.
 - **`-o <rev>`** — branches from a revision jj resolves. `-o @` uses the current workspace's working copy, so unsealed work seeds the new session.
 - **`-s <id>`** — branches from a session's `sillajje/<session-id>` bookmark (the last seal). `-s @` uses this session. An archived session works; a foreign one does not; a conflicted bookmark is rejected.
 
@@ -32,11 +32,11 @@ Starts a new pi session whose workspace branches from a chosen base instead of `
 
 Seals a change with a generated commit message. Exactly one target is required:
 
-- **`-s @`** — a Session stamp on the current session: describes the workspace working copy, moves `sillajje/<session-id>`, and advances to a fresh empty change. The message comes from the diff alone.
+- **`-s @`** — a Session stamp on the current session: describes the workspace working copy, moves `sillajje/<session-id>`, and advances to a fresh empty change. The message comes from the diff alone. A bare `/sillajje:stamp` means `-s @` in a session.
 - **`-r <rev>`** — a Rev stamp on any revision jj resolves (change ID, commit prefix, bookmark, `@`): describes that change only. No bookmark moves, no new change, and your session's pending interaction survives.
 - **`-s <id>`** — a Session stamp on another live session's working copy, sealed through that session's own workspace. The message comes from the diff alone; the stamped change's metadata names the stamped session, not yours.
 
-A target-less `/sillajje:stamp` and `-h`/`--help` print this usage and take no action. `--rev` and `--session` are mutually exclusive. An unknown `-s` target reports "not a sillajje session"; a bookmark without a workspace reports "archived — unarchive it first".
+A bare `/sillajje:stamp` is `-s @` when a session exists. With no session, and for `-h`/`--help`, it prints this usage and takes no action. `--rev` and `--session` are mutually exclusive. An unknown `-s` target reports "not a sillajje session"; a bookmark without a workspace reports "archived — unarchive it first".
 
 The seal is transactional: if describe, bookmark, or the fresh change fails mid-seal, the repository ends unchanged. Empty-diff targets report `nothing to stamp` before any mutation.
 
