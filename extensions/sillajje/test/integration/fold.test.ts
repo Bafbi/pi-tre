@@ -173,7 +173,7 @@ describeJj("sillajje fold", () => {
 		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
 		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
 
-		await runSillajje(runner, "fold -s @ -o main --name review");
+		await runSillajje(runner, "fold -s @ -o main --named review");
 
 		// A second interaction stamps new work on top of the first stamp.
 		writeFileSync(join(workspace, "two.txt"), "two\n");
@@ -380,7 +380,7 @@ describeJj("sillajje fold", () => {
 		captureNotifications(runner);
 
 		// Publish the whole delta under main and name the review branch.
-		await runSillajje(runner, "fold -r feat -o main --name review");
+		await runSillajje(runner, "fold -r feat -o main --named review");
 
 		// Add a new commit to feat and update the review branch.
 		jj(["new", "feat", "-m", "E"], cwd);
@@ -445,8 +445,8 @@ describeJj("sillajje fold", () => {
 		captureNotifications(runner);
 
 		// Two review branches, each named on its first fold.
-		await runSillajje(runner, `fold -r feat -o ${base} --name review-a`);
-		await runSillajje(runner, `fold -r feat -o ${base} --name review-b`);
+		await runSillajje(runner, `fold -r feat -o ${base} --named review-a`);
+		await runSillajje(runner, `fold -r feat -o ${base} --named review-b`);
 
 		jj(["new", "feat", "-m", "E"], cwd);
 		writeFileSync(join(cwd, "e.txt"), "e\n");
@@ -545,7 +545,7 @@ describeJj("sillajje fold", () => {
 		const notifications = captureNotifications(runner);
 
 		// The first fold names the review branch locally; nothing is remote.
-		await runSillajje(runner, "fold -r feat -o main --name review");
+		await runSillajje(runner, "fold -r feat -o main --named review");
 		const remote = addBareRemote(cwd);
 		expect(bareRef(remote, "review")).toBeUndefined();
 
@@ -641,7 +641,7 @@ describeJj("sillajje fold", () => {
 		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
 		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
 		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
-		await runSillajje(runner, "fold -s @ -o main --name review");
+		await runSillajje(runner, "fold -s @ -o main --named review");
 		const remote = addBareRemote(cwd);
 
 		// Update, push, and archive: the push runs before the workspace goes.

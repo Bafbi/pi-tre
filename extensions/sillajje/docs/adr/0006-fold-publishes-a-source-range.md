@@ -17,7 +17,7 @@
 
 ## Amendment: publish and update are separate modes
 
-`-o <rev>` publishes: it bases on `fork_point(source, target)` and writes the whole source delta as one change under the target. `--update <bookmark>` updates: it bases on the recorded folded-source tip and appends only the new work onto that bookmark, advancing it. `--update` is exclusive with `-o`, `--land`, and `--name`, and falls back to the fork point (with an info status) when no marker exists. `--name [<branch>]` names the folded change with a bookmark — `fold-<change id>` when empty — and keys the marker by that name; without `--name` the marker keys on the target's single local bookmark.
+`-o <rev>` publishes: it bases on `fork_point(source, target)` and writes the whole source delta as one change under the target. `--update <bookmark>` updates: it bases on the recorded folded-source tip and appends only the new work onto that bookmark, advancing it. `--update` is exclusive with `-o`, `--land`, and `--named`, and falls back to the fork point (with an info status) when no marker exists. `--named [<branch>]` names the folded change with a bookmark — `fold-<change id>` when empty — and keys the marker by that name; without `--named` the marker keys on the target's single local bookmark.
 
 The marker is `sillajje/folded/<source>/<target>`, so one source can feed several review branches.
 

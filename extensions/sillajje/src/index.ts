@@ -1608,7 +1608,8 @@ export default function (pi: ExtensionAPI) {
 		const session =
 			typeof values.session === "string" ? values.session : undefined;
 		const rev = typeof values.rev === "string" ? values.rev : undefined;
-		const name = typeof values.name === "string" ? values.name : undefined;
+		const named =
+			typeof values.named === "string" ? values.named : undefined;
 		const update =
 			typeof values.update === "string" ? values.update : undefined;
 		const land = values.land === true;
@@ -1626,14 +1627,14 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		debug.event("fold_start", { session, rev, onto, update, name });
+		debug.event("fold_start", { session, rev, onto, update, named });
 		const fold = createFold(buildPorts(ctx, repoRoot));
 		const result = await fold({
 			session,
 			rev,
 			onto,
 			update,
-			name,
+			named,
 			land,
 			push,
 			archive,
@@ -1664,7 +1665,7 @@ export default function (pi: ExtensionAPI) {
 				syncPill(ctx);
 			}
 			if (ctx.hasUI) {
-				const named =
+				const namedNote =
 					result.bookmark !== undefined &&
 					result.bookmark !== targetLabel
 						? ` (named ${result.bookmark})`
@@ -1674,7 +1675,7 @@ export default function (pi: ExtensionAPI) {
 						? ` (pushed ${result.pushed.join(", ")})`
 						: "";
 				ctx.ui.notify(
-					`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${named}${pushed}`,
+					`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${namedNote}${pushed}`,
 					"info",
 				);
 			}

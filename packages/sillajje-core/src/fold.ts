@@ -70,8 +70,8 @@ export interface FoldInput {
 	current?: CurrentSession | undefined;
 	/** A working directory for a rev or archived-session source. */
 	cwd?: string | undefined;
-	/** Name the folded change; `""` auto-names it `fold-<change id>`. */
-	name?: string | undefined;
+	/** `--named [<branch>]`: name the folded change; `""` auto-names it `fold-<change id>`. */
+	named?: string | undefined;
 	/** Advance the single local bookmark `--onto` resolves to. */
 	land?: boolean | undefined;
 	/** Archive the session after a successful fold (session sources only). */
@@ -449,13 +449,13 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			updateMode &&
 			(input.onto !== undefined ||
 				input.land === true ||
-				input.name !== undefined)
+				input.named !== undefined)
 		) {
 			return {
 				ok: false,
 				reason: "usage",
 				message:
-					"--update cannot be combined with -o, --land, or --name",
+					"--update cannot be combined with -o, --land, or --named",
 			};
 		}
 		const targetRevInput = updateMode ? input.update : input.onto;
@@ -656,20 +656,20 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		emitStatus(onStatus, { kind: "phase", code: "folding" });
 
 		// The name this fold carries: update uses the review bookmark; publish
-		// uses --name (auto `fold-<change id>` when empty) or the target's local
+		// uses --named (auto `fold-<change id>` when empty) or the target's local
 		// bookmark. `reviewBookmark` is the bookmark advanced to the fold.
 		const foldNameFor = (folded: Commit): string =>
 			updateMode
 				? targetRev
-				: input.name !== undefined
-					? input.name === ""
+				: input.named !== undefined
+					? input.named === ""
 						? `fold-${folded.changeId}`
-						: input.name
+						: input.named
 					: targetName;
 		const reviewBookmarkFor = (folded: Commit): string | undefined =>
 			updateMode
 				? targetRev
-				: input.name !== undefined
+				: input.named !== undefined
 					? foldNameFor(folded)
 					: undefined;
 
@@ -706,7 +706,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			const conflicts = await tx.conflicts(folded.changeId);
 			if (conflicts.length > 0) throw new FoldAbort(conflicts);
 
-			// Advance the review bookmark: the update target, or the --name.
+			// Advance the review bookmark: the update target, or the --named.
 			const reviewBookmark = reviewBookmarkFor(folded);
 			if (reviewBookmark !== undefined) {
 				const named = await tx.apply({
@@ -804,13 +804,13 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 /** The fold subcommand — publish a source range under a target. */
 export const FOLD_ARGS: CommandSpec = {
 	name: "fold",
-	usage: "fold (-s <id|@> | -r <rev>) (-o <rev> | --update <bookmark>) [--name [<branch>]] [--land] [--push] [--archive]",
+	usage: "fold (-s <id|@> | -r <rev>) (-o <rev> | --update <bookmark>) [--named [<branch>]] [--land] [--push] [--archive]",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "rev", aliases: ["-r", "--rev"], takesValue: true },
 		{ key: "onto", aliases: ["-o", "--onto"], takesValue: true },
 		{ key: "update", aliases: ["-u", "--update"], takesValue: true },
-		{ key: "name", aliases: ["--name"], takesValue: "optional" },
+		{ key: "named", aliases: ["--named"], takesValue: "optional" },
 		{ key: "land", aliases: ["--land"], takesValue: false },
 		{ key: "push", aliases: ["--push"], takesValue: false },
 		{ key: "archive", aliases: ["--archive"], takesValue: false },
@@ -818,7 +818,7 @@ export const FOLD_ARGS: CommandSpec = {
 	exclusive: [
 		["session", "rev"],
 		["update", "onto"],
-		["update", "name"],
+		["update", "named"],
 		["update", "land"],
 	],
 };
@@ -832,7 +832,7 @@ export const FOLD_HELP: CommandHelp = {
 		"  -r, --rev <rev>        fold a single revision",
 		"  -o, --onto <rev>       publish the whole delta under this revision",
 		"  -u, --update <branch>  append only the new work onto this review bookmark",
-		"      --name [<branch>]  name the folded change; empty names it fold-<change id>",
+		"      --named [<branch>] name the folded change; empty names it fold-<change id>",
 		"      --land             advance --onto's single local bookmark",
 		"      --push             push the advanced bookmark to its tracked remotes",
 		"      --archive          archive the session after a successful fold",

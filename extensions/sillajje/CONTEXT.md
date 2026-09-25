@@ -20,11 +20,11 @@ A `/sillajje:sync -s <id|@> -o <rev>` subcommand that brings a target revision i
 _Avoid_: Rebase (as the subcommand name — it asserts the wrong mechanics), Merge, Update (the jj operation underneath is `jj rebase`)
 
 **Fold**:
-A `/sillajje:fold` subcommand that publishes a source delta as one clean change. `-o <rev>` publishes the whole delta — `tree(tip) − tree(base)`, base `fork_point(source, target)` — under a target; `--update <bookmark>` appends only the work since that review bookmark's last fold and advances it. `--name [<branch>]` names the folded change (empty names it `fold-<change id>`). The source branch survives, and a merge in the source range is linearized by the replay. The message is a generated Header and Summary plus a `Ref:` line, never the agent trace. `--land` advances the target bookmark; `--archive` retires a session source.
+A `/sillajje:fold` subcommand that publishes a source delta as one clean change. `-o <rev>` publishes the whole delta — `tree(tip) − tree(base)`, base `fork_point(source, target)` — under a target; `--update <bookmark>` appends only the work since that review bookmark's last fold and advances it. `--named [<branch>]` names the folded change (empty names it `fold-<change id>`). The source branch survives, and a merge in the source range is linearized by the replay. The message is a generated Header and Summary plus a `Ref:` line, never the agent trace. `--land` advances the target bookmark; `--push` pushes the advanced bookmark to the remotes that track it; `--archive` retires a session source.
 _Avoid_: Squash (jj's `jj squash` is the primitive underneath; Fold is the publish act)
 
 **Folded source**:
-The source tip last published by a Fold, recorded as a `sillajje/folded/<source>/<target>` bookmark. The target half is the review branch the fold was named with (`--name`), or `--update`'s bookmark, or the target's single local bookmark. For a session source the recorded tip is the last seal (the session bookmark), not the workspace working copy, because `@` is the fresh empty child the next interaction stamps. `--update` reads the marker as the next Fold's base, so folding again publishes only what is new.
+The source tip last published by a Fold, recorded as a `sillajje/folded/<source>/<target>` bookmark. The target half is the review branch the fold was named with (`--named`), or `--update`'s bookmark, or the target's single local bookmark. For a session source the recorded tip is the last seal (the session bookmark), not the workspace working copy, because `@` is the fresh empty child the next interaction stamps. `--update` reads the marker as the next Fold's base, so folding again publishes only what is new.
 _Avoid_: Fold base, checkpoint
 
 **Stamping**:

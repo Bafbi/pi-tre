@@ -379,14 +379,14 @@ describe("createFold", () => {
 		);
 	});
 
-	it("--name sets a review bookmark and keys the marker by it", async () => {
+	it("--named sets a review bookmark and keys the marker by it", async () => {
 		const fakes = makeJj();
 		const { action } = fold({ jj: fakes });
 
 		const result = await action({
 			rev: "feat",
 			onto: "main",
-			name: "review/feat",
+			named: "review/feat",
 		});
 
 		expect(result.ok).toBe(true);
@@ -403,11 +403,11 @@ describe("createFold", () => {
 		});
 	});
 
-	it("--name with an empty value auto-names fold-<change id>", async () => {
+	it("--named with an empty value auto-names fold-<change id>", async () => {
 		const fakes = makeJj();
 		const { action } = fold({ jj: fakes });
 
-		const result = await action({ rev: "feat", onto: "main", name: "" });
+		const result = await action({ rev: "feat", onto: "main", named: "" });
 
 		expect(result.ok).toBe(true);
 		if (result.ok) expect(result.bookmark).toBe("fold-folded");

@@ -158,7 +158,7 @@ jj log --no-graph -r 'main..@'</code></pre>
 			<li>Implemented and tested: <code>--update --push</code>; <code>--land --push</code>; multi-remote push; untracked creates the remote branch; failed push warns and keeps the fold; <code>--push</code> without update/land rejected; marker and session bookmarks never pushed; ADR amendment.</li>
 			<li><strong>Implemented but not asserted:</strong> push-before-<code>--archive</code> ordering (code-correct, no test with both flags); the <code>pushed ...</code> text in the success notification (code-correct, no assertion). These are coverage gaps, not wrong behaviour.</li>
 			<li><strong>Scope beyond the tickets, both documented as deviations:</strong> the <code>pushing</code> phase status, and the reserved-<code>git</code> filter the integration run forced.</li>
-			<li>No behaviour outside the spec. <code>--push</code> with a <code>--name</code> publish is rejected, as agreed.</li>
+			<li>No behaviour outside the spec. <code>--push</code> with a <code>--named</code> publish is rejected, as agreed.</li>
 		</ul>
 	</section>
 
