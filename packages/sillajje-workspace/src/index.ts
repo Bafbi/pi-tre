@@ -62,8 +62,8 @@ export type EnsureResult =
 			status: "created";
 			workspace: WorkspaceInfo;
 			/**
-			 * True when the workspace branched from `root()` because the repo has
-			 * no `trunk()`: the session starts from an empty tree.
+			 * True when the base resolved to `root()` — the repo has no `trunk()`,
+			 * or an explicit base is the empty tree — so the session starts empty.
 			 */
 			fromRoot: boolean;
 	  }
@@ -72,6 +72,16 @@ export type EnsureResult =
 export type SessionTargetResolution =
 	| { ok: true; sessionKey: string; wsPath: string }
 	| { ok: false; reason: "not-a-session" | "foreign" | "archived" };
+
+/**
+ * The outcome of resolving a session named as a Base source. Unlike a session
+ * target, an archived session resolves: the bookmark is all the caller needs,
+ * and the workspace may not exist. A bookmark with several targets (a jj
+ * conflict) is ambiguous and does not resolve.
+ */
+export type BaseSourceResolution =
+	| { ok: true; sessionKey: string; revision: string }
+	| { ok: false; reason: "not-a-session" | "foreign" | "ambiguous" };
 
 export interface Workspaces {
 	/** Canonical session key: a raw id gains the owner, a full key passes through. */
@@ -87,7 +97,14 @@ export interface Workspaces {
 	/** Workspace directory for a session key; owner-free. */
 	workspacePath(sessionKey: string): string;
 
-	ensure(sessionId: string): Promise<EnsureResult>;
+	/**
+	 * Ensure the session's workspace, creating it when absent. `options.base`
+	 * is the revision a new workspace branches from; it defaults to `trunk()`.
+	 */
+	ensure(
+		sessionId: string,
+		options?: { base?: string },
+	): Promise<EnsureResult>;
 	lookup(sessionKey: string): Promise<string | undefined>;
 	archive(sessionKey: string): Promise<ArchiveOutcome>;
 	unarchive(sessionKey: string): Promise<WorkspaceInfo>;
@@ -95,6 +112,8 @@ export interface Workspaces {
 		target: string,
 		current: CurrentSession,
 	): Promise<SessionTargetResolution>;
+	/** Resolve a session named as a Base source to its bookmark. */
+	resolveBaseSource(target: string): Promise<BaseSourceResolution>;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,32 +196,36 @@ export function createWorkspaces(
 		target.includes("/") ? target : `${owner}/${target}`;
 
 	/**
-	 * New sessions branch from the trunk revset, not the main working copy's
-	 * parent. `trunk()` is the repo's integration point (jj's built-in default
-	 * is the latest `main`/`master`/`trunk` remote bookmark, overridable via
-	 * `revset-aliases."trunk()"`), so a session never inherits unlanded work
-	 * from the main checkout.
+	 * New sessions branch from the trunk revset by default, not the main
+	 * working copy's parent. `trunk()` is the repo's integration point (jj's
+	 * built-in default is the latest `main`/`master`/`trunk` remote bookmark,
+	 * overridable via `revset-aliases."trunk()"`), so a session never inherits
+	 * unlanded work from the main checkout. A caller may name a different base
+	 * — the revision a session's workspace branches from.
 	 */
-	const baseRevision = "trunk()";
+	const defaultBase = "trunk()";
 
 	/**
 	 * Resolve the base once: the revision to branch from and whether it is
 	 * `root()`. A separate probe and `workspace add` could disagree if a
 	 * concurrent bookmark update lands between them.
 	 */
-	const resolveBase = async (): Promise<{
+	const resolveBase = async (
+		base?: string,
+	): Promise<{
 		revision: string;
 		fromRoot: boolean;
 	}> => {
-		const [trunk] = await jj.log(baseRevision, jjOptions);
-		if (trunk === undefined) {
+		const revset = base ?? defaultBase;
+		const [tip] = await jj.log(revset, jjOptions);
+		if (tip === undefined) {
 			// `trunk()` always resolves (to `root()` at worst); this is defensive,
 			// and the following `workspace add` surfaces the error.
-			return { revision: baseRevision, fromRoot: true };
+			return { revision: revset, fromRoot: true };
 		}
 		return {
-			revision: trunk.commitId,
-			fromRoot: trunk.parents.length === 0,
+			revision: tip.commitId,
+			fromRoot: tip.parents.length === 0,
 		};
 	};
 
@@ -233,7 +256,7 @@ export function createWorkspaces(
 		bookmarkName,
 		workspacePath: pathOf,
 
-		async ensure(sessionId) {
+		async ensure(sessionId, options) {
 			const list = await jj.workspaces(jjOptions);
 			const byName = new Map(list.map((w) => [w.name, w]));
 			let key = sessionId;
@@ -267,7 +290,7 @@ export function createWorkspaces(
 					continue;
 				}
 
-				const { revision, fromRoot } = await resolveBase();
+				const { revision, fromRoot } = await resolveBase(options?.base);
 				mkdirSync(dirname(path), { recursive: true });
 				await forgetQuietly(name);
 				await jj.workspaceAdd({ name, revision, path }, jjOptions);
@@ -355,6 +378,28 @@ export function createWorkspaces(
 				return { ok: false, reason: "foreign" };
 			}
 			return { ok: false, reason: "archived" };
+		},
+
+		async resolveBaseSource(target) {
+			const sessionKey = qualify(target);
+			const name = bookmarkName(sessionKey);
+			// A remote-tracking entry can share the name; only the local bookmark
+			// is a session's ref, and only it can be checked out.
+			const local = (await jj.bookmarks(jjOptions)).find(
+				(b) => b.name === name && b.remote === undefined,
+			);
+			if (local === undefined) {
+				return { ok: false, reason: "not-a-session" };
+			}
+			if (ownerOf(sessionKey) !== owner) {
+				return { ok: false, reason: "foreign" };
+			}
+			// A conflicted bookmark names several commits. Branching from
+			// whichever `jj.log` returns first would pick the Base at random.
+			if (local.target.length !== 1) {
+				return { ok: false, reason: "ambiguous" };
+			}
+			return { ok: true, sessionKey, revision: name };
 		},
 	};
 }

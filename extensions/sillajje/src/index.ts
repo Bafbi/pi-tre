@@ -49,6 +49,13 @@ import {
 	STAMP_MARKER_TYPE,
 } from "./interaction.js";
 import { redirect } from "./path-redirect.js";
+import {
+	lastSessionBase,
+	NEW_ARGS,
+	NEW_HELP,
+	SESSION_BASE_TYPE,
+	type SessionBaseMarker,
+} from "./session-base.js";
 import { SessionState } from "./state.js";
 import { formatPill } from "./status-pill.js";
 import { createRunSubagent } from "./sub-generator.js";
@@ -543,10 +550,22 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		if (state.isActive() && repoRoot && sessionId) {
-			debug.event("creating_workspace", { repoRoot, sessionId });
+			// A `/sillajje:new` invocation records the base it chose in the new
+			// session's log (see session-base.ts); a plain /new has none.
+			const baseMarker = lastSessionBase(ctx.sessionManager.getBranch());
+			debug.event("creating_workspace", {
+				repoRoot,
+				sessionId,
+				base: baseMarker?.base,
+			});
 			try {
 				const workspaces = workspacesFor(repoRoot);
-				const result = await workspaces.ensure(sessionId);
+				const result = await workspaces.ensure(
+					sessionId,
+					baseMarker === undefined
+						? undefined
+						: { base: baseMarker.base },
+				);
 
 				// An archived session is never rebuilt here; the user must
 				// unarchive it, which resumes from the session bookmark.
@@ -583,7 +602,9 @@ export default function (pi: ExtensionAPI) {
 					);
 					if (result.status === "created" && result.fromRoot) {
 						ctx.ui.notify(
-							'[sillajje] trunk() resolves to root(): the session workspace is an empty tree. Set revset-aliases."trunk()" to a bookmark.',
+							baseMarker === undefined
+								? '[sillajje] trunk() resolves to root(): the session workspace is an empty tree. Set revset-aliases."trunk()" to a bookmark.'
+								: `[sillajje] base ${baseMarker.label} resolves to root(): the session workspace is an empty tree.`,
 							"warning",
 						);
 					}
@@ -898,6 +919,7 @@ export default function (pi: ExtensionAPI) {
 			const subcommand = event.text.trim().split(/\s+/)[1];
 			const known = [
 				"status",
+				"new",
 				"stamp",
 				"archive",
 				"unarchive",
@@ -906,7 +928,7 @@ export default function (pi: ExtensionAPI) {
 			].includes(subcommand ?? "");
 			const suggestion = known
 				? `/sillajje:${subcommand}`
-				: "/sillajje:<status|stamp|archive|unarchive|sync|fold>";
+				: "/sillajje:<status|new|stamp|archive|unarchive|sync|fold>";
 			debug.event("input_old_form_guard", { text: event.text });
 			if (ctx.hasUI) {
 				ctx.ui.notify(
@@ -1347,6 +1369,171 @@ export default function (pi: ExtensionAPI) {
 		return;
 	};
 
+	// -----------------------------------------------------------------------
+	// new — start a session whose workspace branches from a chosen base
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Resolve the Base a `/sillajje:new` invocation names to an immutable commit
+	 * id or a session bookmark, and label it for messages. Returns undefined
+	 * after reporting a failure.
+	 */
+	const resolveNewBase = async (
+		ctx: CommandContext,
+		onto: string | undefined,
+		ontoSession: string | undefined,
+		repoRoot: string,
+	): Promise<SessionBaseMarker | undefined> => {
+		if (ontoSession !== undefined) {
+			const target =
+				ontoSession === "@" ? state.getSessionKey() : ontoSession;
+			if (target === undefined) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						"[sillajje] no sillajje session to resolve @ — use -s <id>",
+						"error",
+					);
+				}
+				return undefined;
+			}
+			const source = await workspacesFor(repoRoot)
+				.resolveBaseSource(target)
+				.catch((err) => {
+					debug.error("new_base_resolve_failed", err);
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] cannot resolve session ${target}: ${String(err)}`,
+							"error",
+						);
+					}
+					return undefined;
+				});
+			if (source === undefined) return undefined;
+			if (!source.ok) {
+				const reason =
+					source.reason === "ambiguous"
+						? `session ${target}'s bookmark is conflicted — resolve it in jj first`
+						: renderSessionFailure(source.reason, target);
+				if (ctx.hasUI) {
+					ctx.ui.notify(`[sillajje] ${reason}`, "error");
+				}
+				return undefined;
+			}
+			return { base: source.revision, label: ontoSession };
+		}
+
+		if (onto !== undefined) {
+			// `@` resolves in the current workspace, so it needs a live one. A
+			// named revision resolves there too, else in the repo root.
+			const wsPath =
+				state.isActive() && !state.isMissingWorkspace()
+					? state.getWorkspacePath()
+					: undefined;
+			if (onto === "@" && wsPath === undefined) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						"[sillajje] no sillajje session to resolve @ — use -o <rev>",
+						"error",
+					);
+				}
+				return undefined;
+			}
+			try {
+				// Resolve now, in the caller's workspace: `@` must capture the
+				// current working copy, not the main checkout's `@`.
+				const [tip] = await jj.log(onto, { cwd: wsPath ?? repoRoot });
+				if (tip === undefined) {
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] revision ${onto} did not resolve in jj`,
+							"error",
+						);
+					}
+					return undefined;
+				}
+				return { base: tip.commitId, label: onto };
+			} catch (err) {
+				debug.error("new_base_resolve_failed", err);
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] cannot resolve ${onto}: ${String(err)}`,
+						"error",
+					);
+				}
+				return undefined;
+			}
+		}
+
+		return undefined;
+	};
+
+	/** Open a new pi session, recording the base for its `session_start`. */
+	const startNewSession = async (
+		ctx: ExtensionCommandContext,
+		marker: SessionBaseMarker,
+	): Promise<void> => {
+		const result = await ctx.newSession({
+			setup: async (sm) => {
+				sm.appendCustomEntry(SESSION_BASE_TYPE, {
+					base: marker.base,
+					label: marker.label,
+				} satisfies SessionBaseMarker);
+			},
+		});
+		if (result.cancelled) {
+			debug.event("new_session_cancelled", {});
+			if (ctx.hasUI) {
+				ctx.ui.notify("[sillajje] new session cancelled", "info");
+			}
+			return;
+		}
+		debug.event("new_session", {
+			base: marker.base,
+			label: marker.label,
+		});
+		if (ctx.hasUI) {
+			ctx.ui.notify(
+				`[sillajje] starting a new session on ${marker.label}`,
+				"info",
+			);
+		}
+	};
+
+	const handleNew = async (
+		args: string,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		// A bare `/sillajje:new` continues from this session's last seal
+		// (`-s @`). The shared parser treats zero tokens as a help request, so
+		// supply the default source rather than bypass the parser.
+		const effective = args.trim() === "" ? "-s @" : args;
+
+		const values = parseOrReport(ctx, effective, NEW_ARGS, NEW_HELP, "new");
+		if (values === undefined) return;
+
+		const onto = typeof values.onto === "string" ? values.onto : undefined;
+		const ontoSession =
+			typeof values["onto-session"] === "string"
+				? values["onto-session"]
+				: undefined;
+
+		const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
+		if (!repoRoot) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot start a session: no jj repo detected",
+					"error",
+				);
+			}
+			return;
+		}
+
+		const base = await resolveNewBase(ctx, onto, ontoSession, repoRoot);
+		if (base === undefined) return;
+
+		await startNewSession(ctx, base);
+	};
+
 	const handleSync = async (
 		args: string,
 		ctx: ExtensionCommandContext,
@@ -1545,6 +1732,13 @@ export default function (pi: ExtensionAPI) {
 		description: "Recreate an archived session workspace",
 		handler: async (args, ctx) => {
 			await handleUnarchive(args, ctx);
+		},
+	});
+
+	pi.registerCommand("sillajje:new", {
+		description: "Start a new session from a chosen base, not trunk()",
+		handler: async (args, ctx) => {
+			await handleNew(args, ctx);
 		},
 	});
 

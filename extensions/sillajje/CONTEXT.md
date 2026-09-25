@@ -11,6 +11,10 @@ _Avoid_: Turn, round, exchange
 **Sillage**:
 The cumulative trail of jj changes left by agent sessions — fully reviewable via `jj log`, `jj show`, and `jj diff`.
 
+**New**:
+A `/sillajje:new [-o <rev> | -s <id>]` subcommand that starts a new pi session whose workspace branches from a named Base instead of `trunk()`. A bare invocation is `-s @`: it continues from this session's last seal. `-o` names a revision (`@` is the current workspace's working copy); `-s` names a session whose bookmark is the Base (`@` is this session's last seal). An archived session is a valid Base session; a foreign one is not, and a conflicted bookmark is rejected. The chosen base is recorded in the new session's log, so a reload does not re-resolve it.
+_Avoid_: Fork (pi's `/fork` copies session history), clone (pi's `/clone`), resume (it keeps the session, not its tree)
+
 **Sync**:
 A `/sillajje:sync -s <id|@> -o <rev>` subcommand that brings a target revision into a session's ancestry as a merge commit, keeping the session's own history intact. The session remains active afterward.
 _Avoid_: Rebase (as the subcommand name — it asserts the wrong mechanics), Merge, Update (the jj operation underneath is `jj rebase`)

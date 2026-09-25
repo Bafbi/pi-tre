@@ -14,3 +14,7 @@ Pi extensions cannot change `ctx.cwd` — it's a getter backed by a private fiel
 - Every agent file operation incurs path redirection: `read`/`write`/`edit` get absolute workspace paths, `bash` gets a `cd <workspace> &&` prefix.
 - Gitignored files are absent from workspaces. Repos must be reproducible via mise + setup scripts.
 - jj bookmarks (`sillajje/<session-id>`) remain the stable handles on session work independent of workspace directory state.
+
+## Amendment
+
+ADR 0008 lets `/sillajje:new` create a session's workspace from a named Base instead of `trunk()`. The "clean slate per session" consequence above holds only for a session that names no base.

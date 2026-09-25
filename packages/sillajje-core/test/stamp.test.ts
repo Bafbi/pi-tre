@@ -210,6 +210,10 @@ function fakeWorkspaces(
 			throw new Error("unarchive is not used by the stamp tests");
 		},
 		resolveTarget: resolve,
+		resolveBaseSource: async () => ({
+			ok: false,
+			reason: "not-a-session",
+		}),
 	};
 }
 

@@ -17,6 +17,7 @@ describe("sillajje scaffold", () => {
 		expect(cmd?.invocationName).toBe("sillajje:stamp");
 		for (const subcommand of [
 			"status",
+			"new",
 			"stamp",
 			"archive",
 			"unarchive",
