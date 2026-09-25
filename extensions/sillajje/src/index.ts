@@ -332,9 +332,15 @@ export default function (pi: ExtensionAPI) {
 	 * bare invocation as `-s @` when a sillajje session exists. Outside a
 	 * session the bare form stays a help request, so the parser's usage line
 	 * is the answer instead of a session-target error.
+	 *
+	 * `session_start` records the pi session ID even when jj detection leaves
+	 * the lifecycle inactive, so `getSessionKey()` alone is not enough: require
+	 * an active or archived session.
 	 */
 	const sessionDefault = (args: string): string =>
-		args.trim() === "" && state.getSessionKey() !== undefined
+		args.trim() === "" &&
+		(state.isActive() || state.isArchived()) &&
+		state.getSessionKey() !== undefined
 			? "-s @"
 			: args;
 
@@ -1102,8 +1108,15 @@ export default function (pi: ExtensionAPI) {
 			},
 		});
 		if (!result.ok) {
-			// The action already emitted the error status.
-			debug.error("archive_failed", new Error(result.message));
+			if (result.reason === "failed") {
+				// The action already emitted the error status.
+				debug.error("archive_failed", new Error(result.message));
+			} else if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] ${renderSessionFailure(result.reason, target)}`,
+					"error",
+				);
+			}
 			return;
 		}
 
@@ -1350,6 +1363,13 @@ export default function (pi: ExtensionAPI) {
 			if (result.reason === "failed") {
 				// The action already emitted the error status.
 				debug.error("unarchive_failed", new Error(result.message));
+			} else if (result.reason === "active") {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] session ${ports.workspaces.unqualified(result.sessionKey)} is already active — archive it first`,
+						"error",
+					);
+				}
 			} else if (ctx.hasUI) {
 				ctx.ui.notify(
 					`[sillajje] ${renderSessionFailure(result.reason, target)}`,

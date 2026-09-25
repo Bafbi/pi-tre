@@ -35,6 +35,7 @@ function makeWorkspaces(overrides: Partial<Workspaces> = {}): Workspaces {
 			target.includes("/") ? target : `${OWNER}/${target}`,
 		ownerOf: (key: string) => key.split("/").slice(0, 2).join("/"),
 		unqualified: (key: string) => key.split("/").slice(2).join("/"),
+		lookup: vi.fn().mockResolvedValue(undefined),
 		archive: vi.fn().mockResolvedValue({ status: "removed" }),
 		unarchive: vi.fn().mockResolvedValue(WORKSPACE),
 		...overrides,
@@ -109,11 +110,47 @@ describe("createArchive", () => {
 		});
 	});
 
+	it("rejects a foreign session without touching the port", async () => {
+		const workspaces = makeWorkspaces();
+		const { onStatus } = collectingSink();
+
+		const result = await createArchive({ workspaces, onStatus })({
+			target: "foreign/owner/s1",
+			current: CURRENT,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "foreign" });
+		expect(workspaces.archive).not.toHaveBeenCalled();
+	});
+
 	it("emits an error and fails when the port fails", async () => {
 		const workspaces = makeWorkspaces({
 			archive: vi
 				.fn()
 				.mockResolvedValue({ status: "failed", reason: "boom" }),
+		} as Partial<Workspaces>);
+		const { onStatus, statuses } = collectingSink();
+
+		const result = await createArchive({ workspaces, onStatus })({
+			target: "@",
+			current: CURRENT,
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "failed",
+			message: "boom",
+		});
+		expect(
+			statuses.some(
+				(s) => s.kind === "error" && s.code === "archive_failed",
+			),
+		).toBe(true);
+	});
+
+	it("emits an error and fails when the port throws", async () => {
+		const workspaces = makeWorkspaces({
+			archive: vi.fn().mockRejectedValue(new Error("boom")),
 		} as Partial<Workspaces>);
 		const { onStatus, statuses } = collectingSink();
 
@@ -169,6 +206,25 @@ describe("createUnarchive", () => {
 		});
 
 		expect(result).toEqual({ ok: false, reason: "foreign" });
+		expect(workspaces.unarchive).not.toHaveBeenCalled();
+	});
+
+	it("rejects an already-live session without unarchiving", async () => {
+		const workspaces = makeWorkspaces({
+			lookup: vi.fn().mockResolvedValue("/ws/s1"),
+		} as Partial<Workspaces>);
+		const { onStatus } = collectingSink();
+
+		const result = await createUnarchive({ workspaces, onStatus })({
+			target: "@",
+			current: CURRENT,
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "active",
+			sessionKey: "owner/host/s1",
+		});
 		expect(workspaces.unarchive).not.toHaveBeenCalled();
 	});
 

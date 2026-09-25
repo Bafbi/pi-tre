@@ -28,11 +28,11 @@ The source tip last published by a Fold, recorded as a `sillajje/folded/<source>
 _Avoid_: Fold base, checkpoint
 
 **Archive**:
-A `/sillajje:archive [-s <id>]` subcommand that retires a session: it deletes the workspace directory and keeps the `sillajje/<session-key>` bookmark. `-s` defaults to `@`, so a bare invocation archives this session. An archived session accepts no prompts until unarchived, and its bookmark stays a valid Base for `/sillajje:new` and a valid source for `/sillajje:fold`.
+A `/sillajje:archive [-s <id>]` subcommand that retires a session: it deletes the workspace directory and keeps the `sillajje/<session-key>` bookmark. `-s` defaults to `@`, so a bare invocation archives this session. An archived session accepts no prompts until unarchived, and its bookmark stays a valid Base for `/sillajje:new` and a valid source for `/sillajje:fold`. A foreign session is rejected.
 _Avoid_: Delete (the bookmark survives), Close
 
 **Unarchive**:
-A `/sillajje:unarchive [-s <id>]` subcommand that recreates an archived session's workspace from its bookmark and reactivates the session. `-s` defaults to `@`, so a bare invocation restores the session you are in. A foreign session is rejected.
+A `/sillajje:unarchive [-s <id>]` subcommand that recreates an archived session's workspace from its bookmark and reactivates the session. `-s` defaults to `@`, so a bare invocation restores the session you are in. A foreign session is rejected, and so is a session whose workspace is still live.
 _Avoid_: Restore, Reopen
 
 **Stamping**:

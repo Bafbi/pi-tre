@@ -12,11 +12,11 @@ Reports the current session: lifecycle state, workspace path, and session ID.
 
 ### `/sillajje:archive [-s | --session <id>] [-h | --help]`
 
-Archives a session: keeps the `sillajje/<session-id>` bookmark, deletes the workspace directory. An archived session accepts no prompts until unarchived. `-s` defaults to `@` (this session).
+Archives a session: keeps the `sillajje/<session-id>` bookmark, deletes the workspace directory. An archived session accepts no prompts until unarchived. `-s` defaults to `@` (this session). A foreign session is rejected.
 
 ### `/sillajje:unarchive [-s | --session <id>] [-h | --help]`
 
-Recreates the workspace for an archived session. `-s` defaults to `@` (this session), so a bare `/sillajje:unarchive` restores the session you are in.
+Recreates the workspace for an archived session. `-s` defaults to `@` (this session), so a bare `/sillajje:unarchive` restores the session you are in. A foreign session, or one whose workspace is still live, is rejected.
 
 ### `/sillajje:new [-o | --onto <rev>] [-s | --onto-session <id>] [-h | --help]`
 

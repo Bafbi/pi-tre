@@ -27,7 +27,8 @@ export interface ArchiveInput {
 /** The archive outcome. `already-gone` means the workspace directory was absent. */
 export type ArchiveResult =
 	| { ok: true; sessionKey: string; status: "removed" | "already-gone" }
-	| { ok: false; reason: "failed"; message: string };
+	| { ok: false; reason: "failed"; message: string }
+	| { ok: false; reason: SessionFailure };
 
 /** The unarchive input. */
 export interface UnarchiveInput {
@@ -46,6 +47,7 @@ export type UnarchiveResult =
 			workspace: WorkspaceInfo;
 	  }
 	| { ok: false; reason: "failed"; message: string }
+	| { ok: false; reason: "active"; sessionKey: string }
 	| { ok: false; reason: SessionFailure };
 
 /**
@@ -66,19 +68,34 @@ export function createArchive(
 		const sessionKey = workspaces.sessionKey(
 			resolveCaller(input.target, input.current),
 		);
-		emitStatus(onStatus, { kind: "phase", code: "archiving" });
+		// A foreign session's workspace must never be deleted here.
+		if (workspaces.ownerOf(sessionKey) !== workspaces.owner) {
+			return { ok: false, reason: "foreign" };
+		}
 
-		const outcome = await workspaces.archive(sessionKey);
-		if (outcome.status === "failed") {
+		emitStatus(onStatus, { kind: "phase", code: "archiving" });
+		try {
+			const outcome = await workspaces.archive(sessionKey);
+			if (outcome.status === "failed") {
+				emitStatus(onStatus, {
+					kind: "error",
+					code: "archive_failed",
+					message: `archive failed: ${outcome.reason}`,
+				});
+				return { ok: false, reason: "failed", message: outcome.reason };
+			}
+
+			return { ok: true, sessionKey, status: outcome.status };
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : String(error);
 			emitStatus(onStatus, {
 				kind: "error",
 				code: "archive_failed",
-				message: `archive failed: ${outcome.reason}`,
+				message: `archive failed: ${message}`,
 			});
-			return { ok: false, reason: "failed", message: outcome.reason };
+			return { ok: false, reason: "failed", message };
 		}
-
-		return { ok: true, sessionKey, status: outcome.status };
 	};
 }
 
@@ -99,6 +116,12 @@ export function createUnarchive(
 
 		emitStatus(onStatus, { kind: "phase", code: "unarchiving" });
 		try {
+			// Unarchiving a live workspace runs `jj workspace forget` before the
+			// re-add fails on the non-empty directory, leaving the workspace
+			// unregistered while the session stays active. Reject it instead.
+			if ((await workspaces.lookup(sessionKey)) !== undefined) {
+				return { ok: false, reason: "active", sessionKey };
+			}
 			const workspace = await workspaces.unarchive(sessionKey);
 			return {
 				ok: true,

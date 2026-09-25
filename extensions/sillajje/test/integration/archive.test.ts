@@ -340,4 +340,46 @@ describeJj("sillajje archive / unarchive", () => {
 			),
 		).toBe(true);
 	}, 15_000);
+
+	it("a bare archive outside a jj repo shows help, not a repo error", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		// No setupJjRepo: sillajje detection is inactive. session_start still
+		// records the pi session ID, so only the lifecycle gate keeps the
+		// bare form reading as help.
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "archive");
+
+		expect(
+			notifications.some(
+				(n) =>
+					n.type === "info" &&
+					n.msg.includes("usage: /sillajje:archive"),
+			),
+		).toBe(true);
+		expect(notifications.some((n) => n.type === "error")).toBe(false);
+	});
+
+	it("unarchiving a live session is rejected with a clear error", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		// The workspace is live, so the bare default resolves to a session that
+		// must not be unarchived.
+		await runSillajje(runner, "unarchive");
+
+		expect(
+			notifications.some(
+				(n) => n.type === "error" && n.msg.includes("already active"),
+			),
+		).toBe(true);
+	});
 });
