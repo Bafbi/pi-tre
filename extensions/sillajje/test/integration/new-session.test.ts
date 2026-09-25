@@ -9,6 +9,7 @@
 
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ExtensionCommandContextActions } from "@earendil-works/pi-coding-agent";
 import { expect, it } from "vitest";
 
 import { setTestPorts } from "../../src/index.js";
@@ -26,21 +27,52 @@ import {
 	wsPath,
 } from "./_helpers.js";
 
+/** The SDK's options bag for `ctx.newSession`. */
+type NewSessionOptions = NonNullable<
+	Parameters<ExtensionCommandContextActions["newSession"]>[0]
+>;
+
 /**
- * Bind a `ctx.newSession` that runs `setup` against the runner's own session
- * manager, so a test can inspect the entry the command wrote. Returns whether
- * `newSession` was called and which base it requested.
+ * The fresh context the host passes to `withSession` after it replaces the
+ * session. Derived in two steps so it tracks the SDK.
  */
-function bindCapturingNewSession(
+type ReplacementCtx = Parameters<
+	NonNullable<NewSessionOptions["withSession"]>
+>[0];
+
+/** The notification kinds the UI context accepts. */
+type NotifyType = "info" | "warning" | "error";
+
+/**
+ * Bind a `ctx.newSession` against the runner's own session manager. `setup`
+ * always runs, so a test can inspect the entry the command wrote. When
+ * `onReplacementNotify` is given, the stub also reproduces the real
+ * replacement: it invalidates the old runner, then runs `withSession` against
+ * a mock replacement context. Touching the captured old `ctx` afterwards
+ * throws.
+ */
+function bindNewSessionStub(
 	runner: Awaited<ReturnType<typeof createRunner>>,
+	onReplacementNotify?: (msg: string, type: NotifyType) => void,
 ) {
 	let called = false;
+	let withSessionCalled = false;
 	runner.bindCommandContext({
 		waitForIdle: async () => {},
 		newSession: async (options) => {
 			called = true;
 			if (options?.setup) {
 				await options.setup(getSessionManager(runner));
+			}
+			if (onReplacementNotify && options?.withSession) {
+				// The host disposes the old session before the replacement runs.
+				runner.invalidate();
+				withSessionCalled = true;
+				const replacement = {
+					hasUI: true,
+					ui: { notify: onReplacementNotify },
+				} as unknown as ReplacementCtx;
+				await options.withSession(replacement);
 			}
 			return { cancelled: false };
 		},
@@ -49,7 +81,10 @@ function bindCapturingNewSession(
 		switchSession: async () => ({ cancelled: false }),
 		reload: async () => {},
 	});
-	return { wasCalled: () => called };
+	return {
+		wasCalled: () => called,
+		wasWithSessionCalled: () => withSessionCalled,
+	};
 }
 
 describeJj("sillajje new session", () => {
@@ -96,7 +131,7 @@ describeJj("sillajje new session", () => {
 		const sourceId = getSessionId(runner);
 		jj(["bookmark", "create", sessionBookmark(sourceId), "-r", "@"], repo);
 
-		const capture = bindCapturingNewSession(runner);
+		const capture = bindNewSessionStub(runner);
 		await runSillajje(runner, `new -s ${sourceId}`);
 
 		expect(capture.wasCalled()).toBe(true);
@@ -111,7 +146,7 @@ describeJj("sillajje new session", () => {
 		const runner = await createRunner(repo);
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const capture = bindCapturingNewSession(runner);
+		const capture = bindNewSessionStub(runner);
 		await runSillajje(runner, "new -o @");
 
 		const workspace = wsPath(repo, getSessionId(runner));
@@ -134,7 +169,7 @@ describeJj("sillajje new session", () => {
 		const sessionId = getSessionId(runner);
 		jj(["bookmark", "create", sessionBookmark(sessionId), "-r", "@"], repo);
 
-		const capture = bindCapturingNewSession(runner);
+		const capture = bindNewSessionStub(runner);
 		await runSillajje(runner, "new");
 
 		expect(capture.wasCalled()).toBe(true);
@@ -142,6 +177,33 @@ describeJj("sillajje new session", () => {
 			base: sessionBookmark(sessionId),
 			label: "@",
 		});
+	});
+
+	it("does not touch the stale command ctx after newSession replaces the session", async () => {
+		const repo = initRepo();
+		const runner = await createRunner(repo);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const sessionId = getSessionId(runner);
+		jj(["bookmark", "create", sessionBookmark(sessionId), "-r", "@"], repo);
+
+		const replacement: Array<{ msg: string; type: string }> = [];
+		const capture = bindNewSessionStub(runner, (msg, type) =>
+			replacement.push({ msg, type }),
+		);
+
+		// The handler would reject with a stale-ctx error if it read the
+		// captured `ctx` after `newSession`.
+		await expect(runSillajje(runner, "new")).resolves.toBeUndefined();
+
+		expect(capture.wasWithSessionCalled()).toBe(true);
+		expect(
+			replacement.some(
+				(n) =>
+					n.type === "info" &&
+					n.msg.includes("starting a new session"),
+			),
+		).toBe(true);
 	});
 
 	it("reports a jj failure while resolving -s instead of throwing", async () => {
@@ -164,7 +226,7 @@ describeJj("sillajje new session", () => {
 			"tui",
 		);
 
-		const capture = bindCapturingNewSession(runner);
+		const capture = bindNewSessionStub(runner);
 		setTestPorts({ exec: failingJjExec((args) => args[0] === "bookmark") });
 		try {
 			await runSillajje(runner, `new -s ${sessionId}`);
@@ -199,7 +261,7 @@ describeJj("sillajje new session", () => {
 			"tui",
 		);
 
-		const capture = bindCapturingNewSession(runner);
+		const capture = bindNewSessionStub(runner);
 		await runSillajje(runner, "new -o @");
 
 		expect(capture.wasCalled()).toBe(false);
@@ -228,7 +290,7 @@ describeJj("sillajje new session", () => {
 			"tui",
 		);
 
-		const capture = bindCapturingNewSession(runner);
+		const capture = bindNewSessionStub(runner);
 		await runSillajje(runner, "new -s ghost");
 
 		expect(capture.wasCalled()).toBe(false);

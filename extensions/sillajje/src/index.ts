@@ -1479,23 +1479,29 @@ export default function (pi: ExtensionAPI) {
 					label: marker.label,
 				} satisfies SessionBaseMarker);
 			},
+			// The replacement disposes the old session and invalidates the
+			// captured `ctx`. All post-replacement work must use the fresh
+			// context handed to `withSession`.
+			withSession: async (replacementCtx) => {
+				debug.event("new_session", {
+					base: marker.base,
+					label: marker.label,
+				});
+				if (replacementCtx.hasUI) {
+					replacementCtx.ui.notify(
+						`[sillajje] starting a new session on ${marker.label}`,
+						"info",
+					);
+				}
+			},
 		});
+		// A cancelled call leaves the session in place, so the captured `ctx`
+		// is still valid here.
 		if (result.cancelled) {
 			debug.event("new_session_cancelled", {});
 			if (ctx.hasUI) {
 				ctx.ui.notify("[sillajje] new session cancelled", "info");
 			}
-			return;
-		}
-		debug.event("new_session", {
-			base: marker.base,
-			label: marker.label,
-		});
-		if (ctx.hasUI) {
-			ctx.ui.notify(
-				`[sillajje] starting a new session on ${marker.label}`,
-				"info",
-			);
 		}
 	};
 
