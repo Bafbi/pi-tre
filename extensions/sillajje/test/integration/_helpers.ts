@@ -194,6 +194,30 @@ export function failingJjExec(
 	};
 }
 
+/** Create a bare git repo and add it to `repoCwd` as a named remote. */
+export function addBareRemote(repoCwd: string, name = "origin"): string {
+	const bare = mkdtempSync(join(tmpdir(), "sillajje-remote-"));
+	tempDirs.push(bare);
+	execSync("git init -q --bare", { cwd: bare, stdio: "pipe" });
+	jj(["git", "remote", "add", name, bare], repoCwd);
+	return bare;
+}
+
+/** The commit id at `refs/heads/<branch>` in a bare repo, or undefined. */
+export function bareRef(bare: string, branch: string): string | undefined {
+	try {
+		return String(
+			execSync(`git rev-parse refs/heads/${branch}`, {
+				cwd: bare,
+				encoding: "utf-8",
+				stdio: "pipe",
+			}),
+		).trim();
+	} catch {
+		return undefined;
+	}
+}
+
 /** Get the session ID, throwing if undefined (it should always be set after session_start). */
 export function getSessionId(runner: ExtensionRunner): string {
 	const id = runner.createContext().sessionManager.getSessionId();

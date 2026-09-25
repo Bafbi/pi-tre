@@ -76,6 +76,7 @@ export function fakeJj(overrides: Partial<FakeJjState> = {}): {
 			ok: true,
 			value: await recipe({ apply: jj.apply, conflicts: jj.conflicts }),
 		}),
+		gitPush: async () => {},
 		workspaceAdd: async (input) => {
 			if (state.addError) throw new Error(state.addError);
 			state.added.push(input);

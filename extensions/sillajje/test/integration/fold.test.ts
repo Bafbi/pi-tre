@@ -10,6 +10,8 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import {
+	addBareRemote,
+	bareRef,
 	createRunner,
 	describeJj,
 	getSessionId,
@@ -96,6 +98,11 @@ function changeId(cwd: string, rev: string): string {
 	return jj(["log", "-r", rev, "--no-graph", "-T", "change_id"], cwd);
 }
 
+/** A commit's id. */
+function commitId(cwd: string, rev: string): string {
+	return jj(["log", "-r", rev, "--no-graph", "-T", "commit_id"], cwd);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -166,7 +173,7 @@ describeJj("sillajje fold", () => {
 		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
 		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
 
-		await runSillajje(runner, "fold -s @ -o main --name review");
+		await runSillajje(runner, "fold -s @ -o main --named review");
 
 		// A second interaction stamps new work on top of the first stamp.
 		writeFileSync(join(workspace, "two.txt"), "two\n");
@@ -373,7 +380,7 @@ describeJj("sillajje fold", () => {
 		captureNotifications(runner);
 
 		// Publish the whole delta under main and name the review branch.
-		await runSillajje(runner, "fold -r feat -o main --name review");
+		await runSillajje(runner, "fold -r feat -o main --named review");
 
 		// Add a new commit to feat and update the review branch.
 		jj(["new", "feat", "-m", "E"], cwd);
@@ -438,8 +445,8 @@ describeJj("sillajje fold", () => {
 		captureNotifications(runner);
 
 		// Two review branches, each named on its first fold.
-		await runSillajje(runner, `fold -r feat -o ${base} --name review-a`);
-		await runSillajje(runner, `fold -r feat -o ${base} --name review-b`);
+		await runSillajje(runner, `fold -r feat -o ${base} --named review-a`);
+		await runSillajje(runner, `fold -r feat -o ${base} --named review-b`);
 
 		jj(["new", "feat", "-m", "E"], cwd);
 		writeFileSync(join(cwd, "e.txt"), "e\n");
@@ -517,6 +524,151 @@ describeJj("sillajje fold", () => {
 			expect.objectContaining({
 				type: "warning",
 				msg: expect.stringContaining("exactly one local bookmark"),
+			}),
+		);
+	}, 30_000);
+
+	it("--update --push advances the review branch on the remote", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "D"], cwd);
+		writeFileSync(join(cwd, "d.txt"), "d\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		// The first fold names the review branch locally; nothing is remote.
+		await runSillajje(runner, "fold -r feat -o main --named review");
+		const remote = addBareRemote(cwd);
+		expect(bareRef(remote, "review")).toBeUndefined();
+
+		// Adding work and updating with --push creates the remote branch.
+		jj(["new", "feat", "-m", "E"], cwd);
+		writeFileSync(join(cwd, "e.txt"), "e\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+		await runSillajje(runner, "fold -r feat --update review --push");
+		expect(bareRef(remote, "review")).toBe(commitId(cwd, "review"));
+
+		// The bookmark is now tracked; the next push moves the remote.
+		jj(["new", "feat", "-m", "F"], cwd);
+		writeFileSync(join(cwd, "f.txt"), "f\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+		await runSillajje(runner, "fold -r feat --update review --push");
+		expect(bareRef(remote, "review")).toBe(commitId(cwd, "review"));
+		expect(jj(["file", "list", "-r", "review"], cwd)).toContain("f.txt");
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("pushed review@origin"),
+			}),
+		);
+	}, 30_000);
+
+	it("--land --push advances the landed bookmark on the remote", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "feat.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const remote = addBareRemote(cwd);
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r feat -o main --land --push");
+		expect(bareRef(remote, "main")).toBe(commitId(cwd, "main"));
+	}, 30_000);
+
+	it("warns and keeps the folded change when the push fails", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["bookmark", "set", "main", "-r", base], cwd);
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "feat.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+		jj(
+			["git", "remote", "add", "origin", "/nonexistent/sillajje-remote"],
+			cwd,
+		);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r feat -o main --land --push");
+
+		// The fold landed despite the failed push.
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "warning",
+				msg: expect.stringContaining("could not push"),
+			}),
+		);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("folded onto main"),
+			}),
+		);
+	}, 30_000);
+
+	it("pushes before archiving the session workspace", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		writeFileSync(join(workspace, "one.txt"), "one\n");
+		await simulateInteraction(runner, "First", "Done.");
+
+		// Advance main and publish a local review branch.
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+		await runSillajje(runner, "fold -s @ -o main --named review");
+		const remote = addBareRemote(cwd);
+
+		// Update, push, and archive: the push runs before the workspace goes.
+		writeFileSync(join(workspace, "two.txt"), "two\n");
+		await simulateInteraction(runner, "Second", "Done.");
+		await runSillajje(runner, "fold -s @ --update review --push --archive");
+
+		// A push after archive would run in the removed workspace and fail,
+		// leaving no remote branch and a warning. The branch, the pushed
+		// notice, and the absent warning together prove the order. The pushed
+		// commit id is not asserted: the session log is still written and jj
+		// rewrites the change after the push, so only the change id is stable.
+		expect(bareRef(remote, "review")).toBeDefined();
+		expect(changeId(cwd, bareRef(remote, "review") ?? "")).toBe(
+			changeId(cwd, "review"),
+		);
+		expect(existsSync(workspace)).toBe(false);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("pushed review"),
+			}),
+		);
+		expect(notifications).not.toContainEqual(
+			expect.objectContaining({
+				type: "warning",
+				msg: expect.stringContaining("could not push"),
 			}),
 		);
 	}, 30_000);

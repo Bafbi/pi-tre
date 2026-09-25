@@ -98,6 +98,16 @@ export function workspacesArgv(): string[] {
 	return ["workspace", "list", "-T", WORKSPACE_LINE_TEMPLATE];
 }
 
+/** `jj git push -b <bookmark>`, with `--remote` when a remote is named. */
+export function gitPushArgv(input: {
+	bookmark: string;
+	remote?: string;
+}): string[] {
+	const argv = ["git", "push", "-b", input.bookmark];
+	if (input.remote !== undefined) argv.push("--remote", input.remote);
+	return argv;
+}
+
 /** `jj --version`; the one read that takes no subcommand. */
 export function versionArgv(): string[] {
 	return ["--version"];

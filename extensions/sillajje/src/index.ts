@@ -1608,10 +1608,12 @@ export default function (pi: ExtensionAPI) {
 		const session =
 			typeof values.session === "string" ? values.session : undefined;
 		const rev = typeof values.rev === "string" ? values.rev : undefined;
-		const name = typeof values.name === "string" ? values.name : undefined;
+		const named =
+			typeof values.named === "string" ? values.named : undefined;
 		const update =
 			typeof values.update === "string" ? values.update : undefined;
 		const land = values.land === true;
+		const push = values.push === true;
 		const archive = values.archive === true;
 
 		const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
@@ -1625,15 +1627,16 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		debug.event("fold_start", { session, rev, onto, update, name });
+		debug.event("fold_start", { session, rev, onto, update, named });
 		const fold = createFold(buildPorts(ctx, repoRoot));
 		const result = await fold({
 			session,
 			rev,
 			onto,
 			update,
-			name,
+			named,
 			land,
+			push,
 			archive,
 			current: {
 				sessionKey: state.getSessionKey(),
@@ -1648,6 +1651,7 @@ export default function (pi: ExtensionAPI) {
 				rev: result.rev,
 				ref: result.ref,
 				bookmark: result.bookmark,
+				pushed: result.pushed,
 			});
 			// Archiving the current session is an adapter-side state change:
 			// the action archived the workspace, the adapter owns the session.
@@ -1661,13 +1665,17 @@ export default function (pi: ExtensionAPI) {
 				syncPill(ctx);
 			}
 			if (ctx.hasUI) {
-				const named =
+				const namedNote =
 					result.bookmark !== undefined &&
 					result.bookmark !== targetLabel
 						? ` (named ${result.bookmark})`
 						: "";
+				const pushed =
+					result.pushed.length > 0
+						? ` (pushed ${result.pushed.join(", ")})`
+						: "";
 				ctx.ui.notify(
-					`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${named}`,
+					`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${namedNote}${pushed}`,
 					"info",
 				);
 			}

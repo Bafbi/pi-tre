@@ -14,6 +14,7 @@ import {
 	conflictsArgv,
 	diffArgv,
 	diffRangeArgv,
+	gitPushArgv,
 	headOperationArgv,
 	logArgv,
 	mutationArgv,
@@ -383,6 +384,17 @@ export function createJj(exec: ExecFn, defaults: ExecOptions = {}): Jj {
 	}
 
 	// -----------------------------------------------------------------------
+	// Git push
+	// -----------------------------------------------------------------------
+
+	async function gitPush(
+		input: { bookmark: string; remote?: string },
+		options?: ExecOptions,
+	): Promise<void> {
+		await queryString(gitPushArgv(input), options);
+	}
+
+	// -----------------------------------------------------------------------
 	// Workspace lifecycle verbs
 	// -----------------------------------------------------------------------
 
@@ -442,6 +454,7 @@ export function createJj(exec: ExecFn, defaults: ExecOptions = {}): Jj {
 		checkVersion,
 		apply,
 		transaction,
+		gitPush,
 		workspaceAdd,
 		workspaceForget,
 		workspaceUpdateStale,

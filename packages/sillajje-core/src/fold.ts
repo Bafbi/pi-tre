@@ -18,6 +18,7 @@
  */
 
 import {
+	type Bookmark,
 	type Commit,
 	formatFailure,
 	type Jj,
@@ -69,12 +70,14 @@ export interface FoldInput {
 	current?: CurrentSession | undefined;
 	/** A working directory for a rev or archived-session source. */
 	cwd?: string | undefined;
-	/** Name the folded change; `""` auto-names it `fold-<change id>`. */
-	name?: string | undefined;
+	/** `--named [<branch>]`: name the folded change; `""` auto-names it `fold-<change id>`. */
+	named?: string | undefined;
 	/** Advance the single local bookmark `--onto` resolves to. */
 	land?: boolean | undefined;
 	/** Archive the session after a successful fold (session sources only). */
 	archive?: boolean | undefined;
+	/** Push each bookmark the fold advanced to the remotes that track it. */
+	push?: boolean | undefined;
 }
 
 /** The fold outcome. Conflicts carry the files for the adapter to render. */
@@ -90,6 +93,8 @@ export type FoldResult =
 			sessionKey?: string | undefined;
 			/** Whether the session was archived after the fold. */
 			archived?: boolean | undefined;
+			/** The `bookmark` or `bookmark@remote` targets pushed; empty when `--push` did not run. */
+			pushed: readonly string[];
 	  }
 	| {
 			ok: false;
@@ -190,6 +195,80 @@ async function localBookmarkNames(
 }
 
 /**
+ * jj reserves the remote name `git` for the local Git repository. A colocated
+ * repo tracks every bookmark there, but `jj git push --remote git` is
+ * rejected, so it is never a push target.
+ */
+const LOCAL_GIT_REMOTE = "git";
+
+/** The remote names that track a local bookmark, in listing order, deduped. */
+function trackedRemotes(bookmarks: Bookmark[], name: string): string[] {
+	const remotes: string[] = [];
+	for (const bookmark of bookmarks) {
+		if (bookmark.name !== name) continue;
+		const remote = bookmark.remote;
+		if (
+			remote === undefined ||
+			remote === LOCAL_GIT_REMOTE ||
+			remotes.includes(remote)
+		) {
+			continue;
+		}
+		remotes.push(remote);
+	}
+	return remotes;
+}
+
+/**
+ * Push one bookmark to every remote that tracks it, best-effort. A bookmark
+ * with no tracking remote is pushed once with no `--remote`, which creates the
+ * remote branch and starts tracking it. Returns the pushed `bookmark` or
+ * `bookmark@remote` labels. The fold is already committed, so a failure warns
+ * and never rolls it back.
+ */
+async function pushAdvancedBookmark(
+	jj: Jj,
+	bookmark: string,
+	cwd: string,
+	onStatus: StatusPort["onStatus"],
+): Promise<string[]> {
+	const pushed: string[] = [];
+	let listed: Bookmark[];
+	try {
+		listed = await jj.bookmarks({ cwd });
+	} catch (err) {
+		emitStatus(onStatus, {
+			kind: "warning",
+			code: "push_failed",
+			message: `fold could not list bookmarks to push: ${String(err)}`,
+		});
+		return pushed;
+	}
+
+	const remotes = trackedRemotes(listed, bookmark);
+	// No tracking remote: push once with no `--remote`, which creates the
+	// remote branch and starts tracking it.
+	const destinations: (string | undefined)[] =
+		remotes.length === 0 ? [undefined] : remotes;
+	for (const remote of destinations) {
+		const label = remote === undefined ? bookmark : `${bookmark}@${remote}`;
+		try {
+			const input =
+				remote === undefined ? { bookmark } : { bookmark, remote };
+			await jj.gitPush(input, { cwd });
+			pushed.push(label);
+		} catch (err) {
+			emitStatus(onStatus, {
+				kind: "warning",
+				code: "push_failed",
+				message: `fold could not push ${label}: ${String(err)}`,
+			});
+		}
+	}
+	return pushed;
+}
+
+/**
  * The folded-source bookmark name for a rev source: the single local
  * bookmark at the tip, or a slug of the rev string when the rev carries no
  * bookmark. jj bookmark names reject `~`, `^`, `:`, `@`, and spaces, so the
@@ -283,6 +362,18 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			};
 		}
 
+		if (
+			input.push === true &&
+			input.update === undefined &&
+			input.land !== true
+		) {
+			return {
+				ok: false,
+				reason: "usage",
+				message: "--push requires --update or --land",
+			};
+		}
+
 		let source: FoldSource;
 		try {
 			if (sessionTarget !== undefined) {
@@ -358,13 +449,13 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			updateMode &&
 			(input.onto !== undefined ||
 				input.land === true ||
-				input.name !== undefined)
+				input.named !== undefined)
 		) {
 			return {
 				ok: false,
 				reason: "usage",
 				message:
-					"--update cannot be combined with -o, --land, or --name",
+					"--update cannot be combined with -o, --land, or --named",
 			};
 		}
 		const targetRevInput = updateMode ? input.update : input.onto;
@@ -565,20 +656,20 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		emitStatus(onStatus, { kind: "phase", code: "folding" });
 
 		// The name this fold carries: update uses the review bookmark; publish
-		// uses --name (auto `fold-<change id>` when empty) or the target's local
+		// uses --named (auto `fold-<change id>` when empty) or the target's local
 		// bookmark. `reviewBookmark` is the bookmark advanced to the fold.
 		const foldNameFor = (folded: Commit): string =>
 			updateMode
 				? targetRev
-				: input.name !== undefined
-					? input.name === ""
+				: input.named !== undefined
+					? input.named === ""
 						? `fold-${folded.changeId}`
-						: input.name
+						: input.named
 					: targetName;
 		const reviewBookmarkFor = (folded: Commit): string | undefined =>
 			updateMode
 				? targetRev
-				: input.name !== undefined
+				: input.named !== undefined
 					? foldNameFor(folded)
 					: undefined;
 
@@ -615,7 +706,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			const conflicts = await tx.conflicts(folded.changeId);
 			if (conflicts.length > 0) throw new FoldAbort(conflicts);
 
-			// Advance the review bookmark: the update target, or the --name.
+			// Advance the review bookmark: the update target, or the --named.
 			const reviewBookmark = reviewBookmarkFor(folded);
 			if (reviewBookmark !== undefined) {
 				const named = await tx.apply({
@@ -668,6 +759,20 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			return fail(`fold failed: ${String(err)}`);
 		}
 
+		// Push the bookmark the fold advanced, opt-in and best-effort. `--update`
+		// and `--land` are exclusive, so the fold advances at most one bookmark.
+		const advancedBookmark = updateMode ? targetRev : ontoBookmark;
+		let pushed: readonly string[] = [];
+		if (input.push === true && advancedBookmark !== undefined) {
+			emitStatus(onStatus, { kind: "phase", code: "pushing" });
+			pushed = await pushAdvancedBookmark(
+				jj,
+				advancedBookmark,
+				sourceCwd,
+				onStatus,
+			);
+		}
+
 		// A successful fold can retire a session source, opt-in. A failed
 		// archive is reported but never undoes the fold.
 		let archived: boolean | undefined;
@@ -691,6 +796,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			bookmark: reviewBookmarkFor(folded),
 			sessionKey: source.sessionKey,
 			archived,
+			pushed,
 		};
 	};
 }
@@ -698,20 +804,21 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 /** The fold subcommand — publish a source range under a target. */
 export const FOLD_ARGS: CommandSpec = {
 	name: "fold",
-	usage: "fold (-s <id|@> | -r <rev>) (-o <rev> | --update <bookmark>) [--name [<branch>]] [--land] [--archive]",
+	usage: "fold (-s <id|@> | -r <rev>) (-o <rev> | --update <bookmark>) [--named [<branch>]] [--land] [--push] [--archive]",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "rev", aliases: ["-r", "--rev"], takesValue: true },
 		{ key: "onto", aliases: ["-o", "--onto"], takesValue: true },
 		{ key: "update", aliases: ["-u", "--update"], takesValue: true },
-		{ key: "name", aliases: ["--name"], takesValue: "optional" },
+		{ key: "named", aliases: ["--named"], takesValue: "optional" },
 		{ key: "land", aliases: ["--land"], takesValue: false },
+		{ key: "push", aliases: ["--push"], takesValue: false },
 		{ key: "archive", aliases: ["--archive"], takesValue: false },
 	],
 	exclusive: [
 		["session", "rev"],
 		["update", "onto"],
-		["update", "name"],
+		["update", "named"],
 		["update", "land"],
 	],
 };
@@ -725,8 +832,9 @@ export const FOLD_HELP: CommandHelp = {
 		"  -r, --rev <rev>        fold a single revision",
 		"  -o, --onto <rev>       publish the whole delta under this revision",
 		"  -u, --update <branch>  append only the new work onto this review bookmark",
-		"      --name [<branch>]  name the folded change; empty names it fold-<change id>",
+		"      --named [<branch>] name the folded change; empty names it fold-<change id>",
 		"      --land             advance --onto's single local bookmark",
+		"      --push             push the advanced bookmark to its tracked remotes",
 		"      --archive          archive the session after a successful fold",
 		"  -h, --help             show this help",
 	],

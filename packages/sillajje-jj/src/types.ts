@@ -118,6 +118,12 @@ export interface Jj {
 		options?: ExecOptions,
 	): Promise<Result<T>>;
 
+	/** Push one bookmark to a named remote, or jj's default when omitted. */
+	gitPush(
+		input: { bookmark: string; remote?: string },
+		options?: ExecOptions,
+	): Promise<void>;
+
 	workspaceAdd(
 		input: { name: string; revision: string; path: string },
 		options?: ExecOptions,
