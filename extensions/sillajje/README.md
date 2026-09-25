@@ -22,11 +22,11 @@ Recreates the workspace for an archived session.
 
 Starts a new pi session whose workspace branches from a chosen base instead of `trunk()`. The new session has fresh history; the workspace tree carries the continuity.
 
-- **bare** — branches from `trunk()`, the same as pi's `/new`.
+- **bare** — same as `-s @`: continues from this session's last seal. Use pi's `/new` to start from `trunk()`.
 - **`-o <rev>`** — branches from a revision jj resolves. `-o @` uses the current workspace's working copy, so unsealed work seeds the new session.
-- **`-s <id>`** — branches from a session's `sillajje/<session-id>` bookmark (the last seal). `-s @` uses this session. An archived session works; a foreign one does not.
+- **`-s <id>`** — branches from a session's `sillajje/<session-id>` bookmark (the last seal). `-s @` uses this session. An archived session works; a foreign one does not; a conflicted bookmark is rejected.
 
-`-o` and `-s` are mutually exclusive. `-o @` or `-s @` with no live sillajje session reports an error and starts nothing. The base is resolved to a commit id when the workspace is created, so moving the source bookmark later does not move the new session.
+`-o` and `-s` are mutually exclusive. `-o @` with no live sillajje session reports an error and starts nothing; `-s @` resolves the current session's key and can use its surviving bookmark even after the session is archived. The base is resolved to a commit id when the workspace is created, so moving the source bookmark later does not move the new session.
 
 ### `/sillajje:stamp [-r | --rev <rev>] [-s | --session <id>] [-h | --help]`
 

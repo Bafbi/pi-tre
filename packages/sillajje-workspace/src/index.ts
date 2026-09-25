@@ -76,11 +76,12 @@ export type SessionTargetResolution =
 /**
  * The outcome of resolving a session named as a Base source. Unlike a session
  * target, an archived session resolves: the bookmark is all the caller needs,
- * and the workspace may not exist.
+ * and the workspace may not exist. A bookmark with several targets (a jj
+ * conflict) is ambiguous and does not resolve.
  */
 export type BaseSourceResolution =
 	| { ok: true; sessionKey: string; revision: string }
-	| { ok: false; reason: "not-a-session" | "foreign" };
+	| { ok: false; reason: "not-a-session" | "foreign" | "ambiguous" };
 
 export interface Workspaces {
 	/** Canonical session key: a raw id gains the owner, a full key passes through. */
@@ -381,13 +382,24 @@ export function createWorkspaces(
 
 		async resolveBaseSource(target) {
 			const sessionKey = qualify(target);
-			if (!(await hasBookmark(sessionKey))) {
+			const name = bookmarkName(sessionKey);
+			// A remote-tracking entry can share the name; only the local bookmark
+			// is a session's ref, and only it can be checked out.
+			const local = (await jj.bookmarks(jjOptions)).find(
+				(b) => b.name === name && b.remote === undefined,
+			);
+			if (local === undefined) {
 				return { ok: false, reason: "not-a-session" };
 			}
 			if (ownerOf(sessionKey) !== owner) {
 				return { ok: false, reason: "foreign" };
 			}
-			return { ok: true, sessionKey, revision: bookmarkName(sessionKey) };
+			// A conflicted bookmark names several commits. Branching from
+			// whichever `jj.log` returns first would pick the Base at random.
+			if (local.target.length !== 1) {
+				return { ok: false, reason: "ambiguous" };
+			}
+			return { ok: true, sessionKey, revision: name };
 		},
 	};
 }

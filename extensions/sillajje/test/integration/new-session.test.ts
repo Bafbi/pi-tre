@@ -124,18 +124,22 @@ describeJj("sillajje new session", () => {
 		});
 	});
 
-	it("writes no marker for a bare invocation", async () => {
+	it("a bare invocation continues from this session's last seal", async () => {
 		const repo = initRepo();
 		const runner = await createRunner(repo);
 		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const sessionId = getSessionId(runner);
+		jj(["bookmark", "create", sessionBookmark(sessionId), "-r", "@"], repo);
 
 		const capture = bindCapturingNewSession(runner);
 		await runSillajje(runner, "new");
 
 		expect(capture.wasCalled()).toBe(true);
-		expect(
-			lastSessionBase(getSessionManager(runner).getBranch()),
-		).toBeUndefined();
+		expect(lastSessionBase(getSessionManager(runner).getBranch())).toEqual({
+			base: sessionBookmark(sessionId),
+			label: "@",
+		});
 	});
 
 	it("rejects @ with no live session", async () => {

@@ -148,4 +148,37 @@ describe("resolveBaseSource", () => {
 			ws.resolveBaseSource("bob/desktop/other"),
 		).resolves.toEqual({ ok: false, reason: "foreign" });
 	});
+
+	it("reports ambiguous when the bookmark has several targets", async () => {
+		const { ws } = binding({
+			bookmarks: [
+				{
+					name: "sillajje/alice/laptop/other",
+					target: ["a", "b"],
+				},
+			],
+		});
+
+		await expect(ws.resolveBaseSource("other")).resolves.toEqual({
+			ok: false,
+			reason: "ambiguous",
+		});
+	});
+
+	it("ignores a remote-tracking bookmark that shares the name", async () => {
+		const { ws } = binding({
+			bookmarks: [
+				{
+					name: "sillajje/alice/laptop/other",
+					target: ["a"],
+					remote: "git",
+				},
+			],
+		});
+
+		await expect(ws.resolveBaseSource("other")).resolves.toEqual({
+			ok: false,
+			reason: "not-a-session",
+		});
+	});
 });

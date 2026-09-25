@@ -21,7 +21,7 @@ A jj workspace — a separate checkout directory tied to a specific commit. Sill
 _Avoid_: Sandbox, clone, checkout
 
 **Base**:
-The revision a session's workspace branches from: `trunk()` by default, or the revision a creating command names. The base is resolved to a commit id when the workspace is created, so moving a bookmark later does not move an existing session.
+The revision a session's workspace branches from. `/sillajje:new` always names one — this session's last seal when no flag is given; the workspace boundary falls back to `trunk()` when a caller names none (pi's `/new`). A Base named by a session resolves through that session's local `sillajje/<session-key>` bookmark: a conflicted bookmark (several targets) is rejected, and a remote-tracking bookmark is not a session. The base is resolved to a commit id when the workspace is created, so moving a bookmark later does not move an existing session.
 _Avoid_: Parent (that is jj's edge, not the chosen start), origin, fork point (pi's `/fork` and a Fold's base are different things)
 
 **Workspace name**:

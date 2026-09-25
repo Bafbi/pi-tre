@@ -67,7 +67,7 @@ export const NEW_HELP: CommandHelp = {
 	usage: NEW_ARGS.usage,
 	lines: [
 		"Starts a new pi session whose workspace branches from a base, not trunk().",
-		"A bare invocation branches from trunk(), the same as pi's /new.",
+		"A bare invocation continues from this session's last seal (-s @).",
 		"  -o, --onto <rev>         branch from a revision; @ means this workspace's working copy",
 		"  -s, --onto-session <id>  branch from a session's bookmark; @ means this session",
 		"  -h, --help               show this help",

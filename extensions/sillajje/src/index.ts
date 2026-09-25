@@ -1399,11 +1399,12 @@ export default function (pi: ExtensionAPI) {
 			const source =
 				await workspacesFor(repoRoot).resolveBaseSource(target);
 			if (!source.ok) {
+				const reason =
+					source.reason === "ambiguous"
+						? `session ${target}'s bookmark is conflicted — resolve it in jj first`
+						: renderSessionFailure(source.reason, target);
 				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`[sillajje] ${renderSessionFailure(source.reason, target)}`,
-						"error",
-					);
+					ctx.ui.notify(`[sillajje] ${reason}`, "error");
 				}
 				return undefined;
 			}
@@ -1458,16 +1459,14 @@ export default function (pi: ExtensionAPI) {
 	/** Open a new pi session, recording the base for its `session_start`. */
 	const startNewSession = async (
 		ctx: ExtensionCommandContext,
-		marker: SessionBaseMarker | undefined,
+		marker: SessionBaseMarker,
 	): Promise<void> => {
 		const result = await ctx.newSession({
 			setup: async (sm) => {
-				if (marker !== undefined) {
-					sm.appendCustomEntry(SESSION_BASE_TYPE, {
-						base: marker.base,
-						label: marker.label,
-					} satisfies SessionBaseMarker);
-				}
+				sm.appendCustomEntry(SESSION_BASE_TYPE, {
+					base: marker.base,
+					label: marker.label,
+				} satisfies SessionBaseMarker);
 			},
 		});
 		if (result.cancelled) {
@@ -1478,14 +1477,12 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		debug.event("new_session", {
-			base: marker?.base,
-			label: marker?.label,
+			base: marker.base,
+			label: marker.label,
 		});
 		if (ctx.hasUI) {
 			ctx.ui.notify(
-				marker === undefined
-					? "[sillajje] starting a new session on trunk()"
-					: `[sillajje] starting a new session on ${marker.label}`,
+				`[sillajje] starting a new session on ${marker.label}`,
 				"info",
 			);
 		}
@@ -1495,14 +1492,12 @@ export default function (pi: ExtensionAPI) {
 		args: string,
 		ctx: ExtensionCommandContext,
 	): Promise<void> => {
-		// A bare `/sillajje:new` starts on trunk(), mirroring pi's /new. The
-		// shared parser treats zero tokens as a help request, so bypass it.
-		if (args.trim() === "") {
-			await startNewSession(ctx, undefined);
-			return;
-		}
+		// A bare `/sillajje:new` continues from this session's last seal
+		// (`-s @`). The shared parser treats zero tokens as a help request, so
+		// supply the default source rather than bypass the parser.
+		const effective = args.trim() === "" ? "-s @" : args;
 
-		const values = parseOrReport(ctx, args, NEW_ARGS, NEW_HELP, "new");
+		const values = parseOrReport(ctx, effective, NEW_ARGS, NEW_HELP, "new");
 		if (values === undefined) return;
 
 		const onto = typeof values.onto === "string" ? values.onto : undefined;

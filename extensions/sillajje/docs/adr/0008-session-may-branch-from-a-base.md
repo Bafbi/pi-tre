@@ -1,6 +1,6 @@
 # A new session may branch from a base other than `trunk()`
 
-`/sillajje:new` starts a session whose workspace branches from a named Base — a revision (`-o <rev>`) or another session's bookmark (`-s <id>`) — instead of `trunk()`. This relaxes ADR 0001's rule that every workspace starts from the trunk: unlanded session work can seed a new session, which is the point (continue a line of work in a fresh context). `trunk()` stays the default, so the isolation guarantee holds for every session that does not name a base.
+`/sillajje:new` starts a session whose workspace branches from a named Base — a revision (`-o <rev>`) or another session's bookmark (`-s <id>`) — instead of `trunk()`. This relaxes ADR 0001's rule that every workspace starts from the trunk: unlanded session work can seed a new session, which is the point (continue a line of work in a fresh context). A bare `/sillajje:new` is `-s @`, the current session's last seal: the session you are in is the default Base. Pi's `/new` remains the trunk path, and the workspace boundary falls back to `trunk()` when a caller names no base.
 
 ## Considered Options
 
@@ -10,7 +10,8 @@
 
 ## Consequences
 
-- ADR 0001's "clean slate per session" holds only for a session with no named Base.
+- ADR 0001's "clean slate per session" holds for a session pi's `/new` starts; every `/sillajje:new` session seeds from a Base.
 - `-o @` captures the current workspace's working copy, so unsealed work can seed the new session; `-s @` takes the last seal (the session bookmark), never the workspace `@`.
 - The base is resolved to a commit id when the workspace is created, so moving the source bookmark later does not move the new session.
 - `-s` accepts an archived session (the bookmark is all the Base needs) and rejects a foreign one (the owner rule keeps other owners' sessions out of this repo's work).
+- A session names a Base only through its local bookmark, and only when that bookmark is unconflicted: a two-target bookmark would branch from whichever commit `jj.log` returns first, so it is rejected instead.
