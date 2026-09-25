@@ -136,6 +136,19 @@ describe("createArchive", () => {
 		expect(workspaces.archive).not.toHaveBeenCalled();
 	});
 
+	it("rejects @ when the caller has no session", async () => {
+		const workspaces = makeWorkspaces();
+		const { onStatus } = collectingSink();
+
+		const result = await createArchive({ workspaces, onStatus })({
+			target: "@",
+			current: {},
+		});
+
+		expect(result).toEqual({ ok: false, reason: "not-a-session" });
+		expect(workspaces.archive).not.toHaveBeenCalled();
+	});
+
 	it("emits an error and fails when the port fails", async () => {
 		const workspaces = makeWorkspaces({
 			archive: vi
@@ -262,6 +275,19 @@ describe("createUnarchive", () => {
 		const result = await createUnarchive({ workspaces, onStatus })({
 			target: "owner/host/../../victim",
 			current: CURRENT,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "not-a-session" });
+		expect(workspaces.unarchive).not.toHaveBeenCalled();
+	});
+
+	it("rejects @ when the caller has no session", async () => {
+		const workspaces = makeWorkspaces();
+		const { onStatus } = collectingSink();
+
+		const result = await createUnarchive({ workspaces, onStatus })({
+			target: "@",
+			current: {},
 		});
 
 		expect(result).toEqual({ ok: false, reason: "not-a-session" });

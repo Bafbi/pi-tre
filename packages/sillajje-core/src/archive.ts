@@ -52,10 +52,15 @@ export type UnarchiveResult =
 
 /**
  * Resolve `@` to the caller's session key. Every other target passes through
- * for the port to qualify.
+ * for the port to qualify. `@` with no caller session resolves to nothing, so
+ * the action rejects it instead of operating on a literal `<owner>/@`.
  */
-function resolveCaller(target: string, current?: CurrentSession): string {
-	return target === "@" ? (current?.sessionKey ?? target) : target;
+function resolveCaller(
+	target: string,
+	current?: CurrentSession,
+): string | undefined {
+	if (target !== "@") return target;
+	return current?.sessionKey;
 }
 
 /**
@@ -74,9 +79,11 @@ export function createArchive(
 	const { workspaces, onStatus } = ports;
 
 	return async (input) => {
-		const sessionKey = workspaces.sessionKey(
-			resolveCaller(input.target, input.current),
-		);
+		const resolved = resolveCaller(input.target, input.current);
+		if (resolved === undefined) {
+			return { ok: false, reason: "not-a-session" };
+		}
+		const sessionKey = workspaces.sessionKey(resolved);
 		// A malformed or foreign target must never reach the port. The id is a
 		// single path segment; anything else is a traversal path.
 		if (!isSafeSessionId(workspaces.unqualified(sessionKey))) {
@@ -119,9 +126,11 @@ export function createUnarchive(
 	const { workspaces, onStatus } = ports;
 
 	return async (input) => {
-		const sessionKey = workspaces.sessionKey(
-			resolveCaller(input.target, input.current),
-		);
+		const resolved = resolveCaller(input.target, input.current);
+		if (resolved === undefined) {
+			return { ok: false, reason: "not-a-session" };
+		}
+		const sessionKey = workspaces.sessionKey(resolved);
 		// A malformed or foreign target must never reach the port.
 		if (!isSafeSessionId(workspaces.unqualified(sessionKey))) {
 			return { ok: false, reason: "not-a-session" };
