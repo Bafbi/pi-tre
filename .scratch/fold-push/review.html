@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Fold --push: two-axis review since main</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Fold <code>--push</code>: two-axis review since <code>main</code></h1>
+		<p class="sub">Standards: one robustness note, three judgement calls. Spec: no gaps, two implemented-but-unasserted details. Ready for PR.</p>
+		<div class="meta">
+			<span class="chip">2026-09-25</span>
+			<span class="chip">fixed point: main (7ec5c2d6)</span>
+			<span class="chip">merge base: 164e312d</span>
+			<span class="chip">spec: .scratch/fold-push/</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#scope">Diff scope</a>
+		<a href="#standards">Standards</a>
+		<a href="#spec">Spec</a>
+		<a href="#open">Open questions</a>
+	</nav>
+
+	<section id="scope">
+		<h2>Diff scope</h2>
+		<p>Commands, per the skill's jj form:</p>
+		<pre><code>jj diff --git --from 'heads(::@ & ::main)' --to @
+jj log --no-graph -r 'main..@'</code></pre>
+		<p>Commit list, first to last: <code>wpkpynwxzpxz</code> and <code>rzkwvqkppokz</code> (the design answers), <code>ploszpltrssu</code> (fold --push), <code>kvuxxovlupnr</code> (working copy, empty). Merge base <code>tnxwkkonxkup 164e312d</code>; <code>main</code> has its own commit after the fork, which the merge-base form excludes.</p>
+		<p>15 files: 12 code/test/doc files plus 6 under <code>.scratch/fold-push/</code>. No unrelated hunks. The two axes were reviewed directly; the harness exposes no sub-agent tool that can read an uncommitted local diff, so the "parallel sub-agents" step ran as one pass per axis.</p>
+	</section>
+
+	<section id="standards">
+		<h2>Standards</h2>
+		<p>Standards sources: <code>AGENTS.md</code> (explicit and readable code, safe defaults, explicit override for risky behavior, no hidden magic, document intent) plus the Fowler smell baseline. The repo's own patterns override the baseline.</p>
+
+		<h3>Robustness note</h3>
+		<ul>
+			<li><strong>Duplicate push target when <code>update</code> and <code>land</code> are both set.</strong> <code>FOLD_ARGS.exclusive</code> already forbids the pair, so the adapter never sends both. The action does not dedupe: a direct <code>FoldInput</code> with both, naming the same bookmark, pushes it twice. Low risk, one-line fix (dedupe <code>targets</code> in <code>fold.ts</code>).</li>
+		</ul>
+
+		<h3>Judgement calls</h3>
+		<ul>
+			<li><strong>Data clump: <code>{ bookmark: string; remote?: string }</code></strong> is written in <code>types.ts</code>, <code>argv.ts</code>, and <code>jj.ts</code>. A named <code>GitPushInput</code> would remove the repetition. Suppressed: the repo inlines <code>workspaceAdd</code>'s <code>{ name; revision; path }</code> the same way, so this matches convention.</li>
+			<li><strong>Long push block.</strong> About 45 lines nested four deep inside the fold action. Extracting <code>pushAdvancedBookmarks(jj, { targets, cwd, onStatus })</code> would localize it. Not required.</li>
+			<li><strong><code>pushed</code> is stringly-typed and conditionally present.</strong> Labels mix <code>bookmark</code> and <code>bookmark@remote</code>; the return spreads <code>pushed</code> in only when <code>--push</code> ran, while <code>archived</code> is always present. <code>toEqual</code> ignores <code>undefined</code>, so always including <code>pushed</code> would simplify the return without changing tests.</li>
+		</ul>
+
+		<h3>Clean</h3>
+		<ul>
+			<li><code>gitPush</code> follows the non-transactional <code>workspaceAdd</code> seam; argv stays in <code>argv.ts</code>.</li>
+			<li>The reserved <code>git</code> remote is filtered with a comment explaining why, locked by a unit case.</li>
+			<li>Warnings name the exact target (<code>bookmark@remote</code>); no hidden side effect.</li>
+		</ul>
+	</section>
+
+	<section id="spec">
+		<h2>Spec</h2>
+		<p>Spec: <code>.scratch/fold-push/PRD.md</code> and <code>issues/01..04</code>. All ten user stories are implemented.</p>
+		<ul>
+			<li>Implemented and tested: <code>--update --push</code>; <code>--land --push</code>; multi-remote push; untracked creates the remote branch; failed push warns and keeps the fold; <code>--push</code> without update/land rejected; marker and session bookmarks never pushed; ADR amendment.</li>
+			<li><strong>Implemented but not asserted:</strong> push-before-<code>--archive</code> ordering (code-correct, no test with both flags); the <code>pushed ...</code> text in the success notification (code-correct, no assertion). These are coverage gaps, not wrong behaviour.</li>
+			<li><strong>Scope beyond the tickets, both documented as deviations:</strong> the <code>pushing</code> phase status, and the reserved-<code>git</code> filter the integration run forced.</li>
+			<li>No behaviour outside the spec. <code>--push</code> with a <code>--name</code> publish is rejected, as agreed.</li>
+		</ul>
+	</section>
+
+	<section id="open">
+		<h2>Open questions</h2>
+		<ul>
+			<li><strong>Dedupe the push target?</strong> Add a dedupe so a direct <code>FoldInput</code> with both <code>update</code> and <code>land</code> cannot push twice. Cheap; only reachable outside the CLI.</li>
+			<li><strong>Always include <code>pushed</code> in <code>FoldResult</code>?</strong> Simplifies the return; tests still pass.</li>
+			<li><strong>Add the two missing assertions?</strong> An <code>--archive --push</code> integration case and a notification-text assertion. Neither guards a likely regression.</li>
+			<li><strong>Reserved-remote list.</strong> Only <code>git</code> is filtered. If jj adds another reserved name, this needs revisiting.</li>
+		</ul>
+	</section>
+
+	<footer>Generated by the agent. Review of <code>heads(::@ &amp; ::main)..@</code>, fixed point <code>main</code> (7ec5c2d6), merge base 164e312d. <code>mise run check</code> exits 0.</footer>
+</main>
+</body>
+</html>

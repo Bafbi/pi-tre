@@ -72,6 +72,7 @@ interface Fakes {
 	apply: ReturnType<typeof vi.fn>;
 	conflicts: ReturnType<typeof vi.fn>;
 	bookmarks: ReturnType<typeof vi.fn>;
+	gitPush: ReturnType<typeof vi.fn>;
 	transaction: ReturnType<typeof vi.fn>;
 }
 
@@ -104,6 +105,7 @@ function makeJj(opts?: {
 	});
 	const conflicts = vi.fn(async () => opts?.conflicts ?? []);
 	const bookmarks = vi.fn(async () => opts?.bookmarks ?? []);
+	const gitPush = vi.fn(async () => {});
 	const transaction = vi.fn(
 		async (recipe: (tx: unknown) => Promise<unknown>) => {
 			const tx = { apply, conflicts };
@@ -116,9 +118,10 @@ function makeJj(opts?: {
 		diff: vi.fn(async () => "diff --git a/f b/f\n+added"),
 		diffRange: vi.fn(async () => "diff --git a/f b/f\n+added"),
 		bookmarks,
+		gitPush,
 		transaction,
 	} as unknown as Jj;
-	return { jj, log, apply, conflicts, bookmarks, transaction };
+	return { jj, log, apply, conflicts, bookmarks, gitPush, transaction };
 }
 
 function makeWorkspaces(
@@ -197,6 +200,7 @@ describe("createFold", () => {
 			subject: "test subject",
 			rev: "folded",
 			ref: "base..tip",
+			pushed: [],
 		});
 
 		// The recipe's three mutations.
@@ -446,6 +450,114 @@ describe("createFold", () => {
 			name: "main",
 			rev: "folded",
 		});
+	});
+
+	it("--push pushes the updated bookmark to every tracking remote", async () => {
+		const fakes = makeJj({
+			bookmarks: [
+				{ name: "main", target: ["main-c"] },
+				{ name: "main", remote: "git", target: ["main-c"] },
+				{ name: "main", remote: "origin", target: ["main-c"] },
+				{ name: "main", remote: "upstream", target: ["main-c"] },
+			],
+		});
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			update: "main",
+			push: true,
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.pushed).toEqual(["main@origin", "main@upstream"]);
+		}
+		expect(fakes.gitPush).toHaveBeenCalledWith(
+			{ bookmark: "main", remote: "origin" },
+			{ cwd: "." },
+		);
+		expect(fakes.gitPush).toHaveBeenCalledWith(
+			{ bookmark: "main", remote: "upstream" },
+			{ cwd: "." },
+		);
+	});
+
+	it("--push uses jj's default remote for an untracked bookmark", async () => {
+		const fakes = makeJj({
+			bookmarks: [{ name: "main", target: ["main-c"] }],
+		});
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			update: "main",
+			push: true,
+		});
+
+		expect(fakes.gitPush).toHaveBeenCalledWith(
+			{ bookmark: "main" },
+			{ cwd: "." },
+		);
+		if (result.ok) expect(result.pushed).toEqual(["main"]);
+	});
+
+	it("--push with --land pushes the landed bookmark", async () => {
+		const fakes = makeJj({
+			bookmarks: [{ name: "main", target: ["main-c"] }],
+		});
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			land: true,
+			push: true,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(fakes.gitPush).toHaveBeenCalledWith(
+			{ bookmark: "main" },
+			{ cwd: "." },
+		);
+	});
+
+	it("a failed push warns and leaves the fold successful", async () => {
+		const fakes = makeJj({
+			bookmarks: [{ name: "main", remote: "origin", target: ["main-c"] }],
+		});
+		fakes.gitPush.mockRejectedValueOnce(new Error("network down"));
+		const { action, statuses } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			update: "main",
+			push: true,
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.pushed).toEqual([]);
+		expect(statuses).toContainEqual(
+			expect.objectContaining({ kind: "warning", code: "push_failed" }),
+		);
+	});
+
+	it("rejects --push without --update or --land", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			push: true,
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "usage",
+			message: expect.stringContaining("--push"),
+		});
+		expect(fakes.transaction).not.toHaveBeenCalled();
 	});
 
 	it("rejects --land when --onto matches more than one local bookmark", async () => {

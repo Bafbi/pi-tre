@@ -1612,6 +1612,7 @@ export default function (pi: ExtensionAPI) {
 		const update =
 			typeof values.update === "string" ? values.update : undefined;
 		const land = values.land === true;
+		const push = values.push === true;
 		const archive = values.archive === true;
 
 		const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
@@ -1634,6 +1635,7 @@ export default function (pi: ExtensionAPI) {
 			update,
 			name,
 			land,
+			push,
 			archive,
 			current: {
 				sessionKey: state.getSessionKey(),
@@ -1648,6 +1650,7 @@ export default function (pi: ExtensionAPI) {
 				rev: result.rev,
 				ref: result.ref,
 				bookmark: result.bookmark,
+				pushed: result.pushed,
 			});
 			// Archiving the current session is an adapter-side state change:
 			// the action archived the workspace, the adapter owns the session.
@@ -1666,8 +1669,12 @@ export default function (pi: ExtensionAPI) {
 					result.bookmark !== targetLabel
 						? ` (named ${result.bookmark})`
 						: "";
+				const pushed =
+					result.pushed.length > 0
+						? ` (pushed ${result.pushed.join(", ")})`
+						: "";
 				ctx.ui.notify(
-					`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${named}`,
+					`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${named}${pushed}`,
 					"info",
 				);
 			}

@@ -5,6 +5,7 @@ import {
 	conflictsArgv,
 	diffArgv,
 	diffRangeArgv,
+	gitPushArgv,
 	logArgv,
 	mutationArgv,
 	NOTHING_CHANGED,
@@ -119,6 +120,28 @@ describe("read argv", () => {
 			"list",
 			"-T",
 			'name ++ ":" ++ root ++ "\\n"',
+		]);
+	});
+});
+
+describe("gitPushArgv", () => {
+	it("pushes a bookmark to jj's default remote", () => {
+		expect(gitPushArgv({ bookmark: "review" })).toEqual([
+			"git",
+			"push",
+			"-b",
+			"review",
+		]);
+	});
+
+	it("pushes a bookmark to a named remote", () => {
+		expect(gitPushArgv({ bookmark: "review", remote: "origin" })).toEqual([
+			"git",
+			"push",
+			"-b",
+			"review",
+			"--remote",
+			"origin",
 		]);
 	});
 });
