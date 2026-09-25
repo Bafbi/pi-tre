@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -13,6 +13,7 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { RunSubagent } from "@pi-tre/sillajje-core";
+import type { ExecFn } from "@pi-tre/sillajje-jj";
 import { defaultOwner } from "@pi-tre/sillajje-workspace";
 import { afterEach, describe, expect } from "vitest";
 import { setTestPorts } from "../../src/index.js";
@@ -159,6 +160,38 @@ export function jj(args: string[], cwd: string): string {
 			stdio: "pipe",
 		}),
 	).trim();
+}
+
+/**
+ * An `ExecFn` that runs every command against real jj (synchronously) except
+ * the ones matching `failMatch`, which exit 1 with a fixed stderr. Records
+ * every jj invocation in `calls` when given.
+ */
+export function failingJjExec(
+	failMatch: (args: string[]) => boolean,
+	calls?: Array<{ args: string[]; stderr: string }>,
+): ExecFn {
+	return (cmd, args, opts) => {
+		if (cmd === "jj") calls?.push({ args, stderr: "" });
+		if (cmd === "jj" && failMatch(args)) {
+			if (calls) calls[calls.length - 1].stderr = "injected failure\n";
+			return Promise.resolve({
+				code: 1,
+				stdout: "",
+				stderr: "injected failure\n",
+			});
+		}
+		const r = spawnSync(cmd, args, {
+			cwd: opts?.cwd,
+			encoding: "utf-8",
+		});
+		if (calls) calls[calls.length - 1].stderr = r.stderr ?? "";
+		return Promise.resolve({
+			code: r.status ?? 1,
+			stdout: r.stdout ?? "",
+			stderr: r.stderr ?? "",
+		});
+	};
 }
 
 /** Get the session ID, throwing if undefined (it should always be set after session_start). */

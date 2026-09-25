@@ -1396,8 +1396,19 @@ export default function (pi: ExtensionAPI) {
 				}
 				return undefined;
 			}
-			const source =
-				await workspacesFor(repoRoot).resolveBaseSource(target);
+			const source = await workspacesFor(repoRoot)
+				.resolveBaseSource(target)
+				.catch((err) => {
+					debug.error("new_base_resolve_failed", err);
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] cannot resolve session ${target}: ${String(err)}`,
+							"error",
+						);
+					}
+					return undefined;
+				});
+			if (source === undefined) return undefined;
 			if (!source.ok) {
 				const reason =
 					source.reason === "ambiguous"

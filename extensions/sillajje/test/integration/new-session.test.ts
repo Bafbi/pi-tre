@@ -11,10 +11,12 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 
+import { setTestPorts } from "../../src/index.js";
 import { lastSessionBase, SESSION_BASE_TYPE } from "../../src/session-base.js";
 import {
 	createRunner,
 	describeJj,
+	failingJjExec,
 	getSessionId,
 	getSessionManager,
 	initRepo,
@@ -140,6 +142,44 @@ describeJj("sillajje new session", () => {
 			base: sessionBookmark(sessionId),
 			label: "@",
 		});
+	});
+
+	it("reports a jj failure while resolving -s instead of throwing", async () => {
+		const repo = initRepo();
+		const runner = await createRunner(repo);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const sessionId = getSessionId(runner);
+		jj(["bookmark", "create", sessionBookmark(sessionId), "-r", "@"], repo);
+
+		const notifications: Array<{ msg: string; type: string }> = [];
+		runner.setUIContext(
+			{
+				setStatus: () => {},
+				notify: (msg: string, type: string) =>
+					notifications.push({ msg, type }),
+				setEditorText: () => {},
+				getEditorText: () => "",
+			} as unknown as Parameters<typeof runner.setUIContext>[0],
+			"tui",
+		);
+
+		const capture = bindCapturingNewSession(runner);
+		setTestPorts({ exec: failingJjExec((args) => args[0] === "bookmark") });
+		try {
+			await runSillajje(runner, `new -s ${sessionId}`);
+		} finally {
+			setTestPorts({ exec: undefined });
+		}
+
+		expect(capture.wasCalled()).toBe(false);
+		expect(
+			notifications.some(
+				(n) =>
+					n.type === "error" &&
+					n.msg.includes("cannot resolve session"),
+			),
+		).toBe(true);
 	});
 
 	it("rejects @ with no live session", async () => {
