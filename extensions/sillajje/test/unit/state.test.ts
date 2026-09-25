@@ -154,6 +154,17 @@ describe("SessionState", () => {
 		expect(s.isMissingWorkspace()).toBe(false);
 	});
 
+	it("clearMissingWorkspace returns a restored session to usable state", () => {
+		const s = new SessionState();
+		s.setDetection(true, "/repo");
+		s.markMissingWorkspace();
+		expect(s.isMissingWorkspace()).toBe(true);
+
+		s.clearMissingWorkspace();
+		expect(s.isMissingWorkspace()).toBe(false);
+		expect(s.isActive()).toBe(true);
+	});
+
 	it("getSessionKey falls back to sessionId and honors setSessionKey", () => {
 		const s = new SessionState();
 		s.setSessionId("abc123");

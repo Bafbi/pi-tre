@@ -1383,6 +1383,9 @@ export default function (pi: ExtensionAPI) {
 		state.setSessionId(result.sessionId);
 		state.setSessionKey(result.workspace.sessionKey);
 		state.setActive();
+		// Unarchive can rebuild a workspace that was deleted externally, so a
+		// successful restore leaves missing mode.
+		state.clearMissingWorkspace();
 		state.setWorkspacePath(result.workspace.workspacePath);
 		// Archive cleared the cursor. Rebuild it from the last Stamp marker,
 		// or the next stamp projects the whole branch and re-includes the

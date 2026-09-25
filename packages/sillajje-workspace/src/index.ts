@@ -108,6 +108,12 @@ export interface Workspaces {
 		options?: { base?: string },
 	): Promise<EnsureResult>;
 	lookup(sessionKey: string): Promise<string | undefined>;
+	/**
+	 * Whether the session's workspace is registered and its directory still
+	 * lives. A registered workspace whose directory was deleted externally is
+	 * not live, so unarchive can rebuild it.
+	 */
+	isLive(sessionKey: string): Promise<boolean>;
 	archive(sessionKey: string): Promise<ArchiveOutcome>;
 	unarchive(sessionKey: string): Promise<WorkspaceInfo>;
 	resolveTarget(
@@ -316,6 +322,14 @@ export function createWorkspaces(
 				(w) => w.name === name,
 			);
 			return found?.root;
+		},
+
+		async isLive(sessionKey) {
+			const name = workspaceName(sessionKey);
+			const found = (await jj.workspaces(jjOptions)).find(
+				(w) => w.name === name,
+			);
+			return found?.root !== undefined && existsSync(found.root);
 		},
 
 		async archive(sessionKey) {

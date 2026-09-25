@@ -58,6 +58,15 @@ function resolveCaller(target: string, current?: CurrentSession): string {
 	return target === "@" ? (current?.sessionKey ?? target) : target;
 }
 
+/**
+ * Whether a session id is a single safe path segment. The port's `unqualified`
+ * keeps any `/` in the id, so an id like `../../victim` would otherwise reach
+ * the recursive delete as a traversal path. Reject it before any port call.
+ */
+function isSafeSessionId(id: string): boolean {
+	return id.length > 0 && id !== "." && id !== ".." && !/[/\\]/.test(id);
+}
+
 /** Bind the archive action's ports and return the action. */
 export function createArchive(
 	ports: WorkspacePort & StatusPort,
@@ -68,7 +77,11 @@ export function createArchive(
 		const sessionKey = workspaces.sessionKey(
 			resolveCaller(input.target, input.current),
 		);
-		// A foreign session's workspace must never be deleted here.
+		// A malformed or foreign target must never reach the port. The id is a
+		// single path segment; anything else is a traversal path.
+		if (!isSafeSessionId(workspaces.unqualified(sessionKey))) {
+			return { ok: false, reason: "not-a-session" };
+		}
 		if (workspaces.ownerOf(sessionKey) !== workspaces.owner) {
 			return { ok: false, reason: "foreign" };
 		}
@@ -109,7 +122,10 @@ export function createUnarchive(
 		const sessionKey = workspaces.sessionKey(
 			resolveCaller(input.target, input.current),
 		);
-		// A foreign session's bookmark must never be checked out here.
+		// A malformed or foreign target must never reach the port.
+		if (!isSafeSessionId(workspaces.unqualified(sessionKey))) {
+			return { ok: false, reason: "not-a-session" };
+		}
 		if (workspaces.ownerOf(sessionKey) !== workspaces.owner) {
 			return { ok: false, reason: "foreign" };
 		}
@@ -118,8 +134,9 @@ export function createUnarchive(
 		try {
 			// Unarchiving a live workspace runs `jj workspace forget` before the
 			// re-add fails on the non-empty directory, leaving the workspace
-			// unregistered while the session stays active. Reject it instead.
-			if ((await workspaces.lookup(sessionKey)) !== undefined) {
+			// unregistered while the session stays active. Reject a live
+			// workspace, but let a registered-but-gone one rebuild.
+			if (await workspaces.isLive(sessionKey)) {
 				return { ok: false, reason: "active", sessionKey };
 			}
 			const workspace = await workspaces.unarchive(sessionKey);

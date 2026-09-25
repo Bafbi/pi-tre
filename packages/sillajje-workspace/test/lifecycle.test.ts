@@ -293,6 +293,36 @@ describe("lookup", () => {
 });
 
 // ---------------------------------------------------------------------------
+// isLive
+// ---------------------------------------------------------------------------
+
+describe("isLive", () => {
+	it("is true only for a registered workspace whose directory exists", async () => {
+		const wsRoot = tempDir("sillajje-ws-root-");
+		const live = tempDir("sillajje-live-");
+		const { ws } = binding(
+			{
+				workspaces: [
+					{ name: "sillajje/alice/laptop/abc", root: live },
+					{
+						name: "sillajje/alice/laptop/gone",
+						root: join(wsRoot, "gone"),
+					},
+				],
+			},
+			"/home/me/code/foo",
+			wsRoot,
+		);
+
+		await expect(ws.isLive("alice/laptop/abc")).resolves.toBe(true);
+		// Registered, but the directory is gone: not live.
+		await expect(ws.isLive("alice/laptop/gone")).resolves.toBe(false);
+		// Not registered at all: not live.
+		await expect(ws.isLive("alice/laptop/other")).resolves.toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // archive
 // ---------------------------------------------------------------------------
 

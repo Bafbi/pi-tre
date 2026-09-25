@@ -35,7 +35,7 @@ function makeWorkspaces(overrides: Partial<Workspaces> = {}): Workspaces {
 			target.includes("/") ? target : `${OWNER}/${target}`,
 		ownerOf: (key: string) => key.split("/").slice(0, 2).join("/"),
 		unqualified: (key: string) => key.split("/").slice(2).join("/"),
-		lookup: vi.fn().mockResolvedValue(undefined),
+		isLive: vi.fn().mockResolvedValue(false),
 		archive: vi.fn().mockResolvedValue({ status: "removed" }),
 		unarchive: vi.fn().mockResolvedValue(WORKSPACE),
 		...overrides,
@@ -120,6 +120,19 @@ describe("createArchive", () => {
 		});
 
 		expect(result).toEqual({ ok: false, reason: "foreign" });
+		expect(workspaces.archive).not.toHaveBeenCalled();
+	});
+
+	it("rejects a path-traversal session id before the port", async () => {
+		const workspaces = makeWorkspaces();
+		const { onStatus } = collectingSink();
+
+		const result = await createArchive({ workspaces, onStatus })({
+			target: "owner/host/../../victim",
+			current: CURRENT,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "not-a-session" });
 		expect(workspaces.archive).not.toHaveBeenCalled();
 	});
 
@@ -211,7 +224,7 @@ describe("createUnarchive", () => {
 
 	it("rejects an already-live session without unarchiving", async () => {
 		const workspaces = makeWorkspaces({
-			lookup: vi.fn().mockResolvedValue("/ws/s1"),
+			isLive: vi.fn().mockResolvedValue(true),
 		} as Partial<Workspaces>);
 		const { onStatus } = collectingSink();
 
@@ -225,6 +238,33 @@ describe("createUnarchive", () => {
 			reason: "active",
 			sessionKey: "owner/host/s1",
 		});
+		expect(workspaces.unarchive).not.toHaveBeenCalled();
+	});
+
+	it("unarchives a registered-but-gone workspace", async () => {
+		// `isLive` is false: jj still lists the name, but the directory is gone.
+		const workspaces = makeWorkspaces();
+		const { onStatus } = collectingSink();
+
+		const result = await createUnarchive({ workspaces, onStatus })({
+			target: "@",
+			current: CURRENT,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(workspaces.unarchive).toHaveBeenCalledWith("owner/host/s1");
+	});
+
+	it("rejects a path-traversal session id before the port", async () => {
+		const workspaces = makeWorkspaces();
+		const { onStatus } = collectingSink();
+
+		const result = await createUnarchive({ workspaces, onStatus })({
+			target: "owner/host/../../victim",
+			current: CURRENT,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "not-a-session" });
 		expect(workspaces.unarchive).not.toHaveBeenCalled();
 	});
 

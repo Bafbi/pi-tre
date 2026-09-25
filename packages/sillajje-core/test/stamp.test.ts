@@ -206,6 +206,7 @@ function fakeWorkspaces(
 		workspacePath: (key) => `/tmp/ws-root/${key}`,
 		ensure: async () => ({ ok: false, reason: "archived" }),
 		lookup: async () => undefined,
+		isLive: async () => false,
 		archive: async () => ({ status: "already-gone" }),
 		unarchive: async () => {
 			throw new Error("unarchive is not used by the stamp tests");
