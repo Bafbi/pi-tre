@@ -10,13 +10,17 @@ import {
 	type UserBashEventResult,
 } from "@earendil-works/pi-coding-agent";
 import {
+	ARCHIVE_ARGS,
+	ARCHIVE_HELP,
 	type ArgValue,
 	type CommandHelp,
 	type CommandSpec,
+	createArchive,
 	createFold,
 	createSetSessionBookmark,
 	createStamp,
 	createSync,
+	createUnarchive,
 	FOLD_ARGS,
 	FOLD_HELP,
 	type ProvenanceVersions,
@@ -29,6 +33,8 @@ import {
 	type StatusEvent,
 	SYNC_ARGS,
 	SYNC_HELP,
+	UNARCHIVE_ARGS,
+	UNARCHIVE_HELP,
 } from "@pi-tre/sillajje-core";
 import {
 	createJj,
@@ -320,6 +326,23 @@ export default function (pi: ExtensionAPI) {
 	 * receives only its own arguments, so the parser does not skip a token.
 	 */
 	const commandPrefix = "/sillajje:";
+
+	/**
+	 * Apply the session default: a subcommand that accepts `-s <id>` reads a
+	 * bare invocation as `-s @` when a sillajje session exists. Outside a
+	 * session the bare form stays a help request, so the parser's usage line
+	 * is the answer instead of a session-target error.
+	 *
+	 * `session_start` records the pi session ID even when jj detection leaves
+	 * the lifecycle inactive, so `getSessionKey()` alone is not enough: require
+	 * an active or archived session.
+	 */
+	const sessionDefault = (args: string): string =>
+		args.trim() === "" &&
+		(state.isActive() || state.isArchived()) &&
+		state.getSessionKey() !== undefined
+			? "-s @"
+			: args;
 
 	/**
 	 * Parse a subcommand's args against its spec. On a usage error or a help
@@ -1053,18 +1076,17 @@ export default function (pi: ExtensionAPI) {
 		args: string,
 		ctx: ExtensionCommandContext,
 	): Promise<void> => {
-		const parts = args.trim().split(/\s+/);
-		const targetSessionId = parts[0] || state.getSessionKey();
+		const values = parseOrReport(
+			ctx,
+			sessionDefault(args),
+			ARCHIVE_ARGS,
+			ARCHIVE_HELP,
+			"archive",
+		);
+		if (values === undefined) return;
 
-		if (!targetSessionId) {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					"[sillajje] no session ID available to archive",
-					"error",
-				);
-			}
-			return;
-		}
+		const target =
+			typeof values.session === "string" ? values.session : "@";
 
 		const repoRoot = state.getRepoRoot();
 		if (!repoRoot) {
@@ -1077,13 +1099,21 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const workspaces = workspacesFor(repoRoot);
-		const targetKey = workspaces.sessionKey(targetSessionId);
-		const outcome = await workspaces.archive(targetKey);
-		if (outcome.status === "failed") {
-			if (ctx.hasUI) {
+		const ports = buildPorts(ctx, repoRoot);
+		const result = await createArchive(ports)({
+			target,
+			current: {
+				sessionKey: state.getSessionKey(),
+				wsPath: state.getWorkspacePath(),
+			},
+		});
+		if (!result.ok) {
+			if (result.reason === "failed") {
+				// The action already emitted the error status.
+				debug.error("archive_failed", new Error(result.message));
+			} else if (ctx.hasUI) {
 				ctx.ui.notify(
-					`[sillajje] archive failed: ${outcome.reason}`,
+					`[sillajje] ${renderSessionFailure(result.reason, target)}`,
 					"error",
 				);
 			}
@@ -1091,12 +1121,12 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		debug.event("session_archived", {
-			sessionKey: targetKey,
-			outcome: outcome.status,
+			sessionKey: result.sessionKey,
+			outcome: result.status,
 		});
 
 		// Update state if this is the current session.
-		if (targetKey === state.getSessionKey()) {
+		if (result.sessionKey === state.getSessionKey()) {
 			state.setArchived();
 			state.clearWorkspacePath();
 			state.setCursorId(null);
@@ -1105,10 +1135,11 @@ export default function (pi: ExtensionAPI) {
 		syncPill(ctx);
 
 		if (ctx.hasUI) {
+			const label = ports.workspaces.unqualified(result.sessionKey);
 			ctx.ui.notify(
-				outcome.status === "removed"
-					? `[sillajje] session ${targetSessionId} archived`
-					: `[sillajje] session ${targetSessionId} archived (workspace already gone)`,
+				result.status === "removed"
+					? `[sillajje] session ${label} archived`
+					: `[sillajje] session ${label} archived (workspace already gone)`,
 				"info",
 			);
 		}
@@ -1121,7 +1152,7 @@ export default function (pi: ExtensionAPI) {
 	): Promise<void> => {
 		const values = parseOrReport(
 			ctx,
-			args,
+			sessionDefault(args),
 			STAMP_ARGS,
 			STAMP_HELP,
 			"stamp",
@@ -1297,18 +1328,17 @@ export default function (pi: ExtensionAPI) {
 		args: string,
 		ctx: ExtensionCommandContext,
 	): Promise<void> => {
-		const parts = args.trim().split(/\s+/);
-		const targetSessionId = parts[0];
+		const values = parseOrReport(
+			ctx,
+			sessionDefault(args),
+			UNARCHIVE_ARGS,
+			UNARCHIVE_HELP,
+			"unarchive",
+		);
+		if (values === undefined) return;
 
-		if (!targetSessionId) {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					"[sillajje] usage: /sillajje:unarchive <session-id>",
-					"warning",
-				);
-			}
-			return;
-		}
+		const target =
+			typeof values.session === "string" ? values.session : "@";
 
 		const repoRoot = state.getRepoRoot();
 		if (!repoRoot) {
@@ -1321,50 +1351,57 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const workspaces = workspacesFor(repoRoot);
-		const unarchiveKey = workspaces.sessionKey(targetSessionId);
-		if (workspaces.ownerOf(unarchiveKey) !== owner) {
-			if (ctx.hasUI) {
+		const ports = buildPorts(ctx, repoRoot);
+		const result = await createUnarchive(ports)({
+			target,
+			current: {
+				sessionKey: state.getSessionKey(),
+				wsPath: state.getWorkspacePath(),
+			},
+		});
+		if (!result.ok) {
+			if (result.reason === "failed") {
+				// The action already emitted the error status.
+				debug.error("unarchive_failed", new Error(result.message));
+			} else if (result.reason === "active") {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] session ${ports.workspaces.unqualified(result.sessionKey)} is already active — archive it first`,
+						"error",
+					);
+				}
+			} else if (ctx.hasUI) {
 				ctx.ui.notify(
-					`[sillajje] ${renderSessionFailure("foreign", targetSessionId)}`,
+					`[sillajje] ${renderSessionFailure(result.reason, target)}`,
 					"error",
 				);
 			}
 			return;
 		}
 
-		try {
-			const info = await workspaces.unarchive(unarchiveKey);
+		// Restore state for the unarchived session.
+		state.setSessionId(result.sessionId);
+		state.setSessionKey(result.workspace.sessionKey);
+		state.setActive();
+		// Unarchive can rebuild a workspace that was deleted externally, so a
+		// successful restore leaves missing mode.
+		state.clearMissingWorkspace();
+		state.setWorkspacePath(result.workspace.workspacePath);
+		// Archive cleared the cursor. Rebuild it from the last Stamp marker,
+		// or the next stamp projects the whole branch and re-includes the
+		// prompts and responses of already-stamped Interactions.
+		syncCursor(ctx);
+		debug.event("session_unarchived", {
+			sessionKey: result.sessionKey,
+			path: result.workspace.workspacePath,
+		});
+		syncPill(ctx);
 
-			// Restore state for the unarchived session.
-			state.setSessionId(workspaces.unqualified(info.sessionKey));
-			state.setSessionKey(info.sessionKey);
-			state.setActive();
-			state.setWorkspacePath(info.workspacePath);
-			// Archive cleared the cursor. Rebuild it from the last Stamp marker,
-			// or the next stamp projects the whole branch and re-includes the
-			// prompts and responses of already-stamped Interactions.
-			syncCursor(ctx);
-			debug.event("session_unarchived", {
-				sessionKey: info.sessionKey,
-				path: info.workspacePath,
-			});
-			syncPill(ctx);
-
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] workspace restored at ${info.workspacePath}`,
-					"info",
-				);
-			}
-		} catch (err) {
-			debug.error("unarchive_failed", err);
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] unarchive failed: ${String(err)}`,
-					"error",
-				);
-			}
+		if (ctx.hasUI) {
+			ctx.ui.notify(
+				`[sillajje] workspace restored at ${result.workspace.workspacePath}`,
+				"info",
+			);
 		}
 		return;
 	};
@@ -1510,11 +1547,15 @@ export default function (pi: ExtensionAPI) {
 		ctx: ExtensionCommandContext,
 	): Promise<void> => {
 		// A bare `/sillajje:new` continues from this session's last seal
-		// (`-s @`). The shared parser treats zero tokens as a help request, so
-		// supply the default source rather than bypass the parser.
-		const effective = args.trim() === "" ? "-s @" : args;
-
-		const values = parseOrReport(ctx, effective, NEW_ARGS, NEW_HELP, "new");
+		// (`-s @`) when a session exists. The shared parser treats zero tokens
+		// as a help request, so the default is supplied here.
+		const values = parseOrReport(
+			ctx,
+			sessionDefault(args),
+			NEW_ARGS,
+			NEW_HELP,
+			"new",
+		);
 		if (values === undefined) return;
 
 		const onto = typeof values.onto === "string" ? values.onto : undefined;

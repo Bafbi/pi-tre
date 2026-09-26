@@ -196,6 +196,7 @@ function fakeWorkspaces(
 	) => Promise<SessionTargetResolution>,
 ): Workspaces {
 	return {
+		owner: "test-owner/host",
 		sessionKey: (target) =>
 			target.includes("/") ? target : `test-owner/${target}`,
 		ownerOf: (key) => key.split("/").slice(0, 2).join("/"),
@@ -205,6 +206,7 @@ function fakeWorkspaces(
 		workspacePath: (key) => `/tmp/ws-root/${key}`,
 		ensure: async () => ({ ok: false, reason: "archived" }),
 		lookup: async () => undefined,
+		isLive: async () => false,
 		archive: async () => ({ status: "already-gone" }),
 		unarchive: async () => {
 			throw new Error("unarchive is not used by the stamp tests");

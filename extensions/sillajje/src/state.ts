@@ -132,6 +132,14 @@ export class SessionState {
 		this.missingWorkspace = true;
 	}
 
+	/**
+	 * Clear the missing-workspace flag. A successful unarchive rebuilds the
+	 * workspace, so the session is usable again.
+	 */
+	clearMissingWorkspace(): void {
+		this.missingWorkspace = false;
+	}
+
 	setWorkspacePath(path: string): void {
 		this.workspacePath = path;
 	}

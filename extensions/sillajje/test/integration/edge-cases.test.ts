@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { expect, it } from "vitest";
@@ -7,6 +7,7 @@ import {
 	createRunner,
 	describeJj,
 	makeRunnerCwd,
+	runSillajje,
 	sessionBookmark,
 	tempDirs,
 } from "./_helpers.js";
@@ -180,5 +181,46 @@ describeJj("sillajje missing-workspace handling", () => {
 			encoding: "utf-8",
 		});
 		expect(bookmarks).not.toContain(sessionBookmark(sessionId));
+	}, 15_000);
+
+	it("unarchive recovers a workspace that was deleted externally", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		const path = wsPath(cwd, sessionId);
+		spyNotifications(runner);
+
+		// The session bookmark is the revision unarchive rebuilds from.
+		execSync(`jj bookmark create ${sessionBookmark(sessionId)} -r @`, {
+			cwd: path,
+			stdio: "pipe",
+		});
+
+		// Delete the directory externally, then let a tool call mark it missing.
+		rmSync(path, { recursive: true, force: true });
+		const blocked = await runner.emitToolCall({
+			type: "tool_call" as const,
+			toolCallId: "tc-1",
+			toolName: "write" as const,
+			input: { path: "new-file.ts", content: "x" },
+		});
+		expect(blocked).toEqual(expect.objectContaining({ block: true }));
+
+		// Bare unarchive rebuilds the workspace and clears missing mode.
+		await runSillajje(runner, "unarchive");
+		expect(existsSync(path)).toBe(true);
+
+		// The next tool call passes through instead of blocking.
+		const after = await runner.emitToolCall({
+			type: "tool_call" as const,
+			toolCallId: "tc-2",
+			toolName: "write" as const,
+			input: { path: "new-file.ts", content: "x" },
+		});
+		expect(after).not.toEqual(expect.objectContaining({ block: true }));
 	}, 15_000);
 });

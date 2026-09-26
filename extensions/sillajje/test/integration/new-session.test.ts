@@ -302,4 +302,33 @@ describeJj("sillajje new session", () => {
 			),
 		).toBe(true);
 	});
+
+	it("a bare new outside a session prints help", async () => {
+		const repo = initRepo();
+		const runner = await createRunner(repo);
+		// No session_start: sillajje is inactive and has no workspace.
+
+		const notifications: Array<{ msg: string; type: string }> = [];
+		runner.setUIContext(
+			{
+				setStatus: () => {},
+				notify: (msg: string, type: string) =>
+					notifications.push({ msg, type }),
+				setEditorText: () => {},
+				getEditorText: () => "",
+			} as unknown as Parameters<typeof runner.setUIContext>[0],
+			"tui",
+		);
+
+		const capture = bindCapturingNewSession(runner);
+		await runSillajje(runner, "new");
+
+		expect(capture.wasCalled()).toBe(false);
+		expect(
+			notifications.some(
+				(n) =>
+					n.type === "info" && n.msg.includes("usage: /sillajje:new"),
+			),
+		).toBe(true);
+	});
 });

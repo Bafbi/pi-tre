@@ -409,7 +409,7 @@ describeJj("sillajje change stamping", () => {
 		expect(markers).toHaveLength(1);
 	}, 15_000);
 
-	it("a target-less /sillajje:stamp shows help and seals nothing", async () => {
+	it("a bare /sillajje:stamp seals this session (default -s @)", async () => {
 		const cwd = initRepo();
 		const notifications: Array<[string, string]> = [];
 		const runner = await createRunner(cwd, {
@@ -430,17 +430,36 @@ describeJj("sillajje change stamping", () => {
 
 		expect(
 			notifications.some(
+				(n) => n[1] === "info" && n[0].includes("workspace stamped:"),
+			),
+		).toBe(true);
+		// The seal advanced the workspace to a fresh empty change.
+		expect(
+			jj(["log", "-r", "@", "--no-graph", "-T", "change_id"], workspace),
+		).not.toBe(headBefore);
+	}, 15_000);
+
+	it("a bare /sillajje:stamp outside a session shows help", async () => {
+		const cwd = initRepo();
+		const notifications: Array<[string, string]> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push([msg, type]),
+		});
+		// No session_start: no sillajje session, so the bare form is help.
+
+		const cmd = runner.getCommand("sillajje:stamp");
+		expect(cmd).toBeDefined();
+		await cmd!.handler("", runner.createCommandContext());
+
+		expect(
+			notifications.some(
 				(n) =>
 					n[1] === "info" && n[0].includes("usage: /sillajje:stamp"),
 			),
 		).toBe(true);
-		// Nothing was sealed.
-		expect(
-			jj(["log", "-r", "@", "--no-graph", "-T", "change_id"], workspace),
-		).toBe(headBefore);
 	}, 15_000);
 
-	it("stamp -h shows the same help as a target-less stamp", async () => {
+	it("stamp -h shows help", async () => {
 		const cwd = initRepo();
 		const notifications: Array<[string, string]> = [];
 		const runner = await createRunner(cwd, {
