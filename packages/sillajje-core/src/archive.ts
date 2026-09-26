@@ -79,11 +79,11 @@ export function createArchive(
 	const { workspaces, onStatus } = ports;
 
 	return async (input) => {
-		const resolved = resolveCaller(input.target, input.current);
-		if (resolved === undefined) {
+		const caller = resolveCaller(input.target, input.current);
+		if (caller === undefined) {
 			return { ok: false, reason: "not-a-session" };
 		}
-		const sessionKey = workspaces.sessionKey(resolved);
+		const sessionKey = workspaces.sessionKey(caller);
 		// A malformed or foreign target must never reach the port. The id is a
 		// single path segment; anything else is a traversal path.
 		if (!isSafeSessionId(workspaces.unqualified(sessionKey))) {
@@ -91,6 +91,17 @@ export function createArchive(
 		}
 		if (workspaces.ownerOf(sessionKey) !== workspaces.owner) {
 			return { ok: false, reason: "foreign" };
+		}
+
+		// Only a real sillajje session may be archived. Without this check the
+		// port falls back to the computed path and deletes whatever directory
+		// is there, so `archive -s <junk>` removes an unrelated directory.
+		const target = await workspaces.resolveTarget(
+			sessionKey,
+			input.current ?? {},
+		);
+		if (!target.ok && target.reason !== "archived") {
+			return { ok: false, reason: target.reason };
 		}
 
 		emitStatus(onStatus, { kind: "phase", code: "archiving" });
@@ -126,11 +137,11 @@ export function createUnarchive(
 	const { workspaces, onStatus } = ports;
 
 	return async (input) => {
-		const resolved = resolveCaller(input.target, input.current);
-		if (resolved === undefined) {
+		const caller = resolveCaller(input.target, input.current);
+		if (caller === undefined) {
 			return { ok: false, reason: "not-a-session" };
 		}
-		const sessionKey = workspaces.sessionKey(resolved);
+		const sessionKey = workspaces.sessionKey(caller);
 		// A malformed or foreign target must never reach the port.
 		if (!isSafeSessionId(workspaces.unqualified(sessionKey))) {
 			return { ok: false, reason: "not-a-session" };

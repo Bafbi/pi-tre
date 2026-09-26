@@ -36,6 +36,11 @@ function makeWorkspaces(overrides: Partial<Workspaces> = {}): Workspaces {
 		ownerOf: (key: string) => key.split("/").slice(0, 2).join("/"),
 		unqualified: (key: string) => key.split("/").slice(2).join("/"),
 		isLive: vi.fn().mockResolvedValue(false),
+		resolveTarget: vi.fn().mockImplementation(async (target: string) => ({
+			ok: true,
+			sessionKey: target.includes("/") ? target : `${OWNER}/${target}`,
+			wsPath: "/ws",
+		})),
 		archive: vi.fn().mockResolvedValue({ status: "removed" }),
 		unarchive: vi.fn().mockResolvedValue(WORKSPACE),
 		...overrides,
@@ -147,6 +152,44 @@ describe("createArchive", () => {
 
 		expect(result).toEqual({ ok: false, reason: "not-a-session" });
 		expect(workspaces.archive).not.toHaveBeenCalled();
+	});
+
+	it("rejects a target that is not a session before deleting", async () => {
+		const workspaces = makeWorkspaces({
+			resolveTarget: vi
+				.fn()
+				.mockResolvedValue({ ok: false, reason: "not-a-session" }),
+		} as Partial<Workspaces>);
+		const { onStatus } = collectingSink();
+
+		const result = await createArchive({ workspaces, onStatus })({
+			target: "not-a-session",
+			current: CURRENT,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "not-a-session" });
+		expect(workspaces.archive).not.toHaveBeenCalled();
+	});
+
+	it("archives a bookmark-only session (archived)", async () => {
+		const workspaces = makeWorkspaces({
+			resolveTarget: vi
+				.fn()
+				.mockResolvedValue({ ok: false, reason: "archived" }),
+		} as Partial<Workspaces>);
+		const { onStatus } = collectingSink();
+
+		const result = await createArchive({ workspaces, onStatus })({
+			target: "@",
+			current: CURRENT,
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			sessionKey: "owner/host/s1",
+			status: "removed",
+		});
+		expect(workspaces.archive).toHaveBeenCalledWith("owner/host/s1");
 	});
 
 	it("emits an error and fails when the port fails", async () => {

@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, expect, it } from "vitest";
@@ -381,5 +381,35 @@ describeJj("sillajje archive / unarchive", () => {
 				(n) => n.type === "error" && n.msg.includes("already active"),
 			),
 		).toBe(true);
+	});
+
+	it("archiving a non-session leaves an unrelated directory intact", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		// A directory under the workspace root that is not a session. Without
+		// the session check the port would delete it via the computed path.
+		const stray = wsPath(cwd, "stray");
+		mkdirSync(stray, { recursive: true });
+		writeFileSync(join(stray, "keep.txt"), "keep\n");
+		try {
+			await runSillajje(runner, "archive -s stray");
+
+			expect(
+				notifications.some(
+					(n) =>
+						n.type === "error" &&
+						n.msg.includes("not a sillajje session"),
+				),
+			).toBe(true);
+			expect(existsSync(join(stray, "keep.txt"))).toBe(true);
+		} finally {
+			rmSync(stray, { recursive: true, force: true });
+		}
 	});
 });
