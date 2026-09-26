@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import {
 	createRunner,
@@ -40,6 +41,27 @@ async function setupJjRepo(cwd: string): Promise<string> {
 	});
 	execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
 	return cwd;
+}
+
+/** Collect UI notifications so a test can assert on the rendered messages. */
+function captureNotifications(
+	runner: Awaited<ReturnType<typeof createRunner>>,
+): Array<{ msg: string; type: "info" | "warning" | "error" }> {
+	const notifications: Array<{
+		msg: string;
+		type: "info" | "warning" | "error";
+	}> = [];
+	runner.setUIContext(
+		{
+			setStatus: () => {},
+			notify: (msg: string, type: "info" | "warning" | "error") =>
+				notifications.push({ msg, type }),
+			setEditorText: () => {},
+			getEditorText: () => "",
+		} as unknown as Parameters<typeof runner.setUIContext>[0],
+		"tui",
+	);
+	return notifications;
 }
 
 /**
@@ -176,7 +198,7 @@ describeJj("sillajje archive / unarchive", () => {
 		expect(bmList).toContain(sessionBookmark(sessionId));
 
 		// Unarchive.
-		await runSillajje(runner, `unarchive ${sessionId}`);
+		await runSillajje(runner, `unarchive -s ${sessionId}`);
 
 		// Workspace should be recreated.
 		expect(existsSync(path)).toBe(true);
@@ -200,7 +222,7 @@ describeJj("sillajje archive / unarchive", () => {
 
 		// Unarchive with a non-existent session ID — should not throw.
 		await expect(
-			runSillajje(runner, "unarchive nonexistent-id"),
+			runSillajje(runner, "unarchive -s nonexistent-id"),
 		).resolves.toBeUndefined();
 	});
 
@@ -233,8 +255,8 @@ describeJj("sillajje archive / unarchive", () => {
 		);
 		expect(inputResult).toEqual({ action: "handled" });
 
-		// Unarchive.
-		await runSillajje(runner, `unarchive ${sessionId}`);
+		// Unarchive with the session default: bare means this session.
+		await runSillajje(runner, "unarchive");
 		expect(existsSync(path)).toBe(true);
 
 		// Active again — input passes through.
@@ -260,7 +282,7 @@ describeJj("sillajje archive / unarchive", () => {
 		// Archive clears the cursor; unarchive must rebuild it from the last
 		// Stamp marker.
 		await runSillajje(runner, "archive");
-		await runSillajje(runner, `unarchive ${sessionId}`);
+		await runSillajje(runner, `unarchive -s ${sessionId}`);
 
 		await simulateInteraction(runner, "Second change", "Done again.");
 
@@ -269,4 +291,125 @@ describeJj("sillajje archive / unarchive", () => {
 		expect(show).toContain("Second change");
 		expect(show).not.toContain("First change");
 	}, 15_000);
+
+	it("prints help for -h and for a bare invocation outside a session", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		// No session_start: no sillajje session, so the bare form is help.
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "archive --help");
+		await runSillajje(runner, "unarchive -h");
+		await runSillajje(runner, "unarchive");
+
+		const helps = notifications.filter(
+			(n) =>
+				n.type === "info" &&
+				n.msg.includes("usage: /sillajje:unarchive"),
+		);
+		expect(helps).toHaveLength(2);
+		expect(
+			notifications.some(
+				(n) => n.type === "warning" || n.type === "error",
+			),
+		).toBe(false);
+	});
+
+	it("a bare stamp seals this session (default -s @)", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+
+		// Put a change in the working copy so the seal has something to stamp.
+		writeFileSync(join(wsPath(cwd, sessionId), "work.txt"), "work\n");
+
+		const notifications = captureNotifications(runner);
+		await runSillajje(runner, "stamp");
+
+		expect(
+			notifications.some(
+				(n) =>
+					n.type === "info" && n.msg.includes("workspace stamped:"),
+			),
+		).toBe(true);
+	}, 15_000);
+
+	it("a bare archive outside a jj repo shows help, not a repo error", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		// No setupJjRepo: sillajje detection is inactive. session_start still
+		// records the pi session ID, so only the lifecycle gate keeps the
+		// bare form reading as help.
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "archive");
+
+		expect(
+			notifications.some(
+				(n) =>
+					n.type === "info" &&
+					n.msg.includes("usage: /sillajje:archive"),
+			),
+		).toBe(true);
+		expect(notifications.some((n) => n.type === "error")).toBe(false);
+	});
+
+	it("unarchiving a live session is rejected with a clear error", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		// The workspace is live, so the bare default resolves to a session that
+		// must not be unarchived.
+		await runSillajje(runner, "unarchive");
+
+		expect(
+			notifications.some(
+				(n) => n.type === "error" && n.msg.includes("already active"),
+			),
+		).toBe(true);
+	});
+
+	it("archiving a non-session leaves an unrelated directory intact", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		// A directory under the workspace root that is not a session. Without
+		// the session check the port would delete it via the computed path.
+		const stray = wsPath(cwd, "stray");
+		mkdirSync(stray, { recursive: true });
+		writeFileSync(join(stray, "keep.txt"), "keep\n");
+		try {
+			await runSillajje(runner, "archive -s stray");
+
+			expect(
+				notifications.some(
+					(n) =>
+						n.type === "error" &&
+						n.msg.includes("not a sillajje session"),
+				),
+			).toBe(true);
+			expect(existsSync(join(stray, "keep.txt"))).toBe(true);
+		} finally {
+			rmSync(stray, { recursive: true, force: true });
+		}
+	});
 });

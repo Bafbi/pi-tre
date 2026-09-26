@@ -1,0 +1,254 @@
+<!-- Follow-up report from the PR #19 triage review. -->
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Recovering a session whose workspace went missing</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Recovering a session whose workspace went missing</h1>
+		<p class="sub">Unarchive is the recovery verb the code already names. Two gaps stop it from working, and the live-workspace guard landed this session makes one of them worse.</p>
+		<div class="meta">
+			<span class="chip">2026-09-25</span>
+			<span class="chip">scope: extensions/sillajje, packages/sillajje-core, packages/sillajje-workspace</span>
+			<span class="chip">source: PR #19 triage review</span>
+			<span class="chip">status: fixed in the 13:18 review triage</span>
+		</div>
+	</header>
+
+	<div class="callout ok">
+		<p><strong>Landed.</strong> The proposed fix set below shipped in the second triage pass: <code>Workspaces.isLive</code>, the <code>createUnarchive</code> switch from <code>lookup</code> to <code>isLive</code>, and <code>SessionState.clearMissingWorkspace()</code> on the unarchive success path. The sections below are kept as the diagnosis that motivated it.</p>
+	</div>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#behavior">Current behavior</a>
+		<a href="#gaps">The two gaps</a>
+		<a href="#fix">Proposed fix</a>
+		<a href="#adjacent">Adjacent gaps</a>
+		<a href="#open">Open questions</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>A session whose workspace directory is deleted mid-run is marked <em>missing</em> and blocked. The code tells the user to run <code>/sillajje:unarchive</code> to recover, but the recovery does not complete: the missing flag is never cleared, so the session stays blocked after a successful unarchive.</p>
+		<p>The PR #19 triage fix for the live-unarchive corruption adds a second problem. <code>createUnarchive</code> now rejects any <em>registered</em> workspace, and a missing workspace is still registered. So bare <code>/sillajje:unarchive</code> returns <code>session … is already active</code> exactly when the user needs it, foreclosing the recovery path the notification points at.</p>
+		<div class="callout crit">
+			<p>The landed guard rejects a registered workspace. A missing workspace is registered with a dead directory. To tell the two apart, the guard must ask whether the directory still exists, not whether jj still lists the workspace.</p>
+		</div>
+	</section>
+
+	<section id="behavior">
+		<h2>Current behavior</h2>
+		<p>Five facts, read from the tree at this report.</p>
+		<table>
+			<thead>
+				<tr><th>Fact</th><th>Where</th><th>Effect</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td><code>markMissingWorkspace()</code> sets the flag; only <code>reset()</code> clears it.</td>
+					<td><code>state.ts:131</code>, <code>state.ts:170</code></td>
+					<td>No command can leave missing mode.</td>
+				</tr>
+				<tr>
+					<td>The missing-workspace notification names unarchive as the recovery verb.</td>
+					<td><code>index.ts:488</code></td>
+					<td>The recovery is documented, not incidental.</td>
+				</tr>
+				<tr>
+					<td><code>handleUnarchive</code> sets <code>active</code> and the workspace path, but not the missing flag.</td>
+					<td><code>index.ts:1385</code></td>
+					<td>A restored workspace is still treated as missing.</td>
+				</tr>
+				<tr>
+					<td><code>createUnarchive</code> rejects when <code>lookup</code> returns a root.</td>
+					<td><code>archive.ts:122</code></td>
+					<td>A missing workspace is rejected as <code>already active</code>.</td>
+				</tr>
+				<tr>
+					<td><code>lookup</code> returns the registered root without checking that the directory lives; <code>ensure</code> checks <code>existsSync</code>.</td>
+					<td><code>workspace index.ts:310</code>, <code>workspace index.ts:274</code></td>
+					<td>The port already distinguishes the two cases in one place, and not in another.</td>
+				</tr>
+			</tbody>
+		</table>
+	</section>
+
+	<section id="gaps">
+		<h2>The two gaps</h2>
+
+		<h3>Gap 1: the missing flag survives a successful unarchive</h3>
+		<p>Before PR #19, unarchiving a missing workspace recreated the directory, but the session stayed blocked. <code>markMissingWorkspaceAndNotify</code> is deduped on the flag, so after recovery the next tool call still hits <code>missingWorkspaceBlockReason</code> and <code>before_agent_start</code> still no-ops. Only a process restart (<code>reset</code>) clears it. The documented recovery never returned the session to a usable state.</p>
+
+		<h3>Gap 2: the live guard blocks the recovery</h3>
+		<p>The guard added in PR #19 reads:</p>
+		<pre><code>if ((await workspaces.lookup(sessionKey)) !== undefined) {
+	return { ok: false, reason: "active", sessionKey };
+}</code></pre>
+		<p><code>lookup</code> answers "is this workspace registered?". For an externally deleted workspace the answer is still yes: <code>jj workspace forget</code> never ran, so jj lists the name with a root that no longer exists. The guard therefore turns the one recovery verb into an error.</p>
+		<div class="callout warn">
+			<p>The guard is correct in intent. A live workspace must not be unarchived, because <code>unarchive</code> runs <code>forgetQuietly</code> before <code>jj workspace add</code> and the add fails on the non-empty directory. The bug is the predicate, not the guard.</p>
+		</div>
+	</section>
+
+	<section id="fix">
+		<h2>Proposed fix</h2>
+
+		<h3>1. Add <code>Workspaces.isLive</code></h3>
+		<p>Live means registered <em>and</em> the directory still lives, the same condition <code>ensure</code> uses to reuse a workspace. The workspace package owns filesystem knowledge, so the predicate lives there.</p>
+		<pre><code>/** Whether the session's workspace is registered and its directory still lives. */
+isLive(sessionKey: string): Promise&lt;boolean&gt;;</code></pre>
+		<pre><code>async isLive(sessionKey) {
+	const name = workspaceName(sessionKey);
+	const found = (await jj.workspaces(jjOptions)).find((w) =&gt; w.name === name);
+	return found?.root !== undefined &amp;&amp; existsSync(found.root);
+},</code></pre>
+
+		<h3>2. Guard unarchive on <code>isLive</code></h3>
+		<p>A live workspace is rejected; a missing one falls through to <code>unarchive</code>, which forgets the stale registration and recreates the directory.</p>
+		<pre><code>if (await workspaces.isLive(sessionKey)) {
+	return { ok: false, reason: "active", sessionKey };
+}
+const workspace = await workspaces.unarchive(sessionKey);</code></pre>
+
+		<h3>3. Clear the missing flag on unarchive</h3>
+		<p>Add <code>SessionState.clearMissingWorkspace()</code> and call it in <code>handleUnarchive</code> on the success path, beside <code>setActive()</code> and <code>setWorkspacePath()</code>.</p>
+		<pre><code>clearMissingWorkspace(): void {
+	this.missingWorkspace = false;
+}</code></pre>
+
+		<h3>Tests</h3>
+		<ul>
+			<li><strong>Workspace:</strong> <code>isLive</code> is true for a present directory and false after the directory is deleted. This is the unit that pins the predicate.</li>
+			<li><strong>Core:</strong> the existing <em>rejects an already-live session</em> test switches from <code>lookup</code> to <code>isLive</code>; add <em>unarchives a registered-but-gone workspace</em> asserting <code>unarchive</code> is called.</li>
+			<li><strong>Integration:</strong> delete the workspace directory, run bare <code>/sillajje:unarchive</code>, assert the directory is recreated, the input handler returns <code>continue</code>, and no missing-workspace block fires.</li>
+			<li><strong>State:</strong> <code>clearMissingWorkspace</code> returns <code>isMissingWorkspace()</code> to false.</li>
+		</ul>
+
+		<div class="callout ok">
+			<p>After the fix the documented flow works end to end: delete the directory, get the notification, run bare unarchive, keep working. The live-workspace corruption stays closed because a genuinely live workspace still fails the guard.</p>
+		</div>
+	</section>
+
+	<section id="adjacent">
+		<h2>Adjacent gaps</h2>
+		<p>These are not required for the recovery to work. They are the same live-versus-registered confusion in other call sites, and they belong in the same change or the one after.</p>
+		<ul>
+			<li><strong><code>resolveTarget</code> treats a registered-but-gone workspace as resolvable</strong> (<code>packages/sillajje-workspace/src/index.ts:371</code>). It returns <code>{ ok: true, wsPath: found.root }</code> without an <code>existsSync</code>, so <code>sync</code>, <code>fold</code>, and cross-session <code>stamp</code> can target a dead path. Aligning it with <code>ensure</code>'s reuse condition would make the port tell one story.</li>
+			<li><strong>Manual <code>/sillajje:stamp</code> on a missing workspace</strong> is not gated on <code>isMissingWorkspace()</code>. <code>stampManual</code> only checks that <code>sessionId</code> and <code>wsPath</code> exist, and the dead path is still stored, so the command reaches jj and fails with a jj error instead of the block message the auto-stamp path uses. The <code>sessionDefault</code> gate does not catch it: a missing workspace is still <code>isActive()</code>.</li>
+		</ul>
+	</section>
+
+	<section id="open">
+		<h2>Open questions</h2>
+		<ul>
+			<li><strong>Is unarchive the whole recovery, or should the session self-heal?</strong> The notification already promises unarchive. Recommendation: keep unarchive as the explicit verb and clear the flag there. Auto-recreate on the next interaction hides a repository change the user may want to see.</li>
+			<li><strong>Should <code>setActive()</code> clear the missing flag everywhere, or only unarchive call <code>clearMissingWorkspace()</code>?</strong> Recommendation: only unarchive. A plain <code>setActive()</code> is reused by the archived-session path, where the flag was never set.</li>
+			<li><strong>Ship the adjacent gaps here or separately?</strong> Recommendation: <code>resolveTarget</code> with this change, because it is the same predicate, and the manual-stamp gate as a separate small change so each has its own test.</li>
+		</ul>
+	</section>
+
+	<footer>Generated by the agent from the PR #19 triage review. Facts read at the working tree for PR #19 (<code>act/feat(sillajje): session defaults for archive, unarchive, stamp</code>).</footer>
+</main>
+</body>
+</html>

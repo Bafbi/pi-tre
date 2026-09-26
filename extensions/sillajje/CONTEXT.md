@@ -12,7 +12,7 @@ _Avoid_: Turn, round, exchange
 The cumulative trail of jj changes left by agent sessions — fully reviewable via `jj log`, `jj show`, and `jj diff`.
 
 **New**:
-A `/sillajje:new [-o <rev> | -s <id>]` subcommand that starts a new pi session whose workspace branches from a named Base instead of `trunk()`. A bare invocation is `-s @`: it continues from this session's last seal. `-o` names a revision (`@` is the current workspace's working copy); `-s` names a session whose bookmark is the Base (`@` is this session's last seal). An archived session is a valid Base session; a foreign one is not, and a conflicted bookmark is rejected. The chosen base is recorded in the new session's log, so a reload does not re-resolve it.
+A `/sillajje:new [-o <rev> | -s <id>]` subcommand that starts a new pi session whose workspace branches from a named Base instead of `trunk()`. A bare invocation in a session is `-s @`: it continues from this session's last seal. With no session the bare form prints usage. `-o` names a revision (`@` is the current workspace's working copy); `-s` names a session whose bookmark is the Base (`@` is this session's last seal). An archived session is a valid Base session; a foreign one is not, and a conflicted bookmark is rejected. The chosen base is recorded in the new session's log, so a reload does not re-resolve it.
 _Avoid_: Fork (pi's `/fork` copies session history), clone (pi's `/clone`), resume (it keeps the session, not its tree)
 
 **Sync**:
@@ -26,6 +26,14 @@ _Avoid_: Squash (jj's `jj squash` is the primitive underneath; Fold is the publi
 **Folded source**:
 The source tip last published by a Fold, recorded as a `sillajje/folded/<source>/<target>` bookmark. The target half is the review branch the fold was named with (`--named`), or `--update`'s bookmark, or the target's single local bookmark. For a session source the recorded tip is the last seal (the session bookmark), not the workspace working copy, because `@` is the fresh empty child the next interaction stamps. `--update` reads the marker as the next Fold's base, so folding again publishes only what is new.
 _Avoid_: Fold base, checkpoint
+
+**Archive**:
+A `/sillajje:archive [-s <id>]` subcommand that retires a session: it deletes the workspace directory and keeps the `sillajje/<session-key>` bookmark. `-s` defaults to `@`, so a bare invocation archives this session. An archived session accepts no prompts until unarchived, and its bookmark stays a valid Base for `/sillajje:new` and a valid source for `/sillajje:fold`. A foreign session is rejected.
+_Avoid_: Delete (the bookmark survives), Close
+
+**Unarchive**:
+A `/sillajje:unarchive [-s <id>]` subcommand that recreates an archived session's workspace from its bookmark and reactivates the session. `-s` defaults to `@`, so a bare invocation restores the session you are in. A foreign session is rejected, and so is a session whose workspace is still live.
+_Avoid_: Restore, Reopen
 
 **Stamping**:
 Sealing a change with a generated commit message: the Sub-generator produces the Header (and Trace), the Commit body is assembled, and the change is described. Two axes decide the shape. The Action decides the mechanics: a Session stamp performs the full seal at a workspace's working copy; a Rev stamp describes one revision and nothing else. The Source decides generation: an Interaction transcript plus the diff, or the diff alone. Every Interaction becomes one stamped change.

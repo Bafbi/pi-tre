@@ -84,6 +84,8 @@ export type BaseSourceResolution =
 	| { ok: false; reason: "not-a-session" | "foreign" | "ambiguous" };
 
 export interface Workspaces {
+	/** The running process's owner: `<user>/<host>`. */
+	owner: string;
 	/** Canonical session key: a raw id gains the owner, a full key passes through. */
 	sessionKey(target: string): string;
 	/** The owner half of a session key: `<user>/<host>`. */
@@ -106,6 +108,12 @@ export interface Workspaces {
 		options?: { base?: string },
 	): Promise<EnsureResult>;
 	lookup(sessionKey: string): Promise<string | undefined>;
+	/**
+	 * Whether the session's workspace is registered and its directory still
+	 * lives. A registered workspace whose directory was deleted externally is
+	 * not live, so unarchive can rebuild it.
+	 */
+	isLive(sessionKey: string): Promise<boolean>;
 	archive(sessionKey: string): Promise<ArchiveOutcome>;
 	unarchive(sessionKey: string): Promise<WorkspaceInfo>;
 	resolveTarget(
@@ -249,6 +257,7 @@ export function createWorkspaces(
 	};
 
 	return {
+		owner,
 		sessionKey: qualify,
 		ownerOf,
 		unqualified,
@@ -313,6 +322,14 @@ export function createWorkspaces(
 				(w) => w.name === name,
 			);
 			return found?.root;
+		},
+
+		async isLive(sessionKey) {
+			const name = workspaceName(sessionKey);
+			const found = (await jj.workspaces(jjOptions)).find(
+				(w) => w.name === name,
+			);
+			return found?.root !== undefined && existsSync(found.root);
 		},
 
 		async archive(sessionKey) {
