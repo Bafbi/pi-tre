@@ -38,6 +38,8 @@ export {
 	parseCommandArgs,
 	renderHelp,
 	renderSessionFailure,
+	SERVE_ARGS,
+	SERVE_HELP,
 	STAMP_ARGS,
 	STAMP_HELP,
 } from "./args.js";

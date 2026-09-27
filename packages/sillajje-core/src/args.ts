@@ -217,3 +217,39 @@ export const STAMP_HELP: CommandHelp = {
 		"  -h, --help          show this help",
 	],
 };
+
+// ---------------------------------------------------------------------------
+// The serve subcommand
+// ---------------------------------------------------------------------------
+
+/**
+ * The serve subcommand — expose one session's workspace over HTTP. Serve is an
+ * adapter capability, not an Action: it composes no jj operation. Its argument
+ * rules live here with the other specs because they are pure data.
+ */
+export const SERVE_ARGS: CommandSpec = {
+	name: "serve",
+	usage: "serve [-s|--session <id>] [--stop|--status]",
+	flags: [
+		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
+		{ key: "stop", aliases: ["--stop"], takesValue: false },
+		{ key: "status", aliases: ["--status"], takesValue: false },
+	],
+	exclusive: [
+		["session", "stop"],
+		["session", "status"],
+		["stop", "status"],
+	],
+};
+
+/** The serve subcommand's help. */
+export const SERVE_HELP: CommandHelp = {
+	usage: SERVE_ARGS.usage,
+	lines: [
+		"Serves a session's workspace as static files over HTTP on the LAN.",
+		"  -s, --session <id>  the session to serve; @ means this session (default)",
+		"  --stop              stop the running server",
+		"  --status            report the running server's URL",
+		"  -h, --help          show this help",
+	],
+};

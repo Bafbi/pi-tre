@@ -35,6 +35,10 @@ _Avoid_: Delete (the bookmark survives), Close
 A `/sillajje:unarchive [-s <id>]` subcommand that recreates an archived session's workspace from its bookmark and reactivates the session. `-s` defaults to `@`, so a bare invocation restores the session you are in. A foreign session is rejected, and so is a session whose workspace is still live.
 _Avoid_: Restore, Reopen
 
+**Serve**:
+A `/sillajje:serve [-s <id>] [--stop|--status]` subcommand that exposes a session's workspace over HTTP on the LAN for the life of the pi process. The port is ephemeral and the URL is reported to the user; Serve stops on pi exit, on the Archive of the session it serves, or on `--stop`. `-s` defaults to `@`, so the bare form serves the current session's workspace.
+_Avoid_: Preview, dev server, share, static server (that names the mechanism, not the capability)
+
 **Stamping**:
 Sealing a change with a generated commit message: the Sub-generator produces the Header (and Trace), the Commit body is assembled, and the change is described. Two axes decide the shape. The Action decides the mechanics: a Session stamp performs the full seal at a workspace's working copy; a Rev stamp describes one revision and nothing else. The Source decides generation: an Interaction transcript plus the diff, or the diff alone. Every Interaction becomes one stamped change.
 _Avoid_: Committing (stamping is the session-level act; the jj mechanics underneath are incidental)

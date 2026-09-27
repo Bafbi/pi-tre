@@ -320,7 +320,7 @@ describeJj("sillajje new session", () => {
 			"tui",
 		);
 
-		const capture = bindCapturingNewSession(runner);
+		const capture = bindNewSessionStub(runner);
 		await runSillajje(runner, "new");
 
 		expect(capture.wasCalled()).toBe(false);
