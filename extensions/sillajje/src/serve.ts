@@ -11,8 +11,12 @@
  */
 
 import {
+	closeSync,
+	constants,
 	createReadStream,
 	existsSync,
+	fstatSync,
+	openSync,
 	readdirSync,
 	realpathSync,
 	type Stats,
@@ -127,27 +131,50 @@ function escapeHtml(value: string): string {
 		.replace(/"/g, "&quot;");
 }
 
-/** Stream a file, or send its headers only for a `HEAD` request. */
+/**
+ * Stream a file, or send its headers only for a `HEAD` request.
+ *
+ * The file is opened with `O_NOFOLLOW` and streamed from the descriptor, so a
+ * path swapped for a symlink between the containment check and the open fails
+ * the open instead of serving the target.
+ */
 function sendFile(res: ServerResponse, file: string, headOnly: boolean): void {
-	let size: number;
+	let fd: number;
 	try {
-		size = statSync(file).size;
+		fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
 	} catch {
 		sendStatus(res, 404);
 		return;
 	}
+
+	let stats: Stats;
+	try {
+		stats = fstatSync(fd);
+	} catch {
+		closeSync(fd);
+		sendStatus(res, 404);
+		return;
+	}
+	if (!stats.isFile()) {
+		closeSync(fd);
+		sendStatus(res, 404);
+		return;
+	}
+
 	res.writeHead(200, {
 		"Content-Type": contentTypeFor(file),
-		"Content-Length": String(size),
+		"Content-Length": String(stats.size),
 		"Cache-Control": "no-store",
 	});
 	if (headOnly) {
+		closeSync(fd);
 		res.end();
 		return;
 	}
-	const stream = createReadStream(file);
-	stream.on("error", () => res.destroy());
-	stream.pipe(res);
+	// The stream owns the descriptor (`autoClose` is on by default).
+	createReadStream(file, { fd })
+		.on("error", () => res.destroy())
+		.pipe(res);
 }
 
 /** Render a directory index. */
@@ -227,10 +254,26 @@ function serveRequest(
 
 	const headOnly = req.method === "HEAD";
 	if (stats.isDirectory()) {
+		// A listing's links are relative, so a request without the trailing
+		// slash would resolve them against the parent URL.
+		const url = new URL(req.url ?? "/", "http://localhost");
+		if (!url.pathname.endsWith("/")) {
+			res.writeHead(301, {
+				Location: `${url.pathname}/${url.search}`,
+				"Cache-Control": "no-store",
+			});
+			res.end();
+			return;
+		}
 		const index = join(real, "index.html");
 		try {
-			if (statSync(index).isFile()) {
-				sendFile(res, index, headOnly);
+			const indexReal = realpathSync(index);
+			if (!containedIn(rootReal, indexReal)) {
+				sendStatus(res, 403);
+				return;
+			}
+			if (statSync(indexReal).isFile()) {
+				sendFile(res, indexReal, headOnly);
 				return;
 			}
 		} catch {
@@ -260,7 +303,11 @@ export interface ServeStatus {
 	port: number;
 	/** A loopback URL, always reachable from this host. */
 	localhostUrl: string;
-	/** One URL per non-internal IPv4 interface, for the LAN. */
+	/**
+	 * The LAN URLs reachable through the bound host: every non-internal IPv4
+	 * for a wildcard bind, the named address for a specific one, and empty for
+	 * a loopback bind.
+	 */
 	lanUrls: string[];
 }
 
@@ -282,14 +329,19 @@ export interface ServeController {
 	status(): ServeStatus | undefined;
 }
 
-/** The LAN URLs for a port: every non-internal IPv4 address. */
-function lanUrlsFor(port: number): string[] {
+/**
+ * The LAN URLs for a port under the bound host. A wildcard bind offers every
+ * non-internal IPv4 address; a specific bind offers only its own address, so
+ * a loopback bind offers none.
+ */
+function lanUrlsFor(port: number, host: string): string[] {
+	const wildcard = host === "" || host === "0.0.0.0" || host === "::";
 	const urls: string[] = [];
 	for (const entries of Object.values(networkInterfaces())) {
 		for (const entry of entries ?? []) {
-			if (entry.family === "IPv4" && !entry.internal) {
-				urls.push(`http://${entry.address}:${port}`);
-			}
+			if (entry.family !== "IPv4" || entry.internal) continue;
+			if (!wildcard && entry.address !== host) continue;
+			urls.push(`http://${entry.address}:${port}`);
 		}
 	}
 	return urls;
@@ -319,8 +371,17 @@ export function createServeController(
 	let active:
 		| { status: ServeStatus; server: Server; rootReal: string }
 		| undefined;
+	// A start that has not yet published `active`. Reserving here rejects a
+	// concurrent start during the `listen` await, so one controller never
+	// leaks a second bound socket.
+	let reserved = false;
+	let cancelled = false;
 
 	const stop = async (): Promise<void> => {
+		if (reserved) {
+			cancelled = true;
+			return;
+		}
 		const current = active;
 		active = undefined;
 		if (current === undefined) return;
@@ -335,41 +396,65 @@ export function createServeController(
 					`serve: already serving session ${active.status.sessionKey}`,
 				);
 			}
-			const root = resolve(input.root);
-			if (!existsSync(root)) {
-				throw new Error(
-					`serve: workspace directory not found: ${root}`,
-				);
+			if (reserved) {
+				throw new Error("serve: start already in progress");
 			}
-			const rootReal = realpathSync(root);
-
-			let gone = false;
-			const server = createServer((req, res) => {
-				if (!gone && !existsSync(root)) {
-					gone = true;
-					sendStatus(res, 404);
-					// Stop after the response flushes: `stop` marks the controller
-					// idle synchronously, so the callback sees `status()` undefined
-					// and clears the footer, and the socket is not cut mid-response.
-					res.once("finish", () => {
-						void stop();
-						input.onRootGone?.();
-					});
-					return;
+			reserved = true;
+			cancelled = false;
+			try {
+				const root = resolve(input.root);
+				if (!existsSync(root)) {
+					throw new Error(
+						`serve: workspace directory not found: ${root}`,
+					);
 				}
-				serveRequest(res, req, root, rootReal);
-			});
+				const rootReal = realpathSync(root);
 
-			const port = await listen(server, host);
-			const status: ServeStatus = {
-				sessionKey: input.sessionKey,
-				root,
-				port,
-				localhostUrl: `http://localhost:${port}`,
-				lanUrls: lanUrlsFor(port),
-			};
-			active = { status, server, rootReal };
-			return status;
+				let gone = false;
+				const server = createServer((req, res) => {
+					if (!gone && !existsSync(root)) {
+						gone = true;
+						sendStatus(res, 404);
+						// Stop after the response flushes: `stop` marks the
+						// controller idle synchronously, so the callback sees
+						// `status()` undefined and clears the footer, and the socket
+						// is not cut mid-response.
+						res.once("finish", () => {
+							void stop();
+							input.onRootGone?.();
+						});
+						return;
+					}
+					serveRequest(res, req, root, rootReal);
+				});
+
+				let port: number;
+				try {
+					port = await listen(server, host);
+				} catch (error) {
+					server.close();
+					throw error;
+				}
+				if (cancelled) {
+					server.closeAllConnections();
+					await new Promise<void>((done) =>
+						server.close(() => done()),
+					);
+					throw new Error("serve: start cancelled");
+				}
+
+				const status: ServeStatus = {
+					sessionKey: input.sessionKey,
+					root,
+					port,
+					localhostUrl: `http://localhost:${port}`,
+					lanUrls: lanUrlsFor(port, host),
+				};
+				active = { status, server, rootReal };
+				return status;
+			} finally {
+				reserved = false;
+			}
 		},
 		stop,
 		status: () => active?.status,

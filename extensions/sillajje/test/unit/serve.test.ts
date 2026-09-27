@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -60,6 +66,8 @@ describe("createServeController", () => {
 			});
 			expect(status.port).toBeGreaterThan(0);
 			expect(controller.status()?.root).toBe(root);
+			// A loopback bind advertises no LAN URL.
+			expect(status.lanUrls).toEqual([]);
 
 			const res = await fetch(`${status.localhostUrl}/hello.txt`);
 			expect(res.status).toBe(200);
@@ -140,6 +148,72 @@ describe("createServeController", () => {
 			expect(controller.status()).toBeUndefined();
 		});
 		expect(goneCalls).toBe(1);
+	});
+
+	it("redirects a directory request that lacks the trailing slash", async () => {
+		const root = tempDir();
+		mkdirSync(join(root, "reports"));
+		writeFileSync(join(root, "reports", "a.html"), "<h1>a</h1>");
+		const controller = createServeController({ host: "127.0.0.1" });
+		try {
+			const status = await controller.start({ sessionKey: "k", root });
+			const res = await fetch(`${status.localhostUrl}/reports`, {
+				redirect: "manual",
+			});
+			expect(res.status).toBe(301);
+			expect(res.headers.get("location")).toBe("/reports/");
+		} finally {
+			await controller.stop();
+		}
+	});
+
+	it("refuses an index.html symlink that points outside the root", async () => {
+		const root = tempDir();
+		const outside = tempDir();
+		writeFileSync(join(outside, "secret.txt"), "secret");
+		mkdirSync(join(root, "site"));
+		symlinkSync(
+			join(outside, "secret.txt"),
+			join(root, "site", "index.html"),
+		);
+		const controller = createServeController({ host: "127.0.0.1" });
+		try {
+			const status = await controller.start({ sessionKey: "k", root });
+			const res = await fetch(`${status.localhostUrl}/site/`);
+			expect(res.status).toBe(403);
+		} finally {
+			await controller.stop();
+		}
+	});
+
+	it("refuses a symlinked file that points outside the root", async () => {
+		const root = tempDir();
+		const outside = tempDir();
+		writeFileSync(join(outside, "secret.txt"), "secret");
+		symlinkSync(join(outside, "secret.txt"), join(root, "link.txt"));
+		const controller = createServeController({ host: "127.0.0.1" });
+		try {
+			const status = await controller.start({ sessionKey: "k", root });
+			const res = await fetch(`${status.localhostUrl}/link.txt`);
+			expect(res.status).toBe(403);
+		} finally {
+			await controller.stop();
+		}
+	});
+
+	it("rejects a concurrent start", async () => {
+		const root = tempDir();
+		const controller = createServeController({ host: "127.0.0.1" });
+		const first = controller.start({ sessionKey: "k", root });
+		await expect(
+			controller.start({ sessionKey: "k", root }),
+		).rejects.toThrow(/start already in progress/);
+		try {
+			await first;
+			expect(controller.status()).toBeDefined();
+		} finally {
+			await controller.stop();
+		}
 	});
 
 	it("refuses a second start while running", async () => {
