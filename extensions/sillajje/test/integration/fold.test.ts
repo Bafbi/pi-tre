@@ -9,12 +9,14 @@ import { execSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, expect, it } from "vitest";
+import { SESSION_BASE_TYPE } from "../../src/session-base.js";
 import {
 	addBareRemote,
 	bareRef,
 	createRunner,
 	describeJj,
 	getSessionId,
+	getSessionManager,
 	initRepo,
 	installDefaultSubGeneratorMock,
 	jj,
@@ -61,6 +63,15 @@ function captureNotifications(
 /** The initial commit's change id in a fresh `initRepo`. */
 function baseChangeId(cwd: string): string {
 	return jj(["log", "-r", "@-", "--no-graph", "-T", "change_id"], cwd);
+}
+
+/** Advance `main` with one upstream file; returns the initial commit's change id. */
+function seedUpstreamMain(cwd: string): string {
+	const base = baseChangeId(cwd);
+	jj(["new", base, "-m", "upstream"], cwd);
+	writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+	jj(["bookmark", "set", "main", "-r", "@"], cwd);
+	return base;
 }
 
 /** Children of a rev, as `{ id, description }`. */
@@ -183,6 +194,51 @@ describeJj("sillajje fold", () => {
 		const files = jj(["file", "list", "-r", "review"], cwd);
 		expect(files).toContain("one.txt");
 		expect(files).toContain("two.txt");
+	}, 30_000);
+
+	it("appends onto the branch from a session handed off with new -s", async () => {
+		const cwd = initRepo();
+
+		// Session A seals its work and publishes the review branch.
+		const runnerA = await createRunner(cwd);
+		await runnerA.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runnerA);
+		const sessionA = getSessionId(runnerA);
+		const workspaceA = wsPath(cwd, sessionA);
+		writeFileSync(join(workspaceA, "one.txt"), "one\n");
+		await simulateInteraction(runnerA, "First", "Done.");
+
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+		await runSillajje(runnerA, "fold -s @ -o main --named review");
+
+		// Session B branches from A's last seal, as `/sillajje:new -s A` does.
+		const runnerB = await createRunner(cwd);
+		getSessionManager(runnerB).appendCustomEntry(SESSION_BASE_TYPE, {
+			base: sessionBookmark(sessionA),
+			label: sessionA,
+		});
+		await runnerB.emit({ type: "session_start", reason: "new" });
+		const notificationsB = captureNotifications(runnerB);
+		const sessionB = getSessionId(runnerB);
+		const workspaceB = wsPath(cwd, sessionB);
+		writeFileSync(join(workspaceB, "two.txt"), "two\n");
+		await simulateInteraction(runnerB, "Second", "Done.");
+
+		await runSillajje(runnerB, "fold -s @ --update review");
+
+		const files = jj(["file", "list", "-r", "review"], cwd);
+		expect(files).toContain("one.txt");
+		expect(files).toContain("two.txt");
+		expect(changeId(cwd, "sillajje/folded/review")).toBe(
+			changeId(cwd, sessionBookmark(sessionB)),
+		);
+		expect(
+			notificationsB.some((n) =>
+				n.msg.includes("folding from the fork point"),
+			),
+		).toBe(false);
 	}, 30_000);
 
 	it("folds a rev source with -r", async () => {
@@ -393,13 +449,78 @@ describeJj("sillajje fold", () => {
 		expect(files).toContain("d.txt");
 		expect(files).toContain("e.txt");
 
-		// The marker is keyed by source and target, and records the new tip.
-		expect(changeId(cwd, "sillajje/folded/feat/review")).toBe(
+		// The marker is keyed by the review branch, and records the new tip.
+		expect(changeId(cwd, "sillajje/folded/review")).toBe(
 			changeId(cwd, "feat"),
 		);
 	}, 30_000);
 
-	it("a plain fold ignores the recorded marker and re-aggregates from the fork point", async () => {
+	it("appends across a renamed source because the marker keys on the branch", async () => {
+		const cwd = initRepo();
+		const base = seedUpstreamMain(cwd);
+
+		jj(["new", base, "-m", "D"], cwd);
+		writeFileSync(join(cwd, "d.txt"), "d\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		// The first fold keys the marker on the review branch.
+		await runSillajje(runner, "fold -r feat -o main --named review");
+
+		// The source bookmark changes name before the next fold. A marker keyed
+		// on the source would miss and re-aggregate from the fork point.
+		jj(["bookmark", "rename", "feat", "feat2"], cwd);
+		jj(["new", "feat2", "-m", "E"], cwd);
+		writeFileSync(join(cwd, "e.txt"), "e\n");
+		jj(["bookmark", "set", "feat2", "-r", "@"], cwd);
+
+		await runSillajje(runner, "fold -r feat2 --update review");
+
+		expect(jj(["file", "list", "-r", "review"], cwd)).toContain("d.txt");
+		expect(jj(["file", "list", "-r", "review"], cwd)).toContain("e.txt");
+		expect(changeId(cwd, "sillajje/folded/review")).toBe(
+			changeId(cwd, "feat2"),
+		);
+		expect(
+			notifications.some((n) =>
+				n.msg.includes("folding from the fork point"),
+			),
+		).toBe(false);
+	}, 30_000);
+
+	it("falls back to the fork point when the Folded source marker is unrelated", async () => {
+		const cwd = initRepo();
+		const base = seedUpstreamMain(cwd);
+
+		jj(["new", base, "-m", "D"], cwd);
+		writeFileSync(join(cwd, "d.txt"), "d\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "O"], cwd);
+		writeFileSync(join(cwd, "o.txt"), "o\n");
+		jj(["bookmark", "set", "other", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r feat -o main --named review");
+		// `other` does not descend from the recorded tip, so the marker is not a
+		// usable base.
+		await runSillajje(runner, "fold -r other --update review");
+
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("folding from the fork point"),
+			}),
+		);
+	}, 30_000);
+
+	it("a plain fold ignores the Folded source marker and re-aggregates from the fork point", async () => {
 		const cwd = initRepo();
 		const base = baseChangeId(cwd);
 
@@ -455,10 +576,10 @@ describeJj("sillajje fold", () => {
 		await runSillajje(runner, "fold -r feat --update review-a");
 
 		// review-a moved forward; review-b still records the first tip.
-		expect(changeId(cwd, "sillajje/folded/feat/review-a")).toBe(
+		expect(changeId(cwd, "sillajje/folded/review-a")).toBe(
 			changeId(cwd, "feat"),
 		);
-		expect(changeId(cwd, "sillajje/folded/feat/review-b")).not.toBe(
+		expect(changeId(cwd, "sillajje/folded/review-b")).not.toBe(
 			changeId(cwd, "feat"),
 		);
 		expect(jj(["file", "list", "-r", "review-a"], cwd)).toContain("e.txt");

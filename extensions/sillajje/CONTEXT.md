@@ -24,8 +24,12 @@ A `/sillajje:fold` subcommand that publishes a source delta as one clean change.
 _Avoid_: Squash (jj's `jj squash` is the primitive underneath; Fold is the publish act)
 
 **Folded source**:
-The source tip last published by a Fold, recorded as a `sillajje/folded/<source>/<target>` bookmark. The target half is the review branch the fold was named with (`--named`), or `--update`'s bookmark, or the target's single local bookmark. For a session source the recorded tip is the last seal (the session bookmark), not the workspace working copy, because `@` is the fresh empty child the next interaction stamps. `--update` reads the marker as the next Fold's base, so folding again publishes only what is new.
+The source tip last published by a Fold, recorded in the Folded source marker. For a session source the recorded tip is the last seal (the session bookmark), not the workspace working copy, because `@` is the fresh empty child the next interaction stamps. `--update` reads the marker as the next Fold's base, so folding again publishes only what is new; it uses the record only when the recorded tip is an ancestor of the source, and otherwise bases on the fork point.
 _Avoid_: Fold base, checkpoint
+
+**Folded source marker**:
+The `sillajje/folded/<target>` bookmark that records a Folded source, keyed by the review branch — the fold name (`--named`), `--update`'s bookmark, or the target's single local bookmark. A marker written before the branch key (`sillajje/folded/<source>/<target>`) is never read.
+_Avoid_: Fold base, checkpoint, recorded marker
 
 **Archive**:
 A `/sillajje:archive [-s <id>]` subcommand that retires a session: it deletes the workspace directory and keeps the `sillajje/<session-key>` bookmark. `-s` defaults to `@`, so a bare invocation archives this session. An archived session accepts no prompts until unarchived, and its bookmark stays a valid Base for `/sillajje:new` and a valid source for `/sillajje:fold`. A foreign session is rejected.

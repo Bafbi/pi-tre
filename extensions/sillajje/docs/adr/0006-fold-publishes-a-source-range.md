@@ -38,3 +38,13 @@ Push is best-effort. The fold is already committed, so a failed push emits a `pu
 A session source folds its session log, and the log keeps being written. jj can therefore rewrite the folded change after the push, leaving the remote on the same change id but an earlier commit id until the next push. This is inherent to folding a tracked session log, not to the push, so it is accepted.
 
 **Rejected: pushing automatically.** Push is a non-rollbackable external side effect on a shared branch. The repo requires an explicit override for risky behavior, and `--land` and `--archive` are already explicit; an automatic push would violate that. Also rejected: a `fold.autoPush` config toggle, which hides the side effect behind config instead of a flag.
+
+## Amendment: the base is keyed by the review branch
+
+The folded-source marker is `sillajje/folded/<target>`. The base a Fold records belongs to the review branch, not to the source that published it. `<target>` is the fold name (`--named`), `--update`'s bookmark, or the target's single local bookmark. `--update` reads the record for its bookmark whatever the source, so a source that continues another source's history — a session handed off with `/sillajje:new -s @`, a renamed rev, or a source that advanced — appends only its new work.
+
+**Branch key (chosen)** vs `sillajje/folded/<source>/<target>`. The source half only separates independent sources that share one review branch, a case that is not supported. It breaks the handoff case, where the new session key misses the record and re-aggregates from the fork point, and it leaves one marker per session per branch. This supersedes the marker key asserted in the first amendment above ("The marker is `sillajje/folded/<source>/<target>`").
+
+`--update` uses the recorded commit only when the marker resolves to exactly one commit and that commit is an ancestor of the current tip. Otherwise — a missing marker, a conflicted or rewritten bookmark, an unrelated source, or a rewrite the marker did not follow — it falls back to `fork_point(source, target)` with the `fold_update_fallback` info. The marker stays a jj bookmark, so a single-successor source rewrite carries it to the new commit.
+
+Markers written before this amendment use `sillajje/folded/<source>/<target>`. The branch key does not read them, so the first `--update` after upgrade finds no record, falls back to the fork point, and whole-folds once. Legacy markers are left in place; there is no migration or cleanup.
