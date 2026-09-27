@@ -146,8 +146,6 @@ export function getFoldConfig(cfg: SillajjeConfig): FoldConfig {
 interface FoldSource {
 	/** The resolved source tip. */
 	tip: Commit;
-	/** The source half of the folded-source marker, `<name>` in `sillajje/folded/<name>/<target>`. */
-	name: string;
 	/** The session key, when the source is a session. */
 	sessionKey?: string;
 	/** The directory jj runs in. */
@@ -173,12 +171,6 @@ async function resolveSingle(
 	return commit;
 }
 
-/**
- * The folded-source bookmark name for a rev source: the single local
- * bookmark at the tip, or a slug of the rev string when the rev carries no
- * bookmark. jj bookmark names reject `~`, `^`, `:`, `@`, and spaces, so the
- * fallback strips them.
- */
 /** The local bookmark names pointing at a commit. */
 async function localBookmarkNames(
 	jj: Jj,
@@ -269,25 +261,29 @@ async function pushAdvancedBookmark(
 }
 
 /**
- * The folded-source bookmark name for a rev source: the single local
- * bookmark at the tip, or a slug of the rev string when the rev carries no
- * bookmark. jj bookmark names reject `~`, `^`, `:`, `@`, and spaces, so the
- * fallback strips them.
+ * Whether `ancestor` is reachable from `descendant`. A Folded source marker
+ * that is not an ancestor is not a usable base: `ancestor..descendant` would
+ * include history the review branch may already hold.
  */
-async function foldedSourceName(
+async function isAncestor(
 	jj: Jj,
-	tip: Commit,
-	rev: string,
+	ancestor: Commit,
+	descendant: Commit,
 	cwd: string,
-): Promise<string> {
-	const names = await localBookmarkNames(jj, tip.commitId, cwd);
-	const only = names[0];
-	if (names.length === 1 && only !== undefined) return only;
-	return slugRev(rev);
+): Promise<boolean> {
+	const path = await jj.log(`${ancestor.commitId}::${descendant.commitId}`, {
+		cwd,
+	});
+	return path.length > 0;
+}
+
+/** The Folded source marker bookmark for a review branch. */
+function foldedSourceMarker(target: string): string {
+	return `sillajje/folded/${target}`;
 }
 
 /**
- * The target half of the folded-source marker. A target that resolves to a
+ * The target half of the Folded source marker. A target that resolves to a
  * single local bookmark keys by that bookmark name, so a review branch keeps
  * one marker as it grows. Any other target keys by a slug of the rev string.
  */
@@ -406,7 +402,6 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 					}
 					source = {
 						tip,
-						name: resolved.sessionKey,
 						sessionKey: resolved.sessionKey,
 						cwd: resolved.wsPath,
 					};
@@ -418,7 +413,6 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 							workspaces.bookmarkName(sessionKey),
 							cwd,
 						),
-						name: sessionKey,
 						sessionKey,
 						cwd,
 					};
@@ -430,7 +424,6 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				const tip = await resolveSingle(jj, rev, cwd);
 				source = {
 					tip,
-					name: await foldedSourceName(jj, tip, rev, cwd),
 					cwd,
 				};
 			}
@@ -469,7 +462,8 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		const targetRev: string = targetRevInput;
 
 		// The delta base. Publish uses the fork point. Update reads the review
-		// bookmark's marker and falls back to the fork point when none exists.
+		// bookmark's branch-keyed marker and uses it only when the recorded tip is
+		// an ancestor of the source; otherwise it falls back to the fork point.
 		let base: Commit;
 		let delta: Commit[];
 		let targetCommit: Commit | undefined;
@@ -485,40 +479,36 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 					sourceCwd,
 				);
 			}
-			const markerName = `sillajje/folded/${source.name}/${updateMode ? targetRev : targetName}`;
 			const recorded = updateMode
 				? (await jj.bookmarks({ cwd: sourceCwd })).find(
-						(b) => b.name === markerName && b.remote === undefined,
+						(b) =>
+							b.name === foldedSourceMarker(targetRev) &&
+							b.remote === undefined,
 					)
 				: undefined;
-			if (recorded !== undefined && recorded.target.length > 0) {
+			let recordedCommit: Commit | undefined;
+			if (recorded !== undefined && recorded.target.length === 1) {
 				const recordedTarget = recorded.target[0];
-				if (recordedTarget === undefined) {
-					return fail(
-						`fold could not resolve ${markerName} to one commit`,
-					);
+				if (recordedTarget !== undefined) {
+					const recordedCommits = await jj.log(recordedTarget, {
+						cwd: sourceCwd,
+					});
+					if (recordedCommits.length === 1) {
+						recordedCommit = recordedCommits[0];
+					}
 				}
-				const recordedCommits = await jj.log(recordedTarget, {
-					cwd: sourceCwd,
-				});
-				if (recordedCommits.length !== 1) {
-					return fail(
-						`fold could not resolve ${markerName} to one commit`,
-					);
-				}
-				const recordedCommit = recordedCommits[0];
-				if (recordedCommit === undefined) {
-					return fail(
-						`fold could not resolve ${markerName} to one commit`,
-					);
-				}
+			}
+			if (
+				recordedCommit !== undefined &&
+				(await isAncestor(jj, recordedCommit, tip, sourceCwd))
+			) {
 				base = recordedCommit;
 			} else {
 				if (updateMode) {
 					emitStatus(onStatus, {
 						kind: "info",
 						code: "fold_update_fallback",
-						message: `--update found no folded-source marker for ${targetRev}; folding from the fork point`,
+						message: `--update found no usable Folded source marker for ${targetRev}; folding from the fork point`,
 					});
 				}
 				const bases = await jj.log(
@@ -720,7 +710,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			// Record the folded source tip for the next fold's delta base.
 			const recorded = await tx.apply({
 				kind: "bookmarkSet",
-				name: `sillajje/folded/${source.name}/${foldNameFor(folded)}`,
+				name: foldedSourceMarker(foldNameFor(folded)),
 				rev: tip.changeId,
 			});
 			if (!recorded.ok) return undefined;
