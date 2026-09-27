@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -8,7 +10,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createServeController, resolveRequestPath } from "../../src/serve.js";
+import {
+	createServeController,
+	onResponseClosed,
+	resolveRequestPath,
+} from "../../src/serve.js";
+
+/** Whether `mkfifo` is on PATH; the FIFO test needs it. */
+function hasMkfifo(): boolean {
+	try {
+		execFileSync("mkfifo", ["--version"], { stdio: "pipe" });
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 const dirs: string[] = [];
 
@@ -51,6 +67,23 @@ describe("resolveRequestPath", () => {
 			ok: false,
 			status: 400,
 		});
+	});
+});
+
+describe("onResponseClosed", () => {
+	it("runs on close, not on finish", () => {
+		const res = new EventEmitter();
+		let calls = 0;
+		onResponseClosed(
+			res as unknown as Parameters<typeof onResponseClosed>[0],
+			() => {
+				calls++;
+			},
+		);
+		res.emit("finish");
+		expect(calls).toBe(0);
+		res.emit("close");
+		expect(calls).toBe(1);
 	});
 });
 
@@ -215,6 +248,27 @@ describe("createServeController", () => {
 			await controller.stop();
 		}
 	});
+
+	it.skipIf(!hasMkfifo())(
+		"answers 404 for a FIFO instead of blocking",
+		async () => {
+			const root = tempDir();
+			execFileSync("mkfifo", [join(root, "pipe")]);
+			const controller = createServeController({ host: "127.0.0.1" });
+			try {
+				const status = await controller.start({
+					sessionKey: "k",
+					root,
+				});
+				const res = await fetch(`${status.localhostUrl}/pipe`, {
+					signal: AbortSignal.timeout(3000),
+				});
+				expect(res.status).toBe(404);
+			} finally {
+				await controller.stop();
+			}
+		},
+	);
 
 	it("refuses a second start while running", async () => {
 		const root = tempDir();

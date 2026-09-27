@@ -122,6 +122,18 @@ function sendStatus(res: ServerResponse, status: 400 | 403 | 404): void {
 	res.end(message);
 }
 
+/**
+ * Run `callback` when the response has closed, whether it completed or the
+ * client disconnected first. `finish` alone misses a premature disconnect, so
+ * a gone-root stop bound to it could leave the server listening.
+ */
+export function onResponseClosed(
+	res: ServerResponse,
+	callback: () => void,
+): void {
+	res.once("close", callback);
+}
+
 /** Escape a string for HTML text and attribute context. */
 function escapeHtml(value: string): string {
 	return value
@@ -415,11 +427,11 @@ export function createServeController(
 					if (!gone && !existsSync(root)) {
 						gone = true;
 						sendStatus(res, 404);
-						// Stop after the response flushes: `stop` marks the
-						// controller idle synchronously, so the callback sees
-						// `status()` undefined and clears the footer, and the socket
-						// is not cut mid-response.
-						res.once("finish", () => {
+						// Stop once the response closes: `close` fires for a completed
+						// response and for a client that disconnects first. `stop` marks
+						// the controller idle synchronously, so the callback sees
+						// `status()` undefined and clears the footer.
+						onResponseClosed(res, () => {
 							void stop();
 							input.onRootGone?.();
 						});
