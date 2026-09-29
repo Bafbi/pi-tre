@@ -28,6 +28,8 @@ import {
 	type RunSubagent,
 	renderHelp,
 	renderSessionFailure,
+	SERVE_ARGS,
+	SERVE_HELP,
 	STAMP_ARGS,
 	STAMP_HELP,
 	type StatusEvent,
@@ -55,6 +57,7 @@ import {
 	STAMP_MARKER_TYPE,
 } from "./interaction.js";
 import { redirect } from "./path-redirect.js";
+import { createServeController, type ServeStatus } from "./serve.js";
 import {
 	lastSessionBase,
 	NEW_ARGS,
@@ -170,6 +173,9 @@ function resolveExecFn(pi: ExtensionAPI): ExecFn {
  */
 export default function (pi: ExtensionAPI) {
 	const state = new SessionState();
+	// One static server for this pi process. It binds no socket until Serve
+	// starts one, so an invocation that never serves a session is unaffected.
+	const serve = createServeController();
 	// Start with no-op logger; recreated in session_start once config is loaded.
 	let debug = createDebugLogger({ enabled: false });
 
@@ -453,6 +459,50 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setStatus("sillajje", formatPill(state));
 	};
 
+	// The URL a user should open from another device: the first LAN address,
+	// or the local address when the host has no non-internal IPv4 interface.
+	const servePublicUrl = (status: ServeStatus): string =>
+		status.lanUrls[0] ?? status.localUrl;
+
+	// The full facts of a live server, one per line, for a notification.
+	const serveStatusText = (status: ServeStatus): string =>
+		[
+			`session: ${status.sessionKey}`,
+			`root: ${status.root}`,
+			`url: ${status.localUrl}`,
+			...status.lanUrls.map((url) => `url: ${url}`),
+		].join("\n");
+
+	// Helper: sync the Serve footer indicator. It owns its own status key, so
+	// the session pill and the serve indicator are independent.
+	const syncServePill = (ctx: {
+		hasUI: boolean;
+		ui: { setStatus: (key: string, text: string | undefined) => void };
+	}) => {
+		if (!ctx.hasUI) return;
+		const live = serve.status();
+		ctx.ui.setStatus(
+			"sillajje-serve",
+			live === undefined ? undefined : `serve: ${servePublicUrl(live)}`,
+		);
+	};
+
+	// Helper: stop the running server, log it, and clear the footer indicator.
+	// One home for the stop sites: `--stop`, archive, fold, and missing workspace.
+	const stopServe = async (
+		ctx: {
+			hasUI: boolean;
+			ui: {
+				setStatus: (key: string, text: string | undefined) => void;
+			};
+		},
+		sessionKey: string,
+	): Promise<void> => {
+		await serve.stop();
+		debug.event("serve_stopped", { sessionKey });
+		syncServePill(ctx);
+	};
+
 	// -----------------------------------------------------------------------
 	// Missing-workspace detection — workspace deleted or jj disappeared mid-session
 	// -----------------------------------------------------------------------
@@ -472,6 +522,7 @@ export default function (pi: ExtensionAPI) {
 		ctx: {
 			hasUI: boolean;
 			ui: {
+				setStatus: (key: string, text: string | undefined) => void;
 				notify: (
 					msg: string,
 					type: "info" | "warning" | "error",
@@ -482,6 +533,11 @@ export default function (pi: ExtensionAPI) {
 	): void => {
 		if (state.isMissingWorkspace()) return;
 		state.markMissingWorkspace();
+		// A server whose root just disappeared has nothing left to serve.
+		const live = serve.status();
+		if (live !== undefined && live.sessionKey === state.getSessionKey()) {
+			void stopServe(ctx, live.sessionKey);
+		}
 		debug.error("session_missing_workspace", new Error(reason));
 		if (ctx.hasUI) {
 			ctx.ui.notify(
@@ -519,6 +575,9 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		debug.event("session_start", { mode: ctx.mode, reason: _event.reason });
 		state.reset();
+		// Clear a Serve indicator left by a previous session; a no-op when the
+		// controller still has a live server (it re-sets the same key).
+		syncServePill(ctx);
 		syncCursor(ctx, _event.reason);
 
 		// Sillajje only activates in interactive TUI mode with a file-backed session.
@@ -948,10 +1007,11 @@ export default function (pi: ExtensionAPI) {
 				"unarchive",
 				"sync",
 				"fold",
+				"serve",
 			].includes(subcommand ?? "");
 			const suggestion = known
 				? `/sillajje:${subcommand}`
-				: "/sillajje:<status|new|stamp|archive|unarchive|sync|fold>";
+				: "/sillajje:<status|new|stamp|archive|unarchive|sync|fold|serve>";
 			debug.event("input_old_form_guard", { text: event.text });
 			if (ctx.hasUI) {
 				ctx.ui.notify(
@@ -1019,6 +1079,11 @@ export default function (pi: ExtensionAPI) {
 	// -----------------------------------------------------------------------
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		// The process is ending, so any live server must release its port.
+		// This runs before the early returns below, which only guard the
+		// workspace cleanup.
+		await serve.stop();
+
 		if (
 			state.isInactive() ||
 			state.isArchived() ||
@@ -1070,6 +1135,120 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(statusText, "info");
 		}
 		return;
+	};
+
+	const handleServe = async (
+		args: string,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const values = parseOrReport(
+			ctx,
+			sessionDefault(args),
+			SERVE_ARGS,
+			SERVE_HELP,
+			"serve",
+		);
+		if (values === undefined) return;
+
+		const live = serve.status();
+
+		if (values.stop === true) {
+			if (live === undefined) {
+				if (ctx.hasUI) {
+					ctx.ui.notify("[sillajje] serve is not running", "info");
+				}
+				return;
+			}
+			await stopServe(ctx, live.sessionKey);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] stopped serving session ${live.sessionKey}`,
+					"info",
+				);
+			}
+			return;
+		}
+
+		if (values.status === true) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					live === undefined
+						? "[sillajje] serve is not running"
+						: serveStatusText(live),
+					"info",
+				);
+			}
+			return;
+		}
+
+		// A second invocation reports the live URL and changes nothing. The
+		// port is ephemeral, so this is how a user recovers a lost URL.
+		if (live !== undefined) {
+			syncServePill(ctx);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] already serving session ${live.sessionKey}\n${serveStatusText(live)}`,
+					"info",
+				);
+			}
+			return;
+		}
+
+		const target =
+			typeof values.session === "string" ? values.session : "@";
+		if (target !== "@") {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] only this session can be served — use -s @ or omit -s",
+					"warning",
+				);
+			}
+			return;
+		}
+
+		const root = state.getWorkspacePath();
+		const sessionKey = state.getSessionKey();
+		if (
+			!state.isActive() ||
+			state.isMissingWorkspace() ||
+			root === undefined ||
+			sessionKey === undefined
+		) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot serve: this session has no workspace",
+					"error",
+				);
+			}
+			return;
+		}
+
+		try {
+			const status = await serve.start({
+				sessionKey,
+				root,
+				onRootGone: () => syncServePill(ctx),
+			});
+			syncServePill(ctx);
+			debug.event("serve_started", {
+				sessionKey: status.sessionKey,
+				port: status.port,
+			});
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] serving ${status.root}\n${serveStatusText(status)}`,
+					"info",
+				);
+			}
+		} catch (error) {
+			debug.error("serve_failed", error);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] serve failed: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
+		}
 	};
 
 	const handleArchive = async (
@@ -1130,6 +1309,11 @@ export default function (pi: ExtensionAPI) {
 			state.setArchived();
 			state.clearWorkspacePath();
 			state.setCursorId(null);
+		}
+
+		// The served workspace is gone; the server has nothing left to serve.
+		if (serve.status()?.sessionKey === result.sessionKey) {
+			await stopServe(ctx, result.sessionKey);
 		}
 
 		syncPill(ctx);
@@ -1711,6 +1895,16 @@ export default function (pi: ExtensionAPI) {
 				state.setCursorId(null);
 				syncPill(ctx);
 			}
+			// A folded source can be any session, the current one included. Stop
+			// the server when the session it serves is the one just archived.
+			const servedKey = serve.status()?.sessionKey;
+			if (
+				result.archived &&
+				servedKey !== undefined &&
+				servedKey === result.sessionKey
+			) {
+				await stopServe(ctx, servedKey);
+			}
 			if (ctx.hasUI) {
 				const namedNote =
 					result.bookmark !== undefined &&
@@ -1787,6 +1981,13 @@ export default function (pi: ExtensionAPI) {
 		description: "Recreate an archived session workspace",
 		handler: async (args, ctx) => {
 			await handleUnarchive(args, ctx);
+		},
+	});
+
+	pi.registerCommand("sillajje:serve", {
+		description: "Serve a session workspace over HTTP on the LAN",
+		handler: async (args, ctx) => {
+			await handleServe(args, ctx);
 		},
 	});
 
