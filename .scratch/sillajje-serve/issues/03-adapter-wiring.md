@@ -8,9 +8,9 @@ Status: ready-for-agent
   (it binds nothing until `start`).
 - `handleServe(args, ctx)` parses `sessionDefault(args)` against `SERVE_ARGS`.
   `--stop` and `--status` act on the singleton. A bare re-invoke while running
-  reports the live URL and changes nothing. A start resolves `@` to
-  `state.getSessionKey()`, then `buildPorts(...).workspaces.resolveTarget`,
-  renders `renderSessionFailure` on a bad target, and starts on `wsPath`.
+  reports the live URL and changes nothing. A start accepts only `-s @` (the
+  default) and serves `state.getWorkspacePath()`; any other target is rejected,
+  as is a start with no active workspace.
 - Footer: `ctx.ui.setStatus("sillajje-serve", "serve: " + publicUrl)` after
   start, `undefined` after stop; `publicUrl` is the first LAN URL, else
   localhost. The start notification lists every URL so one is copyable.

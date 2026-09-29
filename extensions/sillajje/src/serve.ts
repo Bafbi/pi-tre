@@ -148,12 +148,19 @@ function escapeHtml(value: string): string {
  *
  * The file is opened with `O_NOFOLLOW` and streamed from the descriptor, so a
  * path swapped for a symlink between the containment check and the open fails
- * the open instead of serving the target.
+ * the open instead of serving the target. `O_NONBLOCK` keeps a swap to a FIFO
+ * from blocking `open` (a static FIFO never reaches here — the `isFile()`
+ * check rejects it first).
  */
 function sendFile(res: ServerResponse, file: string, headOnly: boolean): void {
 	let fd: number;
 	try {
-		fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+		fd = openSync(
+			file,
+			constants.O_RDONLY |
+				(constants.O_NOFOLLOW || 0) |
+				(constants.O_NONBLOCK || 0),
+		);
 	} catch {
 		sendStatus(res, 404);
 		return;
@@ -313,8 +320,11 @@ export interface ServeStatus {
 	root: string;
 	/** The bound TCP port. */
 	port: number;
-	/** A loopback URL, always reachable from this host. */
-	localhostUrl: string;
+	/**
+	 * A URL reachable from this host: `localhost` for a wildcard bind, the
+	 * bound address otherwise, IPv6 literals bracketed.
+	 */
+	localUrl: string;
 	/**
 	 * The LAN URLs reachable through the bound host: every non-internal IPv4
 	 * for a wildcard bind, the named address for a specific one, and empty for
@@ -357,6 +367,21 @@ function lanUrlsFor(port: number, host: string): string[] {
 		}
 	}
 	return urls;
+}
+
+/**
+ * The URL that reaches the server from this host. A wildcard bind answers on
+ * `localhost`; a specific bind answers only on the bound address, so the URL
+ * names it — a non-loopback `host` makes `localhost` unreachable.
+ */
+export function localUrlFor(port: number, host: string): string {
+	const wildcard = host === "" || host === "0.0.0.0" || host === "::";
+	const name = wildcard
+		? "localhost"
+		: host.includes(":")
+			? `[${host}]`
+			: host;
+	return `http://${name}:${port}`;
 }
 
 /** Bind the server on an ephemeral port and resolve the chosen port. */
@@ -459,7 +484,7 @@ export function createServeController(
 					sessionKey: input.sessionKey,
 					root,
 					port,
-					localhostUrl: `http://localhost:${port}`,
+					localUrl: localUrlFor(port, host),
 					lanUrls: lanUrlsFor(port, host),
 				};
 				active = { status, server, rootReal };

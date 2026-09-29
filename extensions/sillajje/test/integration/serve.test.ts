@@ -124,6 +124,23 @@ describeJj("sillajje serve", () => {
 		}
 	});
 
+	it("rejects a target other than @", async () => {
+		const { runner, ui } = await setup(initRepo());
+		await runSillajje(runner, "serve -s other");
+		expect(ui.statuses.get("sillajje-serve")).toBeUndefined();
+		expect(ui.notifications.some((n) => n.type === "warning")).toBe(true);
+	});
+
+	it("accepts an explicit -s @", async () => {
+		const { runner, ui } = await setup(initRepo());
+		try {
+			await runSillajje(runner, "serve -s @");
+			expect(ui.statuses.get("sillajje-serve")).toMatch(/^serve: /);
+		} finally {
+			await runSillajje(runner, "serve --stop");
+		}
+	});
+
 	it("stops the server when the served session is archived", async () => {
 		const { runner, root, ui } = await setup(initRepo());
 		writeFileSync(join(root, "report.html"), "<h1>hi</h1>");

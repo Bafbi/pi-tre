@@ -11,9 +11,9 @@ reports the agent authors under `.scratch/`. Today the only way to view them
 from another device is to copy the file out by hand. Serve gives the workspace
 a URL the user can open on a phone or another machine.
 
-The command follows the existing session-targeted subcommand shape: `-s`
-defaults to `@`, so the bare form serves the current session, and a session
-key, id, or `@` selects any live workspace.
+The command keeps the session-targeted subcommand shape: `-s` defaults to
+`@`, and only `@` is accepted. Serve is single-session — the one pi process
+drives it, so it cannot own another session's workspace lifetime.
 
 ## Settled design
 
@@ -30,15 +30,16 @@ Decisions reached by grilling; every one is a user value, not a default.
   fixed port is never assumed, so concurrent sessions never collide.
 - **Exposure**: the whole workspace root, LAN trusted. No auth, no root
   override, no config field.
-- **Flags**: `serve [-s|--session <id>] [--stop|--status]`. `--session` is
-  exclusive with `--stop` and `--status`; `-h` prints usage. Bare re-invocation
-  while running re-reports the live URL and never switches targets.
+- **Flags**: `serve [-s|--session <id>] [--stop|--status]`. Only `-s @` (or
+  no `-s`) is accepted; any other target is rejected. `--session` is exclusive
+  with `--stop` and `--status`; `-h` prints usage. Bare re-invocation while
+  running re-reports the live URL and never switches targets.
 - **Indicator**: a separate footer key `sillajje-serve`, text `serve: <url>`,
   cleared on stop.
 
 ## Serving rules
 
-- Root is `resolveTarget(...).wsPath`, fixed at start.
+- Root is the current session's workspace path, fixed at start.
 - Request paths are decoded, resolved under the root, realpath-checked for
   containment, and rejected with `400` (bad escape, NUL), `403` (escape), or
   `404` (missing).
@@ -47,10 +48,26 @@ Decisions reached by grilling; every one is a user value, not a default.
   no-store`, `HEAD` supported.
 - A request whose served root is gone answers `404` and stops the server.
 
+## Hardening (added after review)
+
+Each of these closed a code-review finding; none is optional.
+
+- A directory request without a trailing slash `301`s to the slash-normalized
+  URL, so a generated listing's relative links resolve.
+- `sendFile` opens with `O_NOFOLLOW` and streams the descriptor, so a path
+  swapped for a symlink after the containment check fails the open.
+  `O_NONBLOCK` keeps a swap to a FIFO from blocking the event loop.
+- `start()` reserves the controller before `listen`, so a concurrent start is
+  rejected instead of leaking a second bound socket.
+- `localUrl` is derived from the bound host, IPv6 literals bracketed, and
+  `lanUrls` is filtered to that host. A specific non-loopback bind makes
+  `localhost` unreachable, so the advertised URL must name the bound address.
+
 ## Out of scope
 
-HTTPS, auth tokens, directory-root configuration, SPA fallback, and serving a
-foreign session. Any of these can be a later issue.
+HTTPS, auth tokens, directory-root configuration, SPA fallback, and serving
+any session other than the current one (`-s` accepts only `@`). Any of these
+can be a later issue.
 
 ## Acceptance
 

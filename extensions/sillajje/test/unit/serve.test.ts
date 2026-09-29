@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createServeController,
+	localUrlFor,
 	onResponseClosed,
 	resolveRequestPath,
 } from "../../src/serve.js";
@@ -55,6 +56,15 @@ describe("resolveRequestPath", () => {
 		expect(result).toEqual({ ok: false, status: 403 });
 	});
 
+	it("clamps a literal dot-dot segment to the root", () => {
+		// A literal `..` never reaches the containment check: the URL parser
+		// normalizes it away, so the result stays under the root.
+		expect(resolveRequestPath("/srv/ws", "/../secret")).toEqual({
+			ok: true,
+			absPath: "/srv/ws/secret",
+		});
+	});
+
 	it("rejects a NUL byte", () => {
 		expect(resolveRequestPath("/srv/ws", "/%00")).toEqual({
 			ok: false,
@@ -67,6 +77,24 @@ describe("resolveRequestPath", () => {
 			ok: false,
 			status: 400,
 		});
+	});
+});
+
+describe("localUrlFor", () => {
+	it("uses localhost for a wildcard bind", () => {
+		expect(localUrlFor(8080, "0.0.0.0")).toBe("http://localhost:8080");
+		expect(localUrlFor(8080, "::")).toBe("http://localhost:8080");
+	});
+
+	it("names a specific bound address", () => {
+		expect(localUrlFor(8080, "192.168.1.5")).toBe(
+			"http://192.168.1.5:8080",
+		);
+		expect(localUrlFor(8080, "127.0.0.1")).toBe("http://127.0.0.1:8080");
+	});
+
+	it("brackets an IPv6 literal", () => {
+		expect(localUrlFor(8080, "::1")).toBe("http://[::1]:8080");
 	});
 });
 
@@ -102,7 +130,7 @@ describe("createServeController", () => {
 			// A loopback bind advertises no LAN URL.
 			expect(status.lanUrls).toEqual([]);
 
-			const res = await fetch(`${status.localhostUrl}/hello.txt`);
+			const res = await fetch(`${status.localUrl}/hello.txt`);
 			expect(res.status).toBe(200);
 			expect(res.headers.get("content-type")).toBe(
 				"text/plain; charset=utf-8",
@@ -122,7 +150,7 @@ describe("createServeController", () => {
 		const controller = createServeController({ host: "127.0.0.1" });
 		try {
 			const status = await controller.start({ sessionKey: "k", root });
-			const res = await fetch(`${status.localhostUrl}/reports/`);
+			const res = await fetch(`${status.localUrl}/reports/`);
 			expect(res.status).toBe(200);
 			expect(await res.text()).toContain('href="a.html"');
 		} finally {
@@ -137,7 +165,7 @@ describe("createServeController", () => {
 		const controller = createServeController({ host: "127.0.0.1" });
 		try {
 			const status = await controller.start({ sessionKey: "k", root });
-			const res = await fetch(`${status.localhostUrl}/site/`);
+			const res = await fetch(`${status.localUrl}/site/`);
 			expect(await res.text()).toBe("<h1>home</h1>");
 		} finally {
 			await controller.stop();
@@ -150,7 +178,7 @@ describe("createServeController", () => {
 		const controller = createServeController({ host: "127.0.0.1" });
 		try {
 			const status = await controller.start({ sessionKey: "k", root });
-			const res = await fetch(`${status.localhostUrl}/f.txt`, {
+			const res = await fetch(`${status.localUrl}/f.txt`, {
 				method: "HEAD",
 			});
 			expect(res.status).toBe(200);
@@ -175,7 +203,7 @@ describe("createServeController", () => {
 		});
 
 		rmSync(root, { recursive: true, force: true });
-		const res = await fetch(`${status.localhostUrl}/f.txt`);
+		const res = await fetch(`${status.localUrl}/f.txt`);
 		expect(res.status).toBe(404);
 		await vi.waitFor(() => {
 			expect(controller.status()).toBeUndefined();
@@ -190,7 +218,7 @@ describe("createServeController", () => {
 		const controller = createServeController({ host: "127.0.0.1" });
 		try {
 			const status = await controller.start({ sessionKey: "k", root });
-			const res = await fetch(`${status.localhostUrl}/reports`, {
+			const res = await fetch(`${status.localUrl}/reports`, {
 				redirect: "manual",
 			});
 			expect(res.status).toBe(301);
@@ -212,7 +240,7 @@ describe("createServeController", () => {
 		const controller = createServeController({ host: "127.0.0.1" });
 		try {
 			const status = await controller.start({ sessionKey: "k", root });
-			const res = await fetch(`${status.localhostUrl}/site/`);
+			const res = await fetch(`${status.localUrl}/site/`);
 			expect(res.status).toBe(403);
 		} finally {
 			await controller.stop();
@@ -227,7 +255,7 @@ describe("createServeController", () => {
 		const controller = createServeController({ host: "127.0.0.1" });
 		try {
 			const status = await controller.start({ sessionKey: "k", root });
-			const res = await fetch(`${status.localhostUrl}/link.txt`);
+			const res = await fetch(`${status.localUrl}/link.txt`);
 			expect(res.status).toBe(403);
 		} finally {
 			await controller.stop();
@@ -260,7 +288,7 @@ describe("createServeController", () => {
 					sessionKey: "k",
 					root,
 				});
-				const res = await fetch(`${status.localhostUrl}/pipe`, {
+				const res = await fetch(`${status.localUrl}/pipe`, {
 					signal: AbortSignal.timeout(3000),
 				});
 				expect(res.status).toBe(404);

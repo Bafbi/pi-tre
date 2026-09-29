@@ -6,11 +6,16 @@ Status: ready-for-agent
 
 - `createServeController({ host? })` returns `{ start, stop, status }`.
   `start({ sessionKey, root, onRootGone? })` binds `host` (default `0.0.0.0`)
-  on port `0`, records `{ sessionKey, root, port, localhostUrl, lanUrls }`, and
-  resolves once the socket listens. `stop()` closes the socket and all
-  keep-alive connections. `status()` returns the record or `undefined`.
+  on port `0`, records `{ sessionKey, root, port, localUrl, lanUrls }`, and
+  resolves once the socket listens. The port is ephemeral, so a second
+  `start()` before the first finishes is rejected rather than leaking a
+  second socket. `stop()` closes the socket and all keep-alive connections.
+  `status()` returns the record or `undefined`.
+- `localUrl` is the URL that reaches the server from this host: `localhost`
+  for a wildcard bind, the bound address otherwise, IPv6 literals bracketed.
 - `lanUrls` comes from `os.networkInterfaces()`: each non-internal IPv4 with
-  `http://<address>:<port>`.
+  `http://<address>:<port>`, filtered to the bound host when `host` is a
+  specific address.
 - Request handling: `resolveRequestPath(root, requestUrl)` is pure and
   exported. It parses the URL, decodes the pathname, rejects NUL with `400`,
   resolves under the root, and rejects an escape with `403`. The handler then

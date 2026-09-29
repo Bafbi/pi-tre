@@ -460,16 +460,16 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// The URL a user should open from another device: the first LAN address,
-	// or loopback when the host has no non-internal IPv4 interface.
+	// or the local address when the host has no non-internal IPv4 interface.
 	const servePublicUrl = (status: ServeStatus): string =>
-		status.lanUrls[0] ?? status.localhostUrl;
+		status.lanUrls[0] ?? status.localUrl;
 
 	// The full facts of a live server, one per line, for a notification.
 	const serveStatusText = (status: ServeStatus): string =>
 		[
 			`session: ${status.sessionKey}`,
 			`root: ${status.root}`,
-			`url: ${status.localhostUrl}`,
+			`url: ${status.localUrl}`,
 			...status.lanUrls.map((url) => `url: ${url}`),
 		].join("\n");
 
@@ -485,6 +485,22 @@ export default function (pi: ExtensionAPI) {
 			"sillajje-serve",
 			live === undefined ? undefined : `serve: ${servePublicUrl(live)}`,
 		);
+	};
+
+	// Helper: stop the running server, log it, and clear the footer indicator.
+	// One home for the stop sites: `--stop`, archive, fold, and missing workspace.
+	const stopServe = async (
+		ctx: {
+			hasUI: boolean;
+			ui: {
+				setStatus: (key: string, text: string | undefined) => void;
+			};
+		},
+		sessionKey: string,
+	): Promise<void> => {
+		await serve.stop();
+		debug.event("serve_stopped", { sessionKey });
+		syncServePill(ctx);
 	};
 
 	// -----------------------------------------------------------------------
@@ -520,7 +536,7 @@ export default function (pi: ExtensionAPI) {
 		// A server whose root just disappeared has nothing left to serve.
 		const live = serve.status();
 		if (live !== undefined && live.sessionKey === state.getSessionKey()) {
-			void serve.stop().then(() => syncServePill(ctx));
+			void stopServe(ctx, live.sessionKey);
 		}
 		debug.error("session_missing_workspace", new Error(reason));
 		if (ctx.hasUI) {
@@ -1140,9 +1156,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				return;
 			}
-			await serve.stop();
-			syncServePill(ctx);
-			debug.event("serve_stopped", { sessionKey: live.sessionKey });
+			await stopServe(ctx, live.sessionKey);
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					`[sillajje] stopped serving session ${live.sessionKey}`,
@@ -1179,37 +1193,27 @@ export default function (pi: ExtensionAPI) {
 
 		const target =
 			typeof values.session === "string" ? values.session : "@";
-		const callerKey = target === "@" ? state.getSessionKey() : target;
-		if (callerKey === undefined) {
+		if (target !== "@") {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
-					`[sillajje] ${renderSessionFailure("not-a-session", target)}`,
-					"error",
+					"[sillajje] only this session can be served — use -s @ or omit -s",
+					"warning",
 				);
 			}
 			return;
 		}
 
-		const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
-		if (!repoRoot) {
+		const root = state.getWorkspacePath();
+		const sessionKey = state.getSessionKey();
+		if (
+			!state.isActive() ||
+			state.isMissingWorkspace() ||
+			root === undefined ||
+			sessionKey === undefined
+		) {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
-					"[sillajje] cannot serve: no jj repo detected",
-					"error",
-				);
-			}
-			return;
-		}
-
-		const ports = buildPorts(ctx, repoRoot);
-		const resolved = await ports.workspaces.resolveTarget(callerKey, {
-			sessionKey: state.getSessionKey(),
-			wsPath: state.getWorkspacePath(),
-		});
-		if (!resolved.ok) {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] ${renderSessionFailure(resolved.reason, target)}`,
+					"[sillajje] cannot serve: this session has no workspace",
 					"error",
 				);
 			}
@@ -1218,8 +1222,8 @@ export default function (pi: ExtensionAPI) {
 
 		try {
 			const status = await serve.start({
-				sessionKey: resolved.sessionKey,
-				root: resolved.wsPath,
+				sessionKey,
+				root,
 				onRootGone: () => syncServePill(ctx),
 			});
 			syncServePill(ctx);
@@ -1306,9 +1310,7 @@ export default function (pi: ExtensionAPI) {
 
 		// The served workspace is gone; the server has nothing left to serve.
 		if (serve.status()?.sessionKey === result.sessionKey) {
-			await serve.stop();
-			debug.event("serve_stopped", { sessionKey: result.sessionKey });
-			syncServePill(ctx);
+			await stopServe(ctx, result.sessionKey);
 		}
 
 		syncPill(ctx);
@@ -1892,13 +1894,13 @@ export default function (pi: ExtensionAPI) {
 			}
 			// A folded source can be any session, the current one included. Stop
 			// the server when the session it serves is the one just archived.
+			const servedKey = serve.status()?.sessionKey;
 			if (
 				result.archived &&
-				serve.status()?.sessionKey === result.sessionKey
+				servedKey !== undefined &&
+				servedKey === result.sessionKey
 			) {
-				await serve.stop();
-				debug.event("serve_stopped", { sessionKey: result.sessionKey });
-				syncServePill(ctx);
+				await stopServe(ctx, servedKey);
 			}
 			if (ctx.hasUI) {
 				const namedNote =

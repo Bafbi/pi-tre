@@ -246,8 +246,8 @@ export const SERVE_ARGS: CommandSpec = {
 export const SERVE_HELP: CommandHelp = {
 	usage: SERVE_ARGS.usage,
 	lines: [
-		"Serves a session's workspace as static files over HTTP on the LAN.",
-		"  -s, --session <id>  the session to serve; @ means this session (default)",
+		"Serves this session's workspace as static files over HTTP on the LAN.",
+		"  -s, --session <id>  only @ is accepted; @ means this session (default)",
 		"  --stop              stop the running server",
 		"  --status            report the running server's URL",
 		"  -h, --help          show this help",
