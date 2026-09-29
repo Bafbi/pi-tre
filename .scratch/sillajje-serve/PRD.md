@@ -56,9 +56,13 @@ Each of these closed a code-review finding; none is optional.
   URL, so a generated listing's relative links resolve.
 - `sendFile` opens with `O_NOFOLLOW` and streams the descriptor, so a path
   swapped for a symlink after the containment check fails the open.
-  `O_NONBLOCK` keeps a swap to a FIFO from blocking the event loop.
+  `O_NONBLOCK` keeps a swap to a FIFO from blocking the event loop. The body
+  is bounded to the advertised `Content-Length`, so an append or truncation
+  after `fstat` cannot change the response length.
 - `start()` reserves the controller before `listen`, so a concurrent start is
-  rejected instead of leaking a second bound socket.
+  rejected instead of leaking a second bound socket. `stop()` stops accepting
+  before it force-closes connections, so a connection accepted in between
+  cannot make it hang.
 - `localUrl` is derived from the bound host, IPv6 literals bracketed, and
   `lanUrls` is filtered to that host. A specific non-loopback bind makes
   `localhost` unreachable, so the advertised URL must name the bound address.

@@ -172,6 +172,21 @@ describe("createServeController", () => {
 		}
 	});
 
+	it("serves an empty file with length zero", async () => {
+		const root = tempDir();
+		writeFileSync(join(root, "empty.txt"), "");
+		const controller = createServeController({ host: "127.0.0.1" });
+		try {
+			const status = await controller.start({ sessionKey: "k", root });
+			const res = await fetch(`${status.localUrl}/empty.txt`);
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-length")).toBe("0");
+			expect(await res.text()).toBe("");
+		} finally {
+			await controller.stop();
+		}
+	});
+
 	it("answers HEAD without a body", async () => {
 		const root = tempDir();
 		writeFileSync(join(root, "f.txt"), "abc");

@@ -190,8 +190,15 @@ function sendFile(res: ServerResponse, file: string, headOnly: boolean): void {
 		res.end();
 		return;
 	}
-	// The stream owns the descriptor (`autoClose` is on by default).
-	createReadStream(file, { fd })
+	if (stats.size === 0) {
+		closeSync(fd);
+		res.end();
+		return;
+	}
+	// The stream owns the descriptor (`autoClose` is on by default). Bound it
+	// to the size the headers advertise, so an append or truncation after
+	// `fstat` cannot change the response length.
+	createReadStream(file, { fd, start: 0, end: stats.size - 1 })
 		.on("error", () => res.destroy())
 		.pipe(res);
 }
@@ -422,8 +429,14 @@ export function createServeController(
 		const current = active;
 		active = undefined;
 		if (current === undefined) return;
+		// Stop accepting first, then force-close established connections. The
+		// reverse order leaves a connection accepted between the two calls,
+		// and `server.close()` waits for it indefinitely.
+		const closed = new Promise<void>((done) =>
+			current.server.close(() => done()),
+		);
 		current.server.closeAllConnections();
-		await new Promise<void>((done) => current.server.close(() => done()));
+		await closed;
 	};
 
 	return {
@@ -473,10 +486,11 @@ export function createServeController(
 					throw error;
 				}
 				if (cancelled) {
-					server.closeAllConnections();
-					await new Promise<void>((done) =>
+					const closed = new Promise<void>((done) =>
 						server.close(() => done()),
 					);
+					server.closeAllConnections();
+					await closed;
 					throw new Error("serve: start cancelled");
 				}
 

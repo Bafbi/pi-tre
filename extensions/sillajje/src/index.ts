@@ -575,6 +575,9 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		debug.event("session_start", { mode: ctx.mode, reason: _event.reason });
 		state.reset();
+		// Clear a Serve indicator left by a previous session; a no-op when the
+		// controller still has a live server (it re-sets the same key).
+		syncServePill(ctx);
 		syncCursor(ctx, _event.reason);
 
 		// Sillajje only activates in interactive TUI mode with a file-backed session.

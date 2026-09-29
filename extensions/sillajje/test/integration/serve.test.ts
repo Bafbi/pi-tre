@@ -141,6 +141,14 @@ describeJj("sillajje serve", () => {
 		}
 	});
 
+	it("clears a stale serve indicator on session_start", async () => {
+		const runner = await createRunner(initRepo());
+		const ui = captureUi(runner);
+		ui.statuses.set("sillajje-serve", "serve: http://localhost:1");
+		await runner.emit({ type: "session_start", reason: "startup" });
+		expect(ui.statuses.get("sillajje-serve")).toBeUndefined();
+	});
+
 	it("stops the server when the served session is archived", async () => {
 		const { runner, root, ui } = await setup(initRepo());
 		writeFileSync(join(root, "report.html"), "<h1>hi</h1>");
