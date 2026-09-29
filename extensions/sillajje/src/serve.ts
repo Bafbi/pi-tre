@@ -2,9 +2,12 @@
  * Serve — expose a session's workspace as static files over HTTP.
  *
  * The controller owns one server per pi process. Its root is fixed when it
- * starts and every request resolves inside that root. The module knows nothing
- * of sessions, jj, or pi: the adapter resolves a session target and drives the
- * controller from its command and lifecycle hooks.
+ * starts and every request resolves inside that root. Containment is checked
+ * on the opened descriptor where the platform exposes fd-relative paths
+ * (`/proc/self/fd`, else `/dev/fd`); on a platform without one the check falls
+ * back to the request path, so the ancestor-swap race stays open there. The
+ * module knows nothing of sessions, jj, or pi: the adapter resolves a session
+ * target and drives the controller from its command and lifecycle hooks.
  *
  * The server is created lazily by `start`, never by the extension factory, so
  * a pi invocation that never serves a session binds no socket.
@@ -73,6 +76,36 @@ function contentTypeFor(file: string): string {
 function containedIn(root: string, path: string): boolean {
 	const prefix = root.endsWith(sep) ? root : root + sep;
 	return path === root || path.startsWith(prefix);
+}
+
+/**
+ * The fd-relative alias that resolves to the open descriptor's inode:
+ * `/proc/self/fd/<fd>` on Linux, `/dev/fd/<fd>` on macOS. `undefined` on a
+ * platform without one, where the caller falls back to the path check.
+ */
+function fdLink(fd: number): string | undefined {
+	for (const base of ["/proc/self/fd", "/dev/fd"]) {
+		const link = `${base}/${fd}`;
+		if (existsSync(link)) return link;
+	}
+	return undefined;
+}
+
+/**
+ * Whether an open descriptor resolves inside `rootReal`. The check runs on the
+ * descriptor, not the request path, so an ancestor directory swapped for a
+ * symlink after the path check cannot smuggle an outside inode past it. A
+ * platform without an fd alias cannot make the check, so it passes and the
+ * caller's path check stands.
+ */
+export function fdContainedIn(fd: number, rootReal: string): boolean {
+	const link = fdLink(fd);
+	if (link === undefined) return true;
+	try {
+		return containedIn(rootReal, realpathSync(link));
+	} catch {
+		return false;
+	}
 }
 
 /** The outcome of resolving a request URL against the served root. */
@@ -152,7 +185,12 @@ function escapeHtml(value: string): string {
  * from blocking `open` (a static FIFO never reaches here — the `isFile()`
  * check rejects it first).
  */
-function sendFile(res: ServerResponse, file: string, headOnly: boolean): void {
+function sendFile(
+	res: ServerResponse,
+	file: string,
+	rootReal: string,
+	headOnly: boolean,
+): void {
 	let fd: number;
 	try {
 		fd = openSync(
@@ -179,6 +217,14 @@ function sendFile(res: ServerResponse, file: string, headOnly: boolean): void {
 		sendStatus(res, 404);
 		return;
 	}
+	// The descriptor, not the request path, decides containment: an ancestor
+	// directory swapped for a symlink after the path check would still open
+	// here, and this rejects the outside inode before any bytes are sent.
+	if (!fdContainedIn(fd, rootReal)) {
+		closeSync(fd);
+		sendStatus(res, 403);
+		return;
+	}
 
 	res.writeHead(200, {
 		"Content-Type": contentTypeFor(file),
@@ -203,23 +249,48 @@ function sendFile(res: ServerResponse, file: string, headOnly: boolean): void {
 		.pipe(res);
 }
 
-/** Render a directory index. */
+/** Render a directory index from the verified directory descriptor. */
 function sendListing(
 	res: ServerResponse,
 	dir: string,
 	root: string,
+	rootReal: string,
 	headOnly: boolean,
 ): void {
-	let entries: Array<{ name: string; dir: boolean }>;
+	let fd: number;
 	try {
-		entries = readdirSync(dir, { withFileTypes: true }).map((entry) => ({
-			name: entry.name,
-			dir: entry.isDirectory(),
-		}));
+		fd = openSync(
+			dir,
+			constants.O_RDONLY |
+				(constants.O_DIRECTORY || 0) |
+				(constants.O_NOFOLLOW || 0),
+		);
 	} catch {
 		sendStatus(res, 404);
 		return;
 	}
+	if (!fdContainedIn(fd, rootReal)) {
+		closeSync(fd);
+		sendStatus(res, 403);
+		return;
+	}
+
+	let entries: Array<{ name: string; dir: boolean }>;
+	try {
+		// Read through the descriptor when the platform aliases it, so the
+		// listing follows the verified inode and not the request path.
+		entries = readdirSync(fdLink(fd) ?? dir, {
+			withFileTypes: true,
+		}).map((entry) => ({
+			name: entry.name,
+			dir: entry.isDirectory(),
+		}));
+	} catch {
+		closeSync(fd);
+		sendStatus(res, 404);
+		return;
+	}
+	closeSync(fd);
 	entries.sort((a, b) => a.name.localeCompare(b.name));
 
 	const rows = entries
@@ -299,20 +370,20 @@ function serveRequest(
 				return;
 			}
 			if (statSync(indexReal).isFile()) {
-				sendFile(res, indexReal, headOnly);
+				sendFile(res, indexReal, rootReal, headOnly);
 				return;
 			}
 		} catch {
 			// No index.html — fall through to the listing.
 		}
-		sendListing(res, real, root, headOnly);
+		sendListing(res, real, root, rootReal, headOnly);
 		return;
 	}
 	if (!stats.isFile()) {
 		sendStatus(res, 404);
 		return;
 	}
-	sendFile(res, real, headOnly);
+	sendFile(res, real, rootReal, headOnly);
 }
 
 // ---------------------------------------------------------------------------

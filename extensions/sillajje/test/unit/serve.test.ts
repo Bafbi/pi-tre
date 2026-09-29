@@ -1,8 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
+	closeSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	openSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -12,6 +16,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createServeController,
+	fdContainedIn,
 	localUrlFor,
 	onResponseClosed,
 	resolveRequestPath,
@@ -113,6 +118,34 @@ describe("onResponseClosed", () => {
 		res.emit("close");
 		expect(calls).toBe(1);
 	});
+});
+
+describe("fdContainedIn", () => {
+	it("accepts a descriptor inside the root", () => {
+		const root = tempDir();
+		writeFileSync(join(root, "a.txt"), "x");
+		const fd = openSync(join(root, "a.txt"), "r");
+		try {
+			expect(fdContainedIn(fd, realpathSync(root))).toBe(true);
+		} finally {
+			closeSync(fd);
+		}
+	});
+
+	it.skipIf(!existsSync("/proc/self/fd") && !existsSync("/dev/fd"))(
+		"rejects a descriptor outside the root",
+		() => {
+			const root = tempDir();
+			const outside = tempDir();
+			writeFileSync(join(outside, "secret.txt"), "x");
+			const fd = openSync(join(outside, "secret.txt"), "r");
+			try {
+				expect(fdContainedIn(fd, realpathSync(root))).toBe(false);
+			} finally {
+				closeSync(fd);
+			}
+		},
+	);
 });
 
 describe("createServeController", () => {

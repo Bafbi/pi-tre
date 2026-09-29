@@ -58,7 +58,12 @@ Each of these closed a code-review finding; none is optional.
   swapped for a symlink after the containment check fails the open.
   `O_NONBLOCK` keeps a swap to a FIFO from blocking the event loop. The body
   is bounded to the advertised `Content-Length`, so an append or truncation
-  after `fstat` cannot change the response length.
+  after `fstat` cannot change the response length. Files and listings are
+  verified against the opened descriptor's real path (`/proc/self/fd`, else
+  `/dev/fd`), so an ancestor directory swapped for a symlink cannot escape
+  the root. On a platform with neither fd alias, the descriptor check is
+  unavailable and the request falls back to the path check, so the
+  ancestor-swap race stays open there.
 - `start()` reserves the controller before `listen`, so a concurrent start is
   rejected instead of leaking a second bound socket. `stop()` stops accepting
   before it force-closes connections, so a connection accepted in between
