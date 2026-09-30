@@ -72,6 +72,8 @@ export interface FoldInput {
 	cwd?: string | undefined;
 	/** `--named [<branch>]`: name the folded change; `""` auto-names it `fold-<change id>`. */
 	named?: string | undefined;
+	/** `--exclude <path>`: paths to leave out of the published change. */
+	exclude?: readonly string[] | undefined;
 	/** Advance the single local bookmark `--onto` resolves to. */
 	land?: boolean | undefined;
 	/** Archive the session after a successful fold (session sources only). */
@@ -310,6 +312,26 @@ function slugRev(rev: string): string {
 	return slug.length > 0 ? slug : "rev";
 }
 
+/**
+ * Compile `--exclude` values into one included-fileset expression: each value
+ * is a workspace-relative path prefix or glob, unioned and complemented so jj
+ * selects everything else. `undefined` when nothing is excluded.
+ */
+function includedFileset(
+	exclude: readonly string[] | undefined,
+): string | undefined {
+	if (exclude === undefined || exclude.length === 0) return undefined;
+	const patterns = exclude.map(
+		(value) => `prefix-glob:"${escapeFilesetValue(value)}"`,
+	);
+	return `~(${patterns.join(" | ")})`;
+}
+
+/** Escape a value for a jj fileset string literal: backslash first, then quote. */
+function escapeFilesetValue(value: string): string {
+	return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 /** The first and last commit in a duplicated range. */
 function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 	const ids = new Set(copies.map((c) => c.commitId));
@@ -433,6 +455,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 
 		const { tip } = source;
 		const sourceCwd = source.cwd;
+		const fileset = includedFileset(input.exclude);
 
 		// Two modes. Publish places a whole source delta under `-o`; update
 		// bases on the review bookmark's recorded tip, appends the delta onto
@@ -548,12 +571,21 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		try {
 			diff = await jj.diffRange(base.commitId, tip.commitId, {
 				cwd: sourceCwd,
+				...(fileset === undefined ? {} : { filesets: [fileset] }),
 			});
 		} catch (err) {
 			return fail(`fold diff generation failed: ${String(err)}`);
 		}
 		if (diff.trim().length === 0) {
 			return { ok: false, reason: "no-changes" };
+		}
+
+		if (fileset !== undefined) {
+			emitStatus(onStatus, {
+				kind: "info",
+				code: "fold_excluded",
+				message: `fold leaves out ${(input.exclude ?? []).join(", ")}`,
+			});
 		}
 
 		// `--land` moves exactly one local bookmark pointing at the target.
@@ -636,7 +668,12 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			subject = header.text;
 			const ref = `${base.changeId}..${tip.changeId}`;
 			body = buildFoldBody(
-				{ subject, summary: smartWrap(summary.text, 72), ref },
+				{
+					subject,
+					summary: smartWrap(summary.text, 72),
+					ref,
+					skipped: input.exclude ?? [],
+				},
 				cfg.body,
 			);
 		} catch (err) {
@@ -689,8 +726,20 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				from: `${root.changeId}::${head.changeId}`,
 				onto: folded.changeId,
 				message: body,
+				...(fileset === undefined ? {} : { filesets: [fileset] }),
 			});
 			if (!squashed.ok) return undefined;
+
+			// An unfiltered squash empties the copies and jj abandons them. A
+			// partial squash leaves the excluded paths behind, so the copies are
+			// abandoned explicitly.
+			if (fileset !== undefined) {
+				const pruned = await tx.apply({
+					kind: "abandon",
+					revset: `${root.changeId}::${head.changeId}`,
+				});
+				if (!pruned.ok) return undefined;
+			}
 
 			// A conflict is an expected abort; throwing rolls the chain back.
 			const conflicts = await tx.conflicts(folded.changeId);
@@ -794,7 +843,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 /** The fold subcommand — publish a source range under a target. */
 export const FOLD_ARGS: CommandSpec = {
 	name: "fold",
-	usage: "fold (-s <id|@> | -r <rev>) (-o <rev> | --update <bookmark>) [--named [<branch>]] [--land] [--push] [--archive]",
+	usage: "fold (-s <id|@> | -r <rev>) (-o <rev> | --update <bookmark>) [--named [<branch>]] [--land] [--push] [--archive] [--exclude <path>]",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "rev", aliases: ["-r", "--rev"], takesValue: true },
@@ -804,6 +853,12 @@ export const FOLD_ARGS: CommandSpec = {
 		{ key: "land", aliases: ["--land"], takesValue: false },
 		{ key: "push", aliases: ["--push"], takesValue: false },
 		{ key: "archive", aliases: ["--archive"], takesValue: false },
+		{
+			key: "exclude",
+			aliases: ["--exclude"],
+			takesValue: true,
+			repeatable: true,
+		},
 	],
 	exclusive: [
 		["session", "rev"],
@@ -826,6 +881,7 @@ export const FOLD_HELP: CommandHelp = {
 		"      --land             advance --onto's single local bookmark",
 		"      --push             push the advanced bookmark to its tracked remotes",
 		"      --archive          archive the session after a successful fold",
+		"      --exclude <path>   leave paths out of the published change (repeatable)",
 		"  -h, --help             show this help",
 	],
 };

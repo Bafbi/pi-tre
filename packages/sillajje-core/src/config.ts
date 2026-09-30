@@ -54,12 +54,13 @@ export const STAMP_BODY_SECTIONS: readonly StampBodySection[] = [
 ];
 
 /** A fold's body section, in config order. */
-export type FoldBodySection = "summary" | "ref";
+export type FoldBodySection = "summary" | "ref" | "skipped";
 
 /** Every section a fold body can carry, in default order. */
 export const FOLD_BODY_SECTIONS: readonly FoldBodySection[] = [
 	"summary",
 	"ref",
+	"skipped",
 ];
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import { SESSION_BASE_TYPE } from "../../src/session-base.js";
@@ -868,6 +868,78 @@ describeJj("sillajje fold", () => {
 		expect(children).toHaveLength(1);
 		const files = jj(["file", "list", "-r", children[0].id], cwd);
 		expect(files).toContain("session.txt");
+	}, 30_000);
+
+	it("leaves excluded paths out of the folded change while the source keeps them", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		mkdirSync(join(workspace, ".scratch"), { recursive: true });
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
+		writeFileSync(join(workspace, ".scratch", "ticket.md"), "ticket\n");
+		await simulateInteraction(runner, "Session change", "Done.");
+
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+
+		await runSillajje(runner, "fold -s @ -o main --exclude .scratch/");
+
+		const children = childrenOf(cwd, "main");
+		expect(children).toHaveLength(1);
+		const folded = children[0];
+		const files = jj(["file", "list", "-r", folded?.id ?? ""], cwd);
+		expect(files).toContain("session.txt");
+		expect(files).not.toContain(".scratch/ticket.md");
+
+		// The body records the paths the fold left behind.
+		expect(description(cwd, folded?.id ?? "")).toContain(
+			"Skipped: .scratch/",
+		);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("fold leaves out .scratch/"),
+			}),
+		);
+
+		// The excluded path stays in the source branch.
+		const source = jj(
+			["file", "list", "-r", sessionBookmark(sessionId)],
+			cwd,
+		);
+		expect(source).toContain(".scratch/ticket.md");
+	}, 30_000);
+
+	it("returns no-changes when every changed path is excluded", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		mkdirSync(join(workspace, ".scratch"), { recursive: true });
+		writeFileSync(join(workspace, ".scratch", "ticket.md"), "ticket\n");
+		await simulateInteraction(runner, "Session change", "Done.");
+
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+
+		await runSillajje(runner, "fold -s @ -o main --exclude .scratch/");
+
+		expect(childrenOf(cwd, "main")).toHaveLength(0);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("nothing to fold"),
+			}),
+		);
 	}, 30_000);
 
 	it("prints help for -h, --help, and a target-less invocation", async () => {

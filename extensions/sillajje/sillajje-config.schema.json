@@ -150,7 +150,7 @@
 					"type": "object",
 					"properties": {
 						"body": {
-							"default": ["summary", "ref"],
+							"default": ["summary", "ref", "skipped"],
 							"uniqueItems": true,
 							"type": "array",
 							"items": {
@@ -161,6 +161,10 @@
 									},
 									{
 										"const": "ref",
+										"type": "string"
+									},
+									{
+										"const": "skipped",
 										"type": "string"
 									}
 								]

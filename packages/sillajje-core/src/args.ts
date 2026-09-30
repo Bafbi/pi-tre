@@ -27,6 +27,11 @@ export interface FlagDef {
 	 * present with an empty value.
 	 */
 	takesValue: boolean | "optional";
+	/**
+	 * Whether a repeated flag collects its values in order instead of keeping
+	 * the last. Only meaningful when the flag takes a required value.
+	 */
+	repeatable?: boolean;
 }
 
 /** A subcommand's argument rules. */
@@ -47,7 +52,7 @@ export interface CommandSpec {
 	exclusive?: readonly (readonly [string, string])[];
 }
 
-export type ArgValue = string | boolean;
+export type ArgValue = string | boolean | readonly string[];
 
 export type ParseResult =
 	| { kind: "go"; values: Record<string, ArgValue> }
@@ -84,7 +89,8 @@ function flagLabel(spec: CommandSpec, key: string): string {
  * - `-h`, `--help`, and a target-less invocation (no tokens) return help.
  *   Help wins over every other rule, including a missing flag value.
  * - A flag's value is the following token, even when it starts with `-`.
- * - A repeated flag keeps its last value.
+ * - A repeated flag keeps its last value; a `repeatable` flag collects its
+ *   values in order instead.
  * - An unknown flag, a flag missing its value, a stray positional, a missing
  *   required flag, and a mutually exclusive pair are errors.
  */
@@ -138,7 +144,15 @@ export function parseCommandArgs(
 				message: `${usage} (${token} requires a value)`,
 			};
 		}
-		values[flag.key] = value;
+		if (flag.repeatable === true) {
+			const collected = values[flag.key];
+			values[flag.key] = [
+				...(Array.isArray(collected) ? collected : []),
+				value,
+			];
+		} else {
+			values[flag.key] = value;
+		}
 		i += 1;
 	}
 

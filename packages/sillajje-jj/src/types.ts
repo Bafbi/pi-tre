@@ -42,7 +42,15 @@ export type Mutation =
 	| { kind: "new"; revs?: string[]; edit?: boolean }
 	| { kind: "bookmarkSet"; name: string; rev: string }
 	| { kind: "duplicate"; revset: string; destination: string }
-	| { kind: "squash"; from: string; onto: string; message?: string }
+	| {
+			kind: "squash";
+			from: string;
+			onto: string;
+			message?: string;
+			/** Positional jj filesets restricting which changes move. */
+			filesets?: readonly string[];
+	  }
+	| { kind: "abandon"; revset: string }
 	| { kind: "rebase"; source: string; onto: string[] };
 
 export interface MutationResult {
@@ -91,6 +99,11 @@ export type Result<T> =
 	| { ok: true; value: T }
 	| { ok: false; error: JjFailure };
 
+/** Read options for a tree diff. `filesets` restrict the diff to those paths. */
+interface DiffOptions extends ExecOptions {
+	filesets?: readonly string[];
+}
+
 // ---------------------------------------------------------------------------
 // The facade
 // ---------------------------------------------------------------------------
@@ -105,7 +118,7 @@ export interface Jj {
 	log(revset: string, options?: ExecOptions): Promise<Commit[]>;
 	diff(revset: string, options?: ExecOptions): Promise<string>;
 	/** Tree diff between two revisions. Tolerates gaps a merge creates. */
-	diffRange(from: string, to: string, options?: ExecOptions): Promise<string>;
+	diffRange(from: string, to: string, options?: DiffOptions): Promise<string>;
 	conflicts(revset?: string, options?: ExecOptions): Promise<string[]>;
 	bookmarks(options?: ExecOptions): Promise<Bookmark[]>;
 	workspaces(options?: ExecOptions): Promise<Workspace[]>;

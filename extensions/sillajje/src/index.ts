@@ -1843,6 +1843,9 @@ export default function (pi: ExtensionAPI) {
 			typeof values.named === "string" ? values.named : undefined;
 		const update =
 			typeof values.update === "string" ? values.update : undefined;
+		const exclude = Array.isArray(values.exclude)
+			? values.exclude
+			: undefined;
 		const land = values.land === true;
 		const push = values.push === true;
 		const archive = values.archive === true;
@@ -1858,7 +1861,14 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		debug.event("fold_start", { session, rev, onto, update, named });
+		debug.event("fold_start", {
+			session,
+			rev,
+			onto,
+			update,
+			named,
+			exclude,
+		});
 		const fold = createFold(buildPorts(ctx, repoRoot));
 		const result = await fold({
 			session,
@@ -1866,6 +1876,7 @@ export default function (pi: ExtensionAPI) {
 			onto,
 			update,
 			named,
+			exclude,
 			land,
 			push,
 			archive,

@@ -64,6 +64,34 @@ describe("mutationArgv", () => {
 		).toEqual(["squash", "--from", "a::b", "--into", "c", "-m", "m"]);
 	});
 
+	it("appends filesets to a squash", () => {
+		expect(
+			mutationArgv({
+				kind: "squash",
+				from: "a::b",
+				onto: "c",
+				message: "m",
+				filesets: ['~(prefix-glob:".scratch/")'],
+			}),
+		).toEqual([
+			"squash",
+			"--from",
+			"a::b",
+			"--into",
+			"c",
+			"-m",
+			"m",
+			'~(prefix-glob:".scratch/")',
+		]);
+	});
+
+	it("abandons a revset", () => {
+		expect(mutationArgv({ kind: "abandon", revset: "a::b" })).toEqual([
+			"abandon",
+			"a::b",
+		]);
+	});
+
 	it("rebases with one --onto per target", () => {
 		expect(
 			mutationArgv({
@@ -98,6 +126,19 @@ describe("read argv", () => {
 			"abc",
 			"--to",
 			"def",
+		]);
+	});
+
+	it("restricts a tree diff to filesets", () => {
+		expect(
+			diffRangeArgv("abc", "def", ['~(prefix-glob:".scratch/")']),
+		).toEqual([
+			"diff",
+			"--from",
+			"abc",
+			"--to",
+			"def",
+			'~(prefix-glob:".scratch/")',
 		]);
 	});
 

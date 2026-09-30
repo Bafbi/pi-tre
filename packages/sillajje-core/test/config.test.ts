@@ -35,7 +35,11 @@ describe("SillajjeConfigSchema", () => {
 		expect(config.actions?.stamp?.header?.mode).toBe("one_line");
 		expect(config.actions?.stamp?.trace?.detail).toBe("high");
 		expect(config.actions?.stamp?.loop).toEqual(DEFAULT_LOOP);
-		expect(config.actions?.fold?.body).toEqual(["summary", "ref"]);
+		expect(config.actions?.fold?.body).toEqual([
+			"summary",
+			"ref",
+			"skipped",
+		]);
 		expect(config.actions?.fold?.summary?.detail).toBe("high");
 		expect(config.subGenerator?.retry?.maxAttempts).toBe(3);
 		expect(config.subGenerator?.timeoutMs).toBe(30_000);

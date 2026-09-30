@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildCommitBody,
+	buildFoldBody,
 	buildLoop,
 	buildMeta,
 	deriveSubject,
@@ -271,6 +272,70 @@ describe("smartWrap", () => {
 			// All lines should have at least 4 spaces of indent
 			expect(line.startsWith("    ")).toBe(true);
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// buildFoldBody
+// ---------------------------------------------------------------------------
+
+const FOLD_DATA = {
+	subject: "feat: publish feature",
+	summary: "One clean change.",
+	ref: "abc123..def456",
+};
+
+describe("buildFoldBody", () => {
+	it("renders the Skipped line last by default", () => {
+		const body = buildFoldBody({
+			...FOLD_DATA,
+			skipped: [".scratch/", "*.lock"],
+		});
+		expect(body).toBe(
+			[
+				"feat: publish feature",
+				"",
+				"Summary:",
+				"One clean change.",
+				"",
+				"Ref: abc123..def456",
+				"",
+				"Skipped: .scratch/, *.lock",
+			].join("\n"),
+		);
+	});
+
+	it("omits the Skipped line when nothing was excluded", () => {
+		const body = buildFoldBody({ ...FOLD_DATA, skipped: [] });
+		expect(body).not.toContain("Skipped");
+	});
+
+	it("follows the configured section order", () => {
+		const body = buildFoldBody({ ...FOLD_DATA, skipped: [".scratch/"] }, [
+			"summary",
+			"skipped",
+			"ref",
+		]);
+		expect(body).toBe(
+			[
+				"feat: publish feature",
+				"",
+				"Summary:",
+				"One clean change.",
+				"",
+				"Skipped: .scratch/",
+				"",
+				"Ref: abc123..def456",
+			].join("\n"),
+		);
+	});
+
+	it("omits Skipped when the configured body leaves it out", () => {
+		const body = buildFoldBody({ ...FOLD_DATA, skipped: [".scratch/"] }, [
+			"summary",
+			"ref",
+		]);
+		expect(body).not.toContain("Skipped");
 	});
 });
 

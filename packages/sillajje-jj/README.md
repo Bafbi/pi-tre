@@ -20,7 +20,7 @@ Reads throw a `JjError` on failure. A decode failure names the field and the raw
 
 ## Writes
 
-`apply(mutation)` runs one `Mutation` and returns `Result<MutationResult>`. A `Mutation` is data; the package builds the command line. The vocabulary is `describe`, `new`, `bookmarkSet`, `duplicate`, `squash`, and `rebase`.
+`apply(mutation)` runs one `Mutation` and returns `Result<MutationResult>`. A `Mutation` is data; the package builds the command line. The vocabulary is `describe`, `new`, `bookmarkSet`, `duplicate`, `squash`, `abandon`, and `rebase`.
 
 `transaction(recipe)` runs a group of `Mutation`s all-or-nothing. Each step is a deferred operation chained on the previous; one `jj op integrate` publishes the group. A failed step abandons the operations the chain minted and returns a typed `JjFailure`. The `Tx` handle exposes `apply` and a `conflicts` read at the transaction's current deferred op.
 
