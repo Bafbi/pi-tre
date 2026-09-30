@@ -49,6 +49,8 @@ export type Mutation =
 			message?: string;
 			/** Positional jj filesets restricting which changes move. */
 			filesets?: readonly string[];
+			/** Keep a source jj would otherwise abandon once it empties. */
+			keepEmptied?: boolean;
 	  }
 	| { kind: "abandon"; revset: string }
 	| { kind: "rebase"; source: string; onto: string[] };

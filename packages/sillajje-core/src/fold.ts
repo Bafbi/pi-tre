@@ -726,13 +726,17 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				from: `${root.changeId}::${head.changeId}`,
 				onto: folded.changeId,
 				message: body,
-				...(fileset === undefined ? {} : { filesets: [fileset] }),
+				...(fileset === undefined
+					? {}
+					: { filesets: [fileset], keepEmptied: true }),
 			});
 			if (!squashed.ok) return undefined;
 
 			// An unfiltered squash empties the copies and jj abandons them. A
 			// partial squash leaves the excluded paths behind, so the copies are
-			// abandoned explicitly.
+			// abandoned explicitly. `keepEmptied` keeps the whole range alive: jj
+			// abandons an emptied copy, and the abandoned change id then drops out
+			// of `<root>::<head>`, which would leave the later copies behind.
 			if (fileset !== undefined) {
 				const pruned = await tx.apply({
 					kind: "abandon",

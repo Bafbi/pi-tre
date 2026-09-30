@@ -51,6 +51,7 @@ export function mutationArgv(mutation: Mutation): string[] {
 			if (mutation.message !== undefined) {
 				argv.push("-m", mutation.message);
 			}
+			if (mutation.keepEmptied === true) argv.push("--keep-emptied");
 			for (const fileset of mutation.filesets ?? []) argv.push(fileset);
 			return argv;
 		}

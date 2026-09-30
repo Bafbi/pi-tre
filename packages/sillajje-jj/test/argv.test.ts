@@ -85,6 +85,24 @@ describe("mutationArgv", () => {
 		]);
 	});
 
+	it("keeps emptied squash sources when asked", () => {
+		expect(
+			mutationArgv({
+				kind: "squash",
+				from: "a::b",
+				onto: "c",
+				keepEmptied: true,
+			}),
+		).toEqual([
+			"squash",
+			"--from",
+			"a::b",
+			"--into",
+			"c",
+			"--keep-emptied",
+		]);
+	});
+
 	it("abandons a revset", () => {
 		expect(mutationArgv({ kind: "abandon", revset: "a::b" })).toEqual([
 			"abandon",

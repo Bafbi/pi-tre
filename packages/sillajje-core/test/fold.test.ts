@@ -305,8 +305,9 @@ describe("createFold", () => {
 		const fileset = '~(prefix-glob:".scratch/")';
 		const squash = fakes.apply.mock.calls.find(
 			(c) => (c[0] as { kind: string }).kind === "squash",
-		)?.[0] as { filesets?: readonly string[] };
+		)?.[0] as { filesets?: readonly string[]; keepEmptied?: boolean };
 		expect(squash.filesets).toEqual([fileset]);
+		expect(squash.keepEmptied).toBe(true);
 		expect(fakes.apply).toHaveBeenCalledWith({
 			kind: "abandon",
 			revset: "c1::c2",
@@ -387,8 +388,9 @@ describe("createFold", () => {
 
 		const squash = fakes.apply.mock.calls.find(
 			(c) => (c[0] as { kind: string }).kind === "squash",
-		)?.[0] as { filesets?: readonly string[] };
+		)?.[0] as { filesets?: readonly string[]; keepEmptied?: boolean };
 		expect(squash.filesets).toBeUndefined();
+		expect(squash.keepEmptied).toBeUndefined();
 		expect(
 			fakes.apply.mock.calls.some(
 				(c) => (c[0] as { kind: string }).kind === "abandon",

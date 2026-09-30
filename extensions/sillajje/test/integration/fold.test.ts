@@ -915,6 +915,35 @@ describeJj("sillajje fold", () => {
 		expect(source).toContain(".scratch/ticket.md");
 	}, 30_000);
 
+	it("leaves no duplicated copy behind when an earlier copy empties", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		// The first interaction touches only included work and the second only
+		// the excluded path, so the partial squash empties the earlier copy.
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
+		await simulateInteraction(runner, "Session change", "Done.");
+		mkdirSync(join(workspace, ".scratch"), { recursive: true });
+		writeFileSync(join(workspace, ".scratch", "ticket.md"), "ticket\n");
+		await simulateInteraction(runner, "Ticket", "Done.");
+
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		execSync("jj describe -m 'feat: upstream'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+
+		await runSillajje(runner, "fold -s @ -o main --exclude .scratch/");
+
+		const children = childrenOf(cwd, "main");
+		expect(children).toHaveLength(1);
+		const files = jj(["file", "list", "-r", children[0]?.id ?? ""], cwd);
+		expect(files).toContain("session.txt");
+		expect(files).not.toContain(".scratch/ticket.md");
+	}, 30_000);
+
 	it("returns no-changes when every changed path is excluded", async () => {
 		const cwd = initRepo();
 		const runner = await createRunner(cwd);
