@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	type CommandSpec,
+	FOLD_ARGS,
 	parseCommandArgs,
 	renderHelp,
 	renderSessionFailure,
@@ -25,7 +26,7 @@ const SYNC_ARGS: CommandSpec = {
 };
 
 /** A fold-shaped spec: exclusive targets, required `-o`, boolean flags. */
-const FOLD_ARGS: CommandSpec = {
+const FOLD_SHAPED_ARGS: CommandSpec = {
 	name: "fold",
 	usage: "fold (-s <id|@> | -r <rev>) -o <rev>",
 	flags: [
@@ -37,6 +38,20 @@ const FOLD_ARGS: CommandSpec = {
 	],
 	required: ["onto"],
 	exclusive: [["session", "rev"]],
+};
+
+/** A repeatable flag, used to pin the collection rules. */
+const REPEATABLE_ARGS: CommandSpec = {
+	name: "fold",
+	usage: "fold --exclude <path>",
+	flags: [
+		{
+			key: "exclude",
+			aliases: ["--exclude"],
+			takesValue: true,
+			repeatable: true,
+		},
+	],
 };
 
 describe("parseCommandArgs", () => {
@@ -68,6 +83,27 @@ describe("parseCommandArgs", () => {
 		expect(parseCommandArgs("--rev a --rev b", STAMP_ARGS)).toEqual({
 			kind: "go",
 			values: { rev: "b" },
+		});
+	});
+
+	it("collects a repeatable flag's values in order", () => {
+		expect(
+			parseCommandArgs("--exclude a --exclude b", REPEATABLE_ARGS),
+		).toEqual({ kind: "go", values: { exclude: ["a", "b"] } });
+	});
+
+	it("gives a repeatable flag one element per occurrence", () => {
+		expect(parseCommandArgs("--exclude a", REPEATABLE_ARGS)).toEqual({
+			kind: "go",
+			values: { exclude: ["a"] },
+		});
+	});
+
+	it("rejects a repeatable flag missing its value", () => {
+		expect(parseCommandArgs("--exclude", REPEATABLE_ARGS)).toEqual({
+			kind: "error",
+			message:
+				"usage: fold --exclude <path> (--exclude requires a value)",
 		});
 	});
 
@@ -192,18 +228,38 @@ describe("parseCommandArgs", () => {
 	});
 
 	it("parses boolean flags", () => {
-		expect(parseCommandArgs("--archive --land -o main", FOLD_ARGS)).toEqual(
-			{
-				kind: "go",
-				values: { archive: true, land: true, onto: "main" },
-			},
-		);
+		expect(
+			parseCommandArgs("--archive --land -o main", FOLD_SHAPED_ARGS),
+		).toEqual({
+			kind: "go",
+			values: { archive: true, land: true, onto: "main" },
+		});
 	});
 
 	it("parses a fold target and onto", () => {
-		expect(parseCommandArgs("-s @ -o main --land", FOLD_ARGS)).toEqual({
+		expect(
+			parseCommandArgs("-s @ -o main --land", FOLD_SHAPED_ARGS),
+		).toEqual({
 			kind: "go",
 			values: { session: "@", onto: "main", land: true },
+		});
+	});
+});
+
+describe("FOLD_ARGS", () => {
+	it("accepts a repeatable --exclude beside a target and a mode", () => {
+		expect(
+			parseCommandArgs(
+				"-r feat -o main --exclude .scratch/ --exclude tools/",
+				FOLD_ARGS,
+			),
+		).toEqual({
+			kind: "go",
+			values: {
+				rev: "feat",
+				onto: "main",
+				exclude: [".scratch/", "tools/"],
+			},
 		});
 	});
 });

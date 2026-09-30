@@ -318,11 +318,14 @@ export interface FoldBodyData {
 	summary: string;
 	/** `Ref: <base>..<tip>`, using change ids. */
 	ref: string;
+	/** Paths the fold left out of the published change. */
+	skipped: readonly string[];
 }
 
 /**
  * Build a fold's commit description: subject, then the configured sections.
- * The default order is `[summary, ref]`; the `Ref:` line renders inline.
+ * The default order is `[summary, ref, skipped]`; the `Ref:` and `Skipped:`
+ * lines render inline.
  */
 export function buildFoldBody(
 	data: FoldBodyData,
@@ -331,6 +334,11 @@ export function buildFoldBody(
 	const sections: Record<FoldBodySection, Section> = {
 		summary: { label: "Summary", body: data.summary },
 		ref: { label: "Ref", body: data.ref, inline: true },
+		skipped: {
+			label: "Skipped",
+			body: data.skipped.join(", "),
+			inline: true,
+		},
 	};
 	return assembleDescription(
 		data.subject,

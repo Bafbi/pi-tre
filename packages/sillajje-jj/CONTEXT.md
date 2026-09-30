@@ -9,7 +9,7 @@ An entry in jj's operation log — the unit jj integrates. A Mutation that chang
 _Avoid_: Commit, action, step
 
 **Mutation**:
-One write verb sent to jj: describe, new, bookmarkSet, duplicate, squash, or rebase. A Mutation is data; the caller states it and the boundary builds the command line.
+One write verb sent to jj: describe, new, bookmarkSet, duplicate, squash, abandon, or rebase. A Mutation is data; the caller states it and the boundary builds the command line.
 _Avoid_: Command, step, action (an Action is sillajje's composed capability, one level up)
 
 **Transaction**:
@@ -25,5 +25,5 @@ Publishing a Deferred operation into the operation log, making it visible and su
 _Avoid_: Commit, publish, apply
 
 **Abandon**:
-Removing the Deferred operations a failed Transaction minted, returning the repository to its pre-Transaction state.
+Removing the Deferred operations a failed Transaction minted, returning the repository to its pre-Transaction state. It is not the `abandon` Mutation, which removes commits.
 _Avoid_: Rollback, revert, undo

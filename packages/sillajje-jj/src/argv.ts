@@ -51,8 +51,12 @@ export function mutationArgv(mutation: Mutation): string[] {
 			if (mutation.message !== undefined) {
 				argv.push("-m", mutation.message);
 			}
+			if (mutation.keepEmptied === true) argv.push("--keep-emptied");
+			for (const fileset of mutation.filesets ?? []) argv.push(fileset);
 			return argv;
 		}
+		case "abandon":
+			return ["abandon", mutation.revset];
 		case "rebase": {
 			const argv = ["rebase", "-s", mutation.source];
 			for (const onto of mutation.onto) argv.push("-o", onto);
@@ -79,8 +83,12 @@ export function diffArgv(revset: string): string[] {
  * other parent is the range base). jj rejects the `-r` form with "Cannot diff
  * revsets with gaps in."
  */
-export function diffRangeArgv(from: string, to: string): string[] {
-	return ["diff", "--from", from, "--to", to];
+export function diffRangeArgv(
+	from: string,
+	to: string,
+	filesets?: readonly string[],
+): string[] {
+	return ["diff", "--from", from, "--to", to, ...(filesets ?? [])];
 }
 
 export function conflictsArgv(revset?: string): string[] {

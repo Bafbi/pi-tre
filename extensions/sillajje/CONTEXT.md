@@ -20,7 +20,7 @@ A `/sillajje:sync -s <id|@> -o <rev>` subcommand that brings a target revision i
 _Avoid_: Rebase (as the subcommand name — it asserts the wrong mechanics), Merge, Update (the jj operation underneath is `jj rebase`)
 
 **Fold**:
-A `/sillajje:fold` subcommand that publishes a source delta as one clean change. `-o <rev>` publishes the whole delta — `tree(tip) − tree(base)`, base `fork_point(source, target)` — under a target; `--update <bookmark>` appends only the work since that review bookmark's last fold and advances it. `--named [<branch>]` names the folded change (empty names it `fold-<change id>`). The source branch survives, and a merge in the source range is linearized by the replay. The message is a generated Header and Summary plus a `Ref:` line, never the agent trace. `--land` advances the target bookmark; `--push` pushes the advanced bookmark to the remotes that track it; `--archive` retires a session source.
+A `/sillajje:fold` subcommand that publishes a source delta as one clean change. `-o <rev>` publishes the whole delta — `tree(tip) − tree(base)`, base `fork_point(source, target)` — under a target; `--update <bookmark>` appends only the work since that review bookmark's last fold and advances it. `--named [<branch>]` names the folded change (empty names it `fold-<change id>`). The source branch survives, and a merge in the source range is linearized by the replay. The message is a generated Header and Summary plus a `Ref:` line — and a `Skipped:` line when the Fold excluded paths — never the agent trace. `--land` advances the target bookmark; `--push` pushes the advanced bookmark to the remotes that track it; `--archive` retires a session source. `--exclude <path>` (repeatable) leaves paths out of the published change.
 _Avoid_: Squash (jj's `jj squash` is the primitive underneath; Fold is the publish act)
 
 **Folded source**:
@@ -30,6 +30,14 @@ _Avoid_: Fold base, checkpoint
 **Folded source marker**:
 The `sillajje/folded/<target>` bookmark that records a Folded source, keyed by the review branch — the fold name (`--named`), `--update`'s bookmark, or the target's single local bookmark. A marker written before the branch key (`sillajje/folded/<source>/<target>`) is never read.
 _Avoid_: Fold base, checkpoint, recorded marker
+
+**Excluded paths**:
+The paths a Fold leaves out of its published change, named per invocation by `--exclude <path>`. They stay in the source and in the session log, and the Folded source marker still records the source tip, so a later Fold from that review branch does not publish them either.
+_Avoid_: Ignored paths (jj ignores paths through `.gitignore`; a Fold excludes them per fold)
+
+**Skipped section**:
+The `Skipped:` section of a folded change's Commit body, listing the Excluded paths when a Fold left any out. It is empty, and so unrendered, on a Fold that excluded nothing, and `actions.fold.body` selects whether it renders.
+_Avoid_: Provenance (the `Ref:` line states where the change came from; `Skipped:` states what it left behind)
 
 **Archive**:
 A `/sillajje:archive [-s <id>]` subcommand that retires a session: it deletes the workspace directory and keeps the `sillajje/<session-key>` bookmark. `-s` defaults to `@`, so a bare invocation archives this session. An archived session accepts no prompts until unarchived, and its bookmark stays a valid Base for `/sillajje:new` and a valid source for `/sillajje:fold`. A foreign session is rejected.
@@ -87,7 +95,7 @@ _Avoid_: Trigger (the old term conflated the stamp mechanics with the Source)
 The full jj description: the subject line (the Header) plus the Commit body.
 
 **Commit body**:
-The ordered labelled sections after the subject line. A stamp contributes trace, change metadata, interaction loop, user prompt, and agent response; a Fold contributes a summary and a `Ref:` line. Everything reviewable in `jj show`. `actions.<action>.body` selects the sections and their order.
+The ordered labelled sections after the subject line. A stamp contributes trace, change metadata, interaction loop, user prompt, and agent response; a Fold contributes a summary, a `Ref:` line, and a `Skipped:` line. Everything reviewable in `jj show`. `actions.<action>.body` selects the sections and their order.
 
 **Sub-generator**:
 Two tool-less pi subagents invoked in parallel by the extension through `@pi-tre/pi-subagent`'s in-process backend (no child process) — one produces the dual-prefix subject line (header), the other produces the compressed agent-loop narrative (trace). Inputs: session transcript (user messages + extracted assistant text), the diff, and previous change descriptions.

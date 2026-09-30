@@ -96,6 +96,7 @@ interface Fakes {
 	bookmarks: ReturnType<typeof vi.fn>;
 	gitPush: ReturnType<typeof vi.fn>;
 	transaction: ReturnType<typeof vi.fn>;
+	diffRange: ReturnType<typeof vi.fn>;
 }
 
 function makeJj(opts?: {
@@ -144,15 +145,25 @@ function makeJj(opts?: {
 			return { ok: true, value };
 		},
 	);
+	const diffRange = vi.fn(async () => "diff --git a/f b/f\n+added");
 	const jj = {
 		log,
 		diff: vi.fn(async () => "diff --git a/f b/f\n+added"),
-		diffRange: vi.fn(async () => "diff --git a/f b/f\n+added"),
+		diffRange,
 		bookmarks,
 		gitPush,
 		transaction,
 	} as unknown as Jj;
-	return { jj, log, apply, conflicts, bookmarks, gitPush, transaction };
+	return {
+		jj,
+		log,
+		apply,
+		conflicts,
+		bookmarks,
+		gitPush,
+		transaction,
+		diffRange,
+	};
 }
 
 function makeWorkspaces(
@@ -273,11 +284,193 @@ describe("createFold", () => {
 		expect(squash.message).toContain("test subject");
 		expect(squash.message).toContain("Summary:");
 		expect(squash.message).toContain("Ref: base..tip");
+		expect(squash.message).not.toContain("Skipped");
 		expect(squash.message).not.toContain("Meta:");
 		expect(squash.message).not.toContain("Loop:");
 
 		expect(fakes.transaction).toHaveBeenCalledTimes(1);
 		expect(statuses).toEqual([{ kind: "phase", code: "folding" }]);
+	});
+
+	it("leaves excluded paths out of the squash, the diff, and the copies", async () => {
+		const { action, fakes } = fold();
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			exclude: [".scratch/"],
+		});
+
+		expect(result.ok).toBe(true);
+		const fileset = '~(prefix-glob:".scratch/")';
+		const squash = fakes.apply.mock.calls.find(
+			(c) => (c[0] as { kind: string }).kind === "squash",
+		)?.[0] as { filesets?: readonly string[]; keepEmptied?: boolean };
+		expect(squash.filesets).toEqual([fileset]);
+		expect(squash.keepEmptied).toBe(true);
+		expect(fakes.apply).toHaveBeenCalledWith({
+			kind: "abandon",
+			revset: "c1::c2",
+		});
+		expect(fakes.diffRange).toHaveBeenCalledWith("base-c", "tip-c", {
+			cwd: ".",
+			filesets: [fileset],
+		});
+	});
+
+	it("names the excluded paths in the Skipped line", async () => {
+		const { action, fakes } = fold();
+
+		await action({
+			rev: "feat",
+			onto: "main",
+			exclude: [".scratch/", "*.lock"],
+		});
+
+		const squash = fakes.apply.mock.calls.find(
+			(c) => (c[0] as { kind: string }).kind === "squash",
+		)?.[0] as { message: string };
+		expect(squash.message).toContain("Skipped: .scratch/, *.lock");
+	});
+
+	it("reports the exclusion as an info status", async () => {
+		const { action, statuses } = fold();
+
+		await action({ rev: "feat", onto: "main", exclude: [".scratch/"] });
+
+		expect(statuses).toContainEqual(
+			expect.objectContaining({
+				kind: "info",
+				code: "fold_excluded",
+				message: expect.stringContaining(".scratch/"),
+			}),
+		);
+	});
+
+	it("compiles several excluded paths into one fileset", async () => {
+		const { action, fakes } = fold();
+
+		await action({
+			rev: "feat",
+			onto: "main",
+			exclude: [".scratch/", "*.lock"],
+		});
+
+		const squash = fakes.apply.mock.calls.find(
+			(c) => (c[0] as { kind: string }).kind === "squash",
+		)?.[0] as { filesets?: readonly string[] };
+		expect(squash.filesets).toEqual([
+			'~(prefix-glob:".scratch/" | prefix-glob:"*.lock")',
+		]);
+	});
+
+	it("escapes a quote or backslash in an excluded path", async () => {
+		const { action, fakes } = fold();
+
+		await action({
+			rev: "feat",
+			onto: "main",
+			exclude: ['we"ird', "back\\slash"],
+		});
+
+		const squash = fakes.apply.mock.calls.find(
+			(c) => (c[0] as { kind: string }).kind === "squash",
+		)?.[0] as { filesets?: readonly string[] };
+		expect(squash.filesets).toEqual([
+			'~(prefix-glob:"we\\"ird" | prefix-glob:"back\\\\slash")',
+		]);
+	});
+
+	it("passes no fileset and abandons nothing without --exclude", async () => {
+		const { action, fakes } = fold();
+
+		await action({ rev: "feat", onto: "main" });
+
+		const squash = fakes.apply.mock.calls.find(
+			(c) => (c[0] as { kind: string }).kind === "squash",
+		)?.[0] as { filesets?: readonly string[]; keepEmptied?: boolean };
+		expect(squash.filesets).toBeUndefined();
+		expect(squash.keepEmptied).toBeUndefined();
+		expect(
+			fakes.apply.mock.calls.some(
+				(c) => (c[0] as { kind: string }).kind === "abandon",
+			),
+		).toBe(false);
+		expect(fakes.diffRange).toHaveBeenCalledWith("base-c", "tip-c", {
+			cwd: ".",
+		});
+	});
+
+	it("returns no-changes when every changed path is excluded", async () => {
+		const fakes = makeJj();
+		fakes.diffRange.mockResolvedValue("");
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			exclude: [".scratch/"],
+		});
+
+		expect(result).toEqual({ ok: false, reason: "no-changes" });
+		expect(fakes.transaction).not.toHaveBeenCalled();
+	});
+
+	it("excludes paths in --update mode too", async () => {
+		const fakes = makeJj({
+			bookmarks: [{ name: "sillajje/folded/main", target: ["prev-c"] }],
+		});
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			update: "main",
+			exclude: [".scratch/"],
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.bookmark).toBe("main");
+		const squash = fakes.apply.mock.calls.find(
+			(c) => (c[0] as { kind: string }).kind === "squash",
+		)?.[0] as { filesets?: readonly string[] };
+		expect(squash.filesets).toEqual(['~(prefix-glob:".scratch/")']);
+		expect(fakes.apply).toHaveBeenCalledWith({
+			kind: "bookmarkSet",
+			name: "sillajje/folded/main",
+			rev: "tip",
+		});
+	});
+
+	it("combines --exclude with --named and --land", async () => {
+		const fakes = makeJj({
+			bookmarks: [{ name: "main", target: ["main-c"] }],
+		});
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			named: "review/feat",
+			land: true,
+			exclude: [".scratch/"],
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.bookmark).toBe("review/feat");
+		expect(fakes.apply).toHaveBeenCalledWith({
+			kind: "bookmarkSet",
+			name: "review/feat",
+			rev: "folded",
+		});
+		expect(fakes.apply).toHaveBeenCalledWith({
+			kind: "bookmarkSet",
+			name: "main",
+			rev: "folded",
+		});
+		const squash = fakes.apply.mock.calls.find(
+			(c) => (c[0] as { kind: string }).kind === "squash",
+		)?.[0] as { filesets?: readonly string[] };
+		expect(squash.filesets).toEqual(['~(prefix-glob:".scratch/")']);
 	});
 
 	it("keys the marker by the target's local bookmark, not the source's", async () => {
