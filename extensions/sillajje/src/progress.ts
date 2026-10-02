@@ -4,7 +4,9 @@
  * The renderer turns the Status events the core streams into a widget above
  * the editor. It accumulates the run's steps, marks the finished ones, and
  * freezes on the step that failed. A new run clears the stale widget; a
- * successful run clears its own. The core never sees this module.
+ * successful run clears its own. A run that finishes before the delay never
+ * draws, so an instant command shows nothing while a slow one does. The core
+ * never sees this module.
  */
 
 import type { PhaseCode, StatusEvent } from "@pi-tre/sillajje-core";
@@ -14,6 +16,15 @@ export type SetWidget = (key: string, lines: string[] | undefined) => void;
 
 /** The widget key Progress owns; distinct from the pill and serve keys. */
 export const PROGRESS_WIDGET_KEY = "sillajje-action";
+
+/** How long a run may stay quiet before the first step draws. */
+export const DEFAULT_PROGRESS_DELAY_MS = 250;
+
+/** Renderer tuning. */
+export interface ProgressOptions {
+	/** Milliseconds before the first running step draws; 0 draws at once. */
+	delayMs?: number;
+}
 
 type StepState = "running" | "done" | "failed";
 
@@ -75,11 +86,18 @@ export interface Progress {
 /**
  * Create a renderer over a widget sink. Without a sink (no UI) every call is
  * a no-op. Creation clears the widget so a frozen run does not outlive its
- * command.
+ * command; the first running step waits `delayMs` so an instant run never
+ * draws. A failure draws at once.
  */
-export function createProgress(setWidget: SetWidget | undefined): Progress {
+export function createProgress(
+	setWidget: SetWidget | undefined,
+	options?: ProgressOptions,
+): Progress {
+	const delayMs = options?.delayMs ?? DEFAULT_PROGRESS_DELAY_MS;
 	let steps: Step[] = [];
 	let frozen = false;
+	let visible = false;
+	let timer: ReturnType<typeof setTimeout> | undefined;
 
 	const write = (): void => {
 		if (setWidget === undefined) return;
@@ -89,15 +107,27 @@ export function createProgress(setWidget: SetWidget | undefined): Progress {
 		);
 	};
 
+	const show = (): void => {
+		visible = true;
+		write();
+	};
+
+	const cancelTimer = (): void => {
+		if (timer === undefined) return;
+		clearTimeout(timer);
+		timer = undefined;
+	};
+
 	// Clear a stale widget from a previous run at the start of this one.
 	write();
 
 	const freeze = (): void => {
 		if (frozen) return;
+		cancelTimer();
 		const current = steps.at(-1);
 		if (current?.state === "running") current.state = "failed";
 		frozen = true;
-		write();
+		show();
 	};
 
 	const pushStep = (code: ProgressCode, target: string | undefined): void => {
@@ -109,7 +139,16 @@ export function createProgress(setWidget: SetWidget | undefined): Progress {
 				? { code, state: "running" }
 				: { code, target, state: "running" },
 		);
-		write();
+		if (visible) {
+			write();
+		} else if (delayMs <= 0) {
+			show();
+		} else if (timer === undefined) {
+			timer = setTimeout(() => {
+				timer = undefined;
+				if (!frozen) show();
+			}, delayMs);
+		}
 	};
 
 	return {
@@ -123,13 +162,17 @@ export function createProgress(setWidget: SetWidget | undefined): Progress {
 		step: pushStep,
 		fail: freeze,
 		end() {
+			cancelTimer();
 			steps = [];
 			if (frozen) {
 				// Keep the frozen widget until the next run clears it.
 				frozen = false;
 				return;
 			}
-			write();
+			if (visible) {
+				visible = false;
+				write();
+			}
 		},
 	};
 }

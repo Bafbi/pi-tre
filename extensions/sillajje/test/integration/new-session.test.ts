@@ -44,23 +44,6 @@ type ReplacementCtx = Parameters<
 /** The notification kinds the UI context accepts. */
 type NotifyType = "info" | "warning" | "error";
 
-/** Bind a `ctx.newSession` that rejects before it replaces the session. */
-function bindFailingNewSessionStub(
-	runner: Awaited<ReturnType<typeof createRunner>>,
-	error: Error,
-): void {
-	runner.bindCommandContext({
-		waitForIdle: async () => {},
-		newSession: async () => {
-			throw error;
-		},
-		fork: async () => ({ cancelled: false }),
-		navigateTree: async () => ({ cancelled: false }),
-		switchSession: async () => ({ cancelled: false }),
-		reload: async () => {},
-	});
-}
-
 /**
  * Bind a `ctx.newSession` against the runner's own session manager. `setup`
  * always runs, so a test can inspect the entry the command wrote. When
@@ -131,33 +114,32 @@ describeJj("sillajje new session", () => {
 		expect(existsSync(join(workspace, "base.txt"))).toBe(true);
 	});
 
-	it("shows Progress for workspace creation and post-init before the new session replaces it", async () => {
+	it("shows Progress for workspace creation and post-init on the replacement's session_start", async () => {
 		const repo = initRepo();
-		const runner = await createRunner(repo);
-		await runner.emit({ type: "session_start", reason: "startup" });
+		writeFileSync(join(repo, "base.txt"), "base\n");
+		jj(["describe", "-m", "base work"], repo);
+		const baseId = jj(
+			["log", "-r", "@", "--no-graph", "-T", "commit_id"],
+			repo,
+		);
+		jj(["new"], repo);
 
+		const runner = await createRunner(repo);
+		// Write the Base marker before session_start, as `setup` would.
+		getSessionManager(runner).appendCustomEntry(SESSION_BASE_TYPE, {
+			base: baseId,
+			label: "base",
+		});
 		const { widgets } = captureUi(runner);
-		bindNewSessionStub(runner, () => {});
-		await runSillajje(runner, "new -o @");
+		await runner.emit({ type: "session_start", reason: "new" });
 
 		const rendered = widgets
 			.map((write) => write.lines)
 			.filter((lines): lines is string[] => lines !== undefined)
 			.flat();
-		expect(rendered).toContain("✓ creating workspace");
+		expect(rendered).toContain("● creating workspace");
 		expect(rendered).toContain("● running post-init");
-	}, 15_000);
-
-	it("clears Progress when the new session fails before it replaces the session", async () => {
-		const repo = initRepo();
-		const runner = await createRunner(repo);
-		await runner.emit({ type: "session_start", reason: "startup" });
-
-		const { widgets } = captureUi(runner);
-		bindFailingNewSessionStub(runner, new Error("boom"));
-
-		await expect(runSillajje(runner, "new -o @")).rejects.toThrow("boom");
-
+		// The run clears its own widget once setup returns.
 		expect(widgets.at(-1)?.lines).toBeUndefined();
 	}, 15_000);
 

@@ -117,10 +117,12 @@ target renders as the step alone.
   and matches the scope rule.
 
 **One new adapter module renders Progress.** A factory takes the UI context
-and returns `{ onStatus, clear }`. It maps a Status event to a list of widget
-lines and calls the widget API. It owns its own widget key, so it never fights
-the session pill (`sillajje`) or the serve indicator (`sillajje-serve`). The
-widget sits above the editor.
+and returns `{ onStatus, step, fail, end }`. It maps a Status event to a list
+of widget lines and calls the widget API. It owns its own widget key, so it
+never fights the session pill (`sillajje`) or the serve indicator
+(`sillajje-serve`). The widget sits above the editor. It clears any stale
+widget at once, then waits a short delay before drawing the first running
+step, so an instant command never draws; a failure draws at once.
 
 **The shared status sink calls the renderer.** The existing sink that maps
 Status events to debug logs and notifications gains the render branch. Every
@@ -128,17 +130,18 @@ command that builds ports through it gets Progress for free, and the core
 needs no change beyond `target`.
 
 **The lifecycle clears in `finally`.** The command handlers wrap the Action
-call so that a thrown error cannot strand the widget. On success the renderer
-clears before the Outcome notification. On an error Status event the renderer
-marks the current step with a cross and leaves the widget; the next command
-clears it at the start.
+call so that a thrown error cannot strand the widget. On an error Status event
+the renderer marks the current step with a cross and leaves the widget; the
+next command clears it at the start.
 
 **Auto-stamp reuses the sink.** The `agent_settled` Session stamp goes through
 the same ports, so it shows the same Progress.
 
 **`new` gets adapter-authored Progress.** The workspace boundary has no status
-sink by design, so `new` does not go through the renderer's event stream. Its
-handler renders two lines itself: creating the workspace and running post-init.
+sink by design, so `new` does not go through the renderer's event stream. The
+replacement session's `session_start` drives two adapter-authored steps —
+creating the workspace around `workspaces.ensure`, running post-init around
+`runPostInit` — so the steps are real and outlive the session replacement.
 Giving the workspace boundary a status sink is a separate decision and is not
 taken here.
 

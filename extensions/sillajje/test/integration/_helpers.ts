@@ -28,7 +28,11 @@ const sessionManagers = new WeakMap<ExtensionRunner, SessionManager>();
 
 afterEach(async () => {
 	// Reset the test seams so they never leak into later tests.
-	setTestPorts({ run: undefined, exec: undefined });
+	setTestPorts({
+		run: undefined,
+		exec: undefined,
+		progressDelayMs: undefined,
+	});
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -52,6 +56,8 @@ export async function createRunner(
 		onNotify?: (msg: string, type: "info" | "warning" | "error") => void;
 	},
 ): Promise<ExtensionRunner> {
+	// Draw Progress at once so a widget assertion does not race a timer.
+	setTestPorts({ progressDelayMs: 0 });
 	const extensionPath = resolveExtensionPath();
 	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
 	expect(loaded.errors).toHaveLength(0);

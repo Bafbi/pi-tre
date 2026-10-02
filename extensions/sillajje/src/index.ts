@@ -59,7 +59,7 @@ import {
 import { redirect } from "./path-redirect.js";
 import {
 	createProgress,
-	PROGRESS_WIDGET_KEY,
+	DEFAULT_PROGRESS_DELAY_MS,
 	type Progress,
 	type SetWidget,
 } from "./progress.js";
@@ -122,11 +122,14 @@ let activeConfig: ReturnType<typeof loadSillajjeConfig> | undefined;
  * module instance is not the loaded one. A test installs port overrides on
  * one `globalThis` object through `setTestPorts`; the loaded adapter reads
  * them. `run` replaces the sub-generator backend; `exec` wraps every jj call
- * so a test can inject a failure at one command. No second seam exists.
+ * so a test can inject a failure at one command. `progressDelayMs` shortens
+ * the Progress draw delay so a test does not wait on a timer. No second seam
+ * exists.
  */
 interface TestPortOverrides {
 	run?: RunSubagent;
 	exec?: ExecFn;
+	progressDelayMs?: number;
 }
 
 /** The shared override object, created on first access. */
@@ -149,6 +152,11 @@ export function setTestPorts(overrides: TestPortOverrides): void {
 /** The sub-generator backend: the test override or the real factory. */
 function resolveRunSubagent(): RunSubagent {
 	return testPorts().run ?? createRunSubagent();
+}
+
+/** The Progress draw delay: the test override or the default. */
+function progressDelay(): number {
+	return testPorts().progressDelayMs ?? DEFAULT_PROGRESS_DELAY_MS;
 }
 
 /**
@@ -289,7 +297,9 @@ export default function (pi: ExtensionAPI) {
 		ctx: CommandContext,
 		run: (progress: Progress) => Promise<void>,
 	): Promise<void> => {
-		const progress = createProgress(progressWidget(ctx));
+		const progress = createProgress(progressWidget(ctx), {
+			delayMs: progressDelay(),
+		});
 		try {
 			await run(progress);
 		} finally {
@@ -614,9 +624,6 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		debug.event("session_start", { mode: ctx.mode, reason: _event.reason });
 		state.reset();
-		// A `new` in flight drew its Progress before it replaced the session;
-		// the replacement clears it here.
-		progressWidget(ctx)?.(PROGRESS_WIDGET_KEY, undefined);
 		// Clear a Serve indicator left by a previous session; a no-op when the
 		// controller still has a live server (it re-sets the same key).
 		syncServePill(ctx);
@@ -682,6 +689,16 @@ export default function (pi: ExtensionAPI) {
 				sessionId,
 				base: baseMarker?.base,
 			});
+			// A `/sillajje:new` session does its slow work here: creating the
+			// workspace and running post-init. Drive Progress from this session,
+			// so the steps are real and outlive the replacement.
+			const progress =
+				baseMarker === undefined
+					? undefined
+					: createProgress(progressWidget(ctx), {
+							delayMs: progressDelay(),
+						});
+			progress?.step("creating-workspace");
 			try {
 				const workspaces = workspacesFor(repoRoot);
 				const result = await workspaces.ensure(
@@ -711,6 +728,7 @@ export default function (pi: ExtensionAPI) {
 				state.setSessionKey(info.sessionKey);
 
 				// Run post-init commands (non-fatal — session activates regardless).
+				progress?.step("running-post-init");
 				await runPostInit(ctx);
 
 				debug.event("workspace_ready", {
@@ -734,6 +752,7 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 			} catch (err) {
+				progress?.fail();
 				debug.error("workspace_creation_failed", err);
 				state.setInactive();
 				syncPill(ctx);
@@ -744,6 +763,8 @@ export default function (pi: ExtensionAPI) {
 						"error",
 					);
 				}
+			} finally {
+				progress?.end();
 			}
 		} else {
 			syncPill(ctx);
@@ -1753,54 +1774,36 @@ export default function (pi: ExtensionAPI) {
 		ctx: ExtensionCommandContext,
 		marker: SessionBaseMarker,
 	): Promise<void> => {
-		// `new` does not go through a Status event: the workspace boundary has
-		// no status sink. The handler draws the two steps the replacement will
-		// take, and the replacement's session_start clears them.
-		const progress = createProgress(progressWidget(ctx));
-		progress.step("creating-workspace");
-		progress.step("running-post-init");
-
-		// The replacement invalidates the captured `ctx`, so a failure after
-		// replacement must not touch it: the replacement's session_start clears
-		// the widget instead. A failure before replacement clears it here.
-		let replaced = false;
-		try {
-			const result = await ctx.newSession({
-				setup: async (sm) => {
-					sm.appendCustomEntry(SESSION_BASE_TYPE, {
-						base: marker.base,
-						label: marker.label,
-					} satisfies SessionBaseMarker);
-				},
-				// The replacement disposes the old session and invalidates the
-				// captured `ctx`. All post-replacement work must use the fresh
-				// context handed to `withSession`.
-				withSession: async (replacementCtx) => {
-					replaced = true;
-					debug.event("new_session", {
-						base: marker.base,
-						label: marker.label,
-					});
-					if (replacementCtx.hasUI) {
-						replacementCtx.ui.notify(
-							`[sillajje] starting a new session on ${marker.label}`,
-							"info",
-						);
-					}
-				},
-			});
-			// A cancelled call leaves the session in place, so the captured `ctx`
-			// is still valid here.
-			if (result.cancelled) {
-				debug.event("new_session_cancelled", {});
-				if (ctx.hasUI) {
-					ctx.ui.notify("[sillajje] new session cancelled", "info");
+		const result = await ctx.newSession({
+			setup: async (sm) => {
+				sm.appendCustomEntry(SESSION_BASE_TYPE, {
+					base: marker.base,
+					label: marker.label,
+				} satisfies SessionBaseMarker);
+			},
+			// The replacement disposes the old session and invalidates the
+			// captured `ctx`. All post-replacement work must use the fresh
+			// context handed to `withSession`.
+			withSession: async (replacementCtx) => {
+				debug.event("new_session", {
+					base: marker.base,
+					label: marker.label,
+				});
+				if (replacementCtx.hasUI) {
+					replacementCtx.ui.notify(
+						`[sillajje] starting a new session on ${marker.label}`,
+						"info",
+					);
 				}
-				progress.end();
+			},
+		});
+		// A cancelled call leaves the session in place, so the captured `ctx`
+		// is still valid here.
+		if (result.cancelled) {
+			debug.event("new_session_cancelled", {});
+			if (ctx.hasUI) {
+				ctx.ui.notify("[sillajje] new session cancelled", "info");
 			}
-		} catch (err) {
-			if (!replaced) progress.end();
-			throw err;
 		}
 	};
 

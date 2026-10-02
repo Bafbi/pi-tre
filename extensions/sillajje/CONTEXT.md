@@ -115,7 +115,7 @@ A two-part prefix taxonomy where the first part describes the agent's mode of op
 The taxonomy of agent modes that form the first half of a dual prefix. Seven canonical types: `act` (executed, files changed), `plan` (designed/scoped), `explore` (read and navigated the codebase), `research` (investigated external sources), `ask` (asked the user a question), `answer` (answered the user's question), `debug` (diagnosed a problem). The header sub-generator picks the best type from the transcript. All can combine with a conventional-commit prefix when files changed.
 
 **Progress**:
-The adapter's live rendering of a running Action's Status events: a widget above the editor that accumulates the run's phases, marks the completed ones, and freezes on the failed one. The adapter clears it when the Action returns. Progress is not the footer pill.
+The adapter's live rendering of a running Action's Status events: a widget above the editor that accumulates the run's phases, marks the completed ones, and freezes on the failed one. The adapter clears it when the Action returns; a run that finishes before a short delay never draws. Progress is not the footer pill.
 _Avoid_: Status pill (that reports session state, not a running Action), loader, spinner
 
 **Outcome**:
