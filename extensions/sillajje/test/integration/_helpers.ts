@@ -82,6 +82,7 @@ export async function createRunner(
 	runner.setUIContext(
 		{
 			setStatus: () => {},
+			setWidget: () => {},
 			notify: opts?.onNotify ?? (() => {}),
 			setEditorText: () => {},
 			getEditorText: () => "",
@@ -101,6 +102,34 @@ export function getSessionManager(runner: ExtensionRunner): SessionManager {
 		);
 	}
 	return sessionManager;
+}
+
+/**
+ * Collect widget writes and notifications so a test can assert both the
+ * Progress rendering and the outcome messages of one command.
+ */
+export function captureUi(runner: ExtensionRunner): {
+	widgets: Array<{ key: string; lines: string[] | undefined }>;
+	notifications: Array<{ msg: string; type: "info" | "warning" | "error" }>;
+} {
+	const widgets: Array<{ key: string; lines: string[] | undefined }> = [];
+	const notifications: Array<{
+		msg: string;
+		type: "info" | "warning" | "error";
+	}> = [];
+	runner.setUIContext(
+		{
+			setStatus: () => {},
+			notify: (msg: string, type: "info" | "warning" | "error") =>
+				notifications.push({ msg, type }),
+			setWidget: (key: string, lines: string[] | undefined) =>
+				widgets.push({ key, lines }),
+			setEditorText: () => {},
+			getEditorText: () => "",
+		} as unknown as Parameters<typeof runner.setUIContext>[0],
+		"tui",
+	);
+	return { widgets, notifications };
 }
 
 /**

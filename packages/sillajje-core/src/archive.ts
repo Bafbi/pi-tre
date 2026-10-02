@@ -104,7 +104,12 @@ export function createArchive(
 			return { ok: false, reason: target.reason };
 		}
 
-		emitStatus(onStatus, { kind: "phase", code: "archiving" });
+		const targetLabel = workspaces.unqualified(sessionKey);
+		emitStatus(onStatus, {
+			kind: "phase",
+			code: "archiving",
+			target: targetLabel,
+		});
 		try {
 			const outcome = await workspaces.archive(sessionKey);
 			if (outcome.status === "failed") {
@@ -150,7 +155,12 @@ export function createUnarchive(
 			return { ok: false, reason: "foreign" };
 		}
 
-		emitStatus(onStatus, { kind: "phase", code: "unarchiving" });
+		const targetLabel = workspaces.unqualified(sessionKey);
+		emitStatus(onStatus, {
+			kind: "phase",
+			code: "unarchiving",
+			target: targetLabel,
+		});
 		try {
 			// Unarchiving a live workspace runs `jj workspace forget` before the
 			// re-add fails on the non-empty directory, leaving the workspace

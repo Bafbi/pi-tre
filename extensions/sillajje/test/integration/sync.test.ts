@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { beforeEach, expect, it } from "vitest";
 import {
+	captureUi,
 	createRunner,
 	describeJj,
 	installDefaultSubGeneratorMock,
@@ -86,6 +87,7 @@ function captureNotifications(
 	runner.setUIContext(
 		{
 			setStatus: () => {},
+			setWidget: () => {},
 			notify: (msg: string, type: "info" | "warning" | "error") =>
 				notifications.push({ msg, type }),
 			setEditorText: () => {},
@@ -413,5 +415,62 @@ describeJj("sillajje sync", () => {
 				msg: expect.stringContaining("usage: /sillajje:sync"),
 			}),
 		);
+	}, 15_000);
+
+	it("shows Progress for the rebase and clears it when sync returns", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		const path = wsPath(cwd, sessionId);
+
+		execSync("echo session-work > session.txt", { cwd: path });
+		await simulateInteraction(runner, "Session change", "Done.");
+		createUpstream(cwd, "upstream.txt", "upstream-work", "feat: upstream");
+
+		const { widgets } = captureUi(runner);
+		await getSyncCommand(runner).handler(
+			"-o main",
+			runner.createCommandContext(),
+		);
+
+		const rendered = widgets
+			.map((write) => write.lines)
+			.filter((lines): lines is string[] => lines !== undefined);
+		expect(
+			rendered.some((lines) =>
+				lines.some((line) => line.includes("rebasing onto main")),
+			),
+		).toBe(true);
+		expect(widgets.at(-1)?.lines).toBeUndefined();
+	}, 15_000);
+
+	it("freezes the rebase step when the sync conflicts", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		execSync("echo base > file.txt", { cwd });
+		jj(["describe", "-m", "base"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		const path = wsPath(cwd, sessionId);
+
+		execSync("echo session-edit > file.txt", { cwd: path });
+		await simulateInteraction(runner, "Session change", "Done.");
+		createUpstream(cwd, "file.txt", "upstream-edit", "feat: upstream");
+
+		const { widgets } = captureUi(runner);
+		await getSyncCommand(runner).handler(
+			"-o main",
+			runner.createCommandContext(),
+		);
+
+		expect(widgets.at(-1)?.lines).toEqual(["✗ rebasing onto main"]);
 	}, 15_000);
 });

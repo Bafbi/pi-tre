@@ -40,6 +40,7 @@ describeJj("sillajje post-init commands", () => {
 			{
 				notify,
 				setStatus: () => {},
+				setWidget: () => {},
 				setEditorText: () => {},
 				getEditorText: () => "",
 			} as unknown as Parameters<typeof runner.setUIContext>[0],
@@ -91,6 +92,7 @@ describeJj("sillajje post-init commands", () => {
 			{
 				notify,
 				setStatus: () => {},
+				setWidget: () => {},
 				setEditorText: () => {},
 				getEditorText: () => "",
 			} as unknown as Parameters<typeof runner.setUIContext>[0],
@@ -135,6 +137,7 @@ describeJj("sillajje post-init commands", () => {
 			{
 				notify,
 				setStatus: () => {},
+				setWidget: () => {},
 				setEditorText: () => {},
 				getEditorText: () => "",
 			} as unknown as Parameters<typeof runner.setUIContext>[0],
@@ -188,6 +191,7 @@ describeJj("sillajje post-init commands", () => {
 			{
 				notify,
 				setStatus: () => {},
+				setWidget: () => {},
 				setEditorText: () => {},
 				getEditorText: () => "",
 			} as unknown as Parameters<typeof runner.setUIContext>[0],

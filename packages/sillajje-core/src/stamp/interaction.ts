@@ -175,7 +175,11 @@ export async function stampInteractionPath(
 	);
 
 	// Phase: sealing-change
-	emitStatus(deps.onStatus, { kind: "phase", code: "sealing-change" });
+	emitStatus(deps.onStatus, {
+		kind: "phase",
+		code: "sealing-change",
+		target: sessionKey,
+	});
 
 	try {
 		return await sealWorkingCopy(deps, wsPath, sessionKey, body, subject);

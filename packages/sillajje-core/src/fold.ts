@@ -680,7 +680,11 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			return fail(`fold message generation failed: ${String(err)}`);
 		}
 
-		emitStatus(onStatus, { kind: "phase", code: "folding" });
+		emitStatus(onStatus, {
+			kind: "phase",
+			code: "folding",
+			target: targetRev,
+		});
 
 		// The name this fold carries: update uses the review bookmark; publish
 		// uses --named (auto `fold-<change id>` when empty) or the target's local
@@ -807,7 +811,11 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		const advancedBookmark = updateMode ? targetRev : ontoBookmark;
 		let pushed: readonly string[] = [];
 		if (input.push === true && advancedBookmark !== undefined) {
-			emitStatus(onStatus, { kind: "phase", code: "pushing" });
+			emitStatus(onStatus, {
+				kind: "phase",
+				code: "pushing",
+				target: advancedBookmark,
+			});
 			pushed = await pushAdvancedBookmark(
 				jj,
 				advancedBookmark,

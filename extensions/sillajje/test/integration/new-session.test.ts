@@ -15,6 +15,7 @@ import { expect, it } from "vitest";
 import { setTestPorts } from "../../src/index.js";
 import { lastSessionBase, SESSION_BASE_TYPE } from "../../src/session-base.js";
 import {
+	captureUi,
 	createRunner,
 	describeJj,
 	failingJjExec,
@@ -42,6 +43,23 @@ type ReplacementCtx = Parameters<
 
 /** The notification kinds the UI context accepts. */
 type NotifyType = "info" | "warning" | "error";
+
+/** Bind a `ctx.newSession` that rejects before it replaces the session. */
+function bindFailingNewSessionStub(
+	runner: Awaited<ReturnType<typeof createRunner>>,
+	error: Error,
+): void {
+	runner.bindCommandContext({
+		waitForIdle: async () => {},
+		newSession: async () => {
+			throw error;
+		},
+		fork: async () => ({ cancelled: false }),
+		navigateTree: async () => ({ cancelled: false }),
+		switchSession: async () => ({ cancelled: false }),
+		reload: async () => {},
+	});
+}
 
 /**
  * Bind a `ctx.newSession` against the runner's own session manager. `setup`
@@ -112,6 +130,36 @@ describeJj("sillajje new session", () => {
 		// tree — including base.txt — is present.
 		expect(existsSync(join(workspace, "base.txt"))).toBe(true);
 	});
+
+	it("shows Progress for workspace creation and post-init before the new session replaces it", async () => {
+		const repo = initRepo();
+		const runner = await createRunner(repo);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const { widgets } = captureUi(runner);
+		bindNewSessionStub(runner, () => {});
+		await runSillajje(runner, "new -o @");
+
+		const rendered = widgets
+			.map((write) => write.lines)
+			.filter((lines): lines is string[] => lines !== undefined)
+			.flat();
+		expect(rendered).toContain("✓ creating workspace");
+		expect(rendered).toContain("● running post-init");
+	}, 15_000);
+
+	it("clears Progress when the new session fails before it replaces the session", async () => {
+		const repo = initRepo();
+		const runner = await createRunner(repo);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const { widgets } = captureUi(runner);
+		bindFailingNewSessionStub(runner, new Error("boom"));
+
+		await expect(runSillajje(runner, "new -o @")).rejects.toThrow("boom");
+
+		expect(widgets.at(-1)?.lines).toBeUndefined();
+	}, 15_000);
 
 	it("defaults to trunk() when the session has no Base marker", async () => {
 		const repo = initRepo();
@@ -218,6 +266,7 @@ describeJj("sillajje new session", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: string) =>
 					notifications.push({ msg, type }),
 				setEditorText: () => {},
@@ -253,6 +302,7 @@ describeJj("sillajje new session", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: string) =>
 					notifications.push({ msg, type }),
 				setEditorText: () => {},
@@ -282,6 +332,7 @@ describeJj("sillajje new session", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: string) =>
 					notifications.push({ msg, type }),
 				setEditorText: () => {},
@@ -312,6 +363,7 @@ describeJj("sillajje new session", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: string) =>
 					notifications.push({ msg, type }),
 				setEditorText: () => {},

@@ -37,6 +37,7 @@ describe("sillajje scaffold", () => {
 		runner.setUIContext(
 			{
 				setStatus,
+				setWidget: () => {},
 				notify: () => {},
 				setEditorText: () => {},
 				getEditorText: () => "",

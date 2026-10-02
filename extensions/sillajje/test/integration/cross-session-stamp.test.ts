@@ -182,6 +182,7 @@ describeJj("sillajje cross-session stamp", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: "info" | "warning" | "error") =>
 					notifications.push([msg, type]),
 				setEditorText: () => {},
@@ -211,6 +212,7 @@ describeJj("sillajje cross-session stamp", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: "info" | "warning" | "error") =>
 					notifications.push([msg, type]),
 				setEditorText: () => {},

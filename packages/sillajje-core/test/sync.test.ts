@@ -103,7 +103,9 @@ describe("createSync", () => {
 			},
 			{ cwd: "/ws" },
 		);
-		expect(statuses).toEqual([{ kind: "phase", code: "rebasing" }]);
+		expect(statuses).toEqual([
+			{ kind: "phase", code: "rebasing", target: "main" },
+		]);
 	});
 
 	it("resolves a named session through the Workspaces port", async () => {
