@@ -20,11 +20,22 @@ export interface ProvenanceVersions {
 }
 
 /**
+/**
  * A status event streamed during an action's execution. The adapter renders
  * `phase` as progress, `warning` and `error` as notifications.
  */
+export type PhaseCode =
+	| "collecting-diff"
+	| "generating-header"
+	| "sealing-change"
+	| "rebasing"
+	| "folding"
+	| "pushing"
+	| "archiving"
+	| "unarchiving";
+
 export type StatusEvent =
-	| { kind: "phase"; code: string }
+	| { kind: "phase"; code: PhaseCode; target?: string }
 	| { kind: "info"; code: string; message: string }
 	| { kind: "warning"; code: string; message: string }
 	| { kind: "error"; code: string; message: string };

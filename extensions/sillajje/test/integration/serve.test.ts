@@ -26,6 +26,7 @@ function captureUi(runner: ExtensionRunner): CapturedUi {
 			setStatus: (key: string, text: string | undefined) => {
 				statuses.set(key, text);
 			},
+			setWidget: () => {},
 			notify: (msg: string, type: "info" | "warning" | "error") =>
 				notifications.push({ msg, type }),
 			setEditorText: () => {},

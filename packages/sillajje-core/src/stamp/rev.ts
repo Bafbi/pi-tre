@@ -35,7 +35,11 @@ export async function stampRevPath(
 	}
 
 	// Phase: sealing-change — a single `jj describe`, atomic by construction.
-	emitStatus(deps.onStatus, { kind: "phase", code: "sealing-change" });
+	emitStatus(deps.onStatus, {
+		kind: "phase",
+		code: "sealing-change",
+		target: rev,
+	});
 
 	return describeRevision(deps, wsPath, rev, built.body, built.subject);
 }

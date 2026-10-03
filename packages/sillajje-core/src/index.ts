@@ -9,6 +9,7 @@
 export type {
 	Action,
 	HostPorts,
+	PhaseCode,
 	ProvenanceVersions,
 	RunSubagent,
 	StatusEvent,

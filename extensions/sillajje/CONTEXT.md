@@ -114,6 +114,14 @@ A two-part prefix taxonomy where the first part describes the agent's mode of op
 **Interaction types**:
 The taxonomy of agent modes that form the first half of a dual prefix. Seven canonical types: `act` (executed, files changed), `plan` (designed/scoped), `explore` (read and navigated the codebase), `research` (investigated external sources), `ask` (asked the user a question), `answer` (answered the user's question), `debug` (diagnosed a problem). The header sub-generator picks the best type from the transcript. All can combine with a conventional-commit prefix when files changed.
 
+**Progress**:
+The adapter's live rendering of a running Action's Status events: a widget above the editor that accumulates the run's phases, marks the completed ones, and freezes on the failed one. The adapter clears it when the Action returns; a run that finishes before a short delay never draws. Progress is not the footer pill.
+_Avoid_: Status pill (that reports session state, not a running Action), loader, spinner
+
+**Outcome**:
+The notification that reports a finished Action's result: what it published, advanced, or rejected. It replaces Progress, which is cleared when the command returns.
+_Avoid_: Result (that is the Action's return value in the core)
+
 ## Concurrency
 
 Each Pi session gets its own jj workspace (`sillajje/<session-key>`), so concurrent Pi processes on the same repo never share a working directory. A new workspace branches from the `trunk()` revset, so unlanded work on the main checkout stays out of the session. When `trunk()` resolves to `root()` (the repo has no trunk bookmark), the session starts from an empty tree and sillajje warns. jj handles concurrent operations on one repo natively — bookmarks, working-copy snapshots, and lock files are coordinated by jj itself — so no locking or coordination is needed in the extension. The session-ID collision guard (a numeric `-N` suffix on the session key) covers the pathological case of two sessions sharing an ID.

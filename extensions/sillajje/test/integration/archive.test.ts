@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import {
+	captureUi,
 	createRunner,
 	describeJj,
 	installDefaultSubGeneratorMock,
@@ -54,6 +55,7 @@ function captureNotifications(
 	runner.setUIContext(
 		{
 			setStatus: () => {},
+			setWidget: () => {},
 			notify: (msg: string, type: "info" | "warning" | "error") =>
 				notifications.push({ msg, type }),
 			setEditorText: () => {},
@@ -108,6 +110,44 @@ describeJj("sillajje archive / unarchive", () => {
 
 		// Workspace directory should be gone.
 		expect(existsSync(path)).toBe(false);
+	});
+
+	it("shows Progress while archiving and clears it when the command returns", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+
+		const { widgets } = captureUi(runner);
+		await runSillajje(runner, "archive");
+
+		const rendered = widgets
+			.map((write) => write.lines)
+			.filter((lines): lines is string[] => lines !== undefined);
+		expect(
+			rendered.some((lines) =>
+				lines.some((line) => line.includes(`archiving ${sessionId}`)),
+			),
+		).toBe(true);
+		// The run cleared its own widget before the command returned.
+		expect(widgets.at(-1)?.lines).toBeUndefined();
+	});
+
+	it("leaves no widget when archive fails before its first step", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		await setupJjRepo(cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const { widgets } = captureUi(runner);
+		await runSillajje(runner, "archive -s not-a-session");
+
+		expect(widgets.at(-1)?.lines).toBeUndefined();
 	});
 
 	it("archived session blocks input with handled action", async () => {

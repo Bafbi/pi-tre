@@ -15,6 +15,7 @@ import { expect, it } from "vitest";
 import { setTestPorts } from "../../src/index.js";
 import { lastSessionBase, SESSION_BASE_TYPE } from "../../src/session-base.js";
 import {
+	captureUi,
 	createRunner,
 	describeJj,
 	failingJjExec,
@@ -112,6 +113,35 @@ describeJj("sillajje new session", () => {
 		// tree — including base.txt — is present.
 		expect(existsSync(join(workspace, "base.txt"))).toBe(true);
 	});
+
+	it("shows Progress for workspace creation and post-init on the replacement's session_start", async () => {
+		const repo = initRepo();
+		writeFileSync(join(repo, "base.txt"), "base\n");
+		jj(["describe", "-m", "base work"], repo);
+		const baseId = jj(
+			["log", "-r", "@", "--no-graph", "-T", "commit_id"],
+			repo,
+		);
+		jj(["new"], repo);
+
+		const runner = await createRunner(repo);
+		// Write the Base marker before session_start, as `setup` would.
+		getSessionManager(runner).appendCustomEntry(SESSION_BASE_TYPE, {
+			base: baseId,
+			label: "base",
+		});
+		const { widgets } = captureUi(runner);
+		await runner.emit({ type: "session_start", reason: "new" });
+
+		const rendered = widgets
+			.map((write) => write.lines)
+			.filter((lines): lines is string[] => lines !== undefined)
+			.flat();
+		expect(rendered).toContain("● creating workspace");
+		expect(rendered).toContain("● running post-init");
+		// The run clears its own widget once setup returns.
+		expect(widgets.at(-1)?.lines).toBeUndefined();
+	}, 15_000);
 
 	it("defaults to trunk() when the session has no Base marker", async () => {
 		const repo = initRepo();
@@ -218,6 +248,7 @@ describeJj("sillajje new session", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: string) =>
 					notifications.push({ msg, type }),
 				setEditorText: () => {},
@@ -253,6 +284,7 @@ describeJj("sillajje new session", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: string) =>
 					notifications.push({ msg, type }),
 				setEditorText: () => {},
@@ -282,6 +314,7 @@ describeJj("sillajje new session", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: string) =>
 					notifications.push({ msg, type }),
 				setEditorText: () => {},
@@ -312,6 +345,7 @@ describeJj("sillajje new session", () => {
 		runner.setUIContext(
 			{
 				setStatus: () => {},
+				setWidget: () => {},
 				notify: (msg: string, type: string) =>
 					notifications.push({ msg, type }),
 				setEditorText: () => {},

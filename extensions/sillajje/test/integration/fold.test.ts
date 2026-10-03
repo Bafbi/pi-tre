@@ -13,6 +13,7 @@ import { SESSION_BASE_TYPE } from "../../src/session-base.js";
 import {
 	addBareRemote,
 	bareRef,
+	captureUi,
 	createRunner,
 	describeJj,
 	getSessionId,
@@ -50,6 +51,7 @@ function captureNotifications(
 	runner.setUIContext(
 		{
 			setStatus: () => {},
+			setWidget: () => {},
 			notify: (msg: string, type: "info" | "warning" | "error") =>
 				notifications.push({ msg, type }),
 			setEditorText: () => {},
@@ -985,5 +987,55 @@ describeJj("sillajje fold", () => {
 			(n) => n.type === "info" && n.msg.includes("usage: /sillajje:fold"),
 		);
 		expect(helps).toHaveLength(3);
+	}, 30_000);
+
+	it("shows Progress for the replay and clears it when the fold returns", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "feat.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const { widgets } = captureUi(runner);
+
+		await runSillajje(runner, "fold -r feat -o main");
+
+		const rendered = widgets
+			.map((write) => write.lines)
+			.filter((lines): lines is string[] => lines !== undefined);
+		expect(
+			rendered.some((lines) =>
+				lines.some((line) => line.includes("folding onto main")),
+			),
+		).toBe(true);
+		expect(widgets.at(-1)?.lines).toBeUndefined();
+	}, 30_000);
+
+	it("freezes the fold step when the fold conflicts", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "file.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "file.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const { widgets } = captureUi(runner);
+
+		await runSillajje(runner, "fold -r feat -o main");
+
+		expect(widgets.at(-1)?.lines).toEqual(["✗ folding onto main"]);
 	}, 30_000);
 });

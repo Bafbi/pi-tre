@@ -38,7 +38,11 @@ export async function stampSessionPath(
 			return built;
 		}
 
-		emitStatus(deps.onStatus, { kind: "phase", code: "sealing-change" });
+		emitStatus(deps.onStatus, {
+			kind: "phase",
+			code: "sealing-change",
+			target: sessionKey,
+		});
 
 		return await sealWorkingCopy(
 			deps,

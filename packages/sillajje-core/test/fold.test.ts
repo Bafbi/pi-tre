@@ -289,7 +289,9 @@ describe("createFold", () => {
 		expect(squash.message).not.toContain("Loop:");
 
 		expect(fakes.transaction).toHaveBeenCalledTimes(1);
-		expect(statuses).toEqual([{ kind: "phase", code: "folding" }]);
+		expect(statuses).toEqual([
+			{ kind: "phase", code: "folding", target: "main" },
+		]);
 	});
 
 	it("leaves excluded paths out of the squash, the diff, and the copies", async () => {
@@ -717,7 +719,7 @@ describe("createFold", () => {
 				{ name: "main", remote: "upstream", target: ["main-c"] },
 			],
 		});
-		const { action } = fold({ jj: fakes });
+		const { action, statuses } = fold({ jj: fakes });
 
 		const result = await action({
 			rev: "feat",
@@ -729,6 +731,11 @@ describe("createFold", () => {
 		if (result.ok) {
 			expect(result.pushed).toEqual(["main@origin", "main@upstream"]);
 		}
+		expect(statuses).toContainEqual({
+			kind: "phase",
+			code: "pushing",
+			target: "main",
+		});
 		expect(fakes.gitPush).toHaveBeenCalledWith(
 			{ bookmark: "main", remote: "origin" },
 			{ cwd: "." },

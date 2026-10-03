@@ -59,7 +59,11 @@ export function createSync(
 		if (!resolved.ok) return { ok: false, reason: resolved.reason };
 
 		const { sessionKey, wsPath } = resolved;
-		emitStatus(onStatus, { kind: "phase", code: "rebasing" });
+		emitStatus(onStatus, {
+			kind: "phase",
+			code: "rebasing",
+			target: input.rev,
+		});
 
 		// One `jj rebase` with two `--onto` flags: the target revision and the
 		// session's bookmark. The bookmark parent keeps the session's history

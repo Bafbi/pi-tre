@@ -413,7 +413,11 @@ describe("stampSession (interaction context)", () => {
 		expect(phases).toHaveLength(3);
 		expect(phases[0]!.code).toBe("collecting-diff");
 		expect(phases[1]!.code).toBe("generating-header");
-		expect(phases[2]!.code).toBe("sealing-change");
+		expect(phases[2]).toEqual({
+			kind: "phase",
+			code: "sealing-change",
+			target: "test-session",
+		});
 	});
 
 	it("runs the seal sequence in order through the injected exec seam", async () => {
@@ -999,7 +1003,11 @@ describe("stampSession (manual context)", () => {
 		expect(phases).toHaveLength(3);
 		expect(phases[0]!.code).toBe("collecting-diff");
 		expect(phases[1]!.code).toBe("generating-header");
-		expect(phases[2]!.code).toBe("sealing-change");
+		expect(phases[2]).toEqual({
+			kind: "phase",
+			code: "sealing-change",
+			target: "test-session",
+		});
 	});
 
 	// -------------------------------------------------------------------
@@ -1231,6 +1239,11 @@ describe("stampRev", () => {
 			"generating-header",
 			"sealing-change",
 		]);
+		expect(phases[2]).toEqual({
+			kind: "phase",
+			code: "sealing-change",
+			target: "abc123",
+		});
 	});
 
 	it("accepts -r @ and stays describe-only", async () => {

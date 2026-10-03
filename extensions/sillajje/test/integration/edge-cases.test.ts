@@ -60,6 +60,7 @@ function spyNotifications(
 	runner.setUIContext(
 		{
 			setStatus: () => {},
+			setWidget: () => {},
 			notify: (msg: string) => notifications.push(msg),
 			setEditorText: () => {},
 			getEditorText: () => "",

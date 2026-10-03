@@ -28,7 +28,11 @@ const sessionManagers = new WeakMap<ExtensionRunner, SessionManager>();
 
 afterEach(async () => {
 	// Reset the test seams so they never leak into later tests.
-	setTestPorts({ run: undefined, exec: undefined });
+	setTestPorts({
+		run: undefined,
+		exec: undefined,
+		progressDelayMs: undefined,
+	});
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -52,6 +56,8 @@ export async function createRunner(
 		onNotify?: (msg: string, type: "info" | "warning" | "error") => void;
 	},
 ): Promise<ExtensionRunner> {
+	// Draw Progress at once so a widget assertion does not race a timer.
+	setTestPorts({ progressDelayMs: 0 });
 	const extensionPath = resolveExtensionPath();
 	const loaded = await discoverAndLoadExtensions([extensionPath], cwd, cwd);
 	expect(loaded.errors).toHaveLength(0);
@@ -82,6 +88,7 @@ export async function createRunner(
 	runner.setUIContext(
 		{
 			setStatus: () => {},
+			setWidget: () => {},
 			notify: opts?.onNotify ?? (() => {}),
 			setEditorText: () => {},
 			getEditorText: () => "",
@@ -101,6 +108,34 @@ export function getSessionManager(runner: ExtensionRunner): SessionManager {
 		);
 	}
 	return sessionManager;
+}
+
+/**
+ * Collect widget writes and notifications so a test can assert both the
+ * Progress rendering and the outcome messages of one command.
+ */
+export function captureUi(runner: ExtensionRunner): {
+	widgets: Array<{ key: string; lines: string[] | undefined }>;
+	notifications: Array<{ msg: string; type: "info" | "warning" | "error" }>;
+} {
+	const widgets: Array<{ key: string; lines: string[] | undefined }> = [];
+	const notifications: Array<{
+		msg: string;
+		type: "info" | "warning" | "error";
+	}> = [];
+	runner.setUIContext(
+		{
+			setStatus: () => {},
+			notify: (msg: string, type: "info" | "warning" | "error") =>
+				notifications.push({ msg, type }),
+			setWidget: (key: string, lines: string[] | undefined) =>
+				widgets.push({ key, lines }),
+			setEditorText: () => {},
+			getEditorText: () => "",
+		} as unknown as Parameters<typeof runner.setUIContext>[0],
+		"tui",
+	);
+	return { widgets, notifications };
 }
 
 /**

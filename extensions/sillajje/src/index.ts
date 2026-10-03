@@ -57,6 +57,12 @@ import {
 	STAMP_MARKER_TYPE,
 } from "./interaction.js";
 import { redirect } from "./path-redirect.js";
+import {
+	createProgress,
+	DEFAULT_PROGRESS_DELAY_MS,
+	type Progress,
+	type SetWidget,
+} from "./progress.js";
 import { createServeController, type ServeStatus } from "./serve.js";
 import {
 	lastSessionBase,
@@ -116,11 +122,14 @@ let activeConfig: ReturnType<typeof loadSillajjeConfig> | undefined;
  * module instance is not the loaded one. A test installs port overrides on
  * one `globalThis` object through `setTestPorts`; the loaded adapter reads
  * them. `run` replaces the sub-generator backend; `exec` wraps every jj call
- * so a test can inject a failure at one command. No second seam exists.
+ * so a test can inject a failure at one command. `progressDelayMs` shortens
+ * the Progress draw delay so a test does not wait on a timer. No second seam
+ * exists.
  */
 interface TestPortOverrides {
 	run?: RunSubagent;
 	exec?: ExecFn;
+	progressDelayMs?: number;
 }
 
 /** The shared override object, created on first access. */
@@ -143,6 +152,11 @@ export function setTestPorts(overrides: TestPortOverrides): void {
 /** The sub-generator backend: the test override or the real factory. */
 function resolveRunSubagent(): RunSubagent {
 	return testPorts().run ?? createRunSubagent();
+}
+
+/** The Progress draw delay: the test override or the default. */
+function progressDelay(): number {
+	return testPorts().progressDelayMs ?? DEFAULT_PROGRESS_DELAY_MS;
 }
 
 /**
@@ -258,20 +272,54 @@ export default function (pi: ExtensionAPI) {
 	// createStatusSink — shared status→notification mapping for all actions
 	// -------------------------------------------------------------------
 
-	/**
-	 * Build the `onStatus` sink every action shares: it maps status events to
-	 * debug logs and UI notifications, so one policy serves stamp, sync, and
-	 * fold.
-	 */
-	const createStatusSink = (ctx: {
+	/** The UI surface a command handler needs: notifications and the widget. */
+	type CommandContext = {
 		hasUI: boolean;
 		ui: {
 			notify: (msg: string, type: "info" | "warning" | "error") => void;
+			setWidget: (key: string, lines: string[] | undefined) => void;
 		};
-	}) => {
+	};
+
+	/**
+	 * The widget sink Progress writes to, or undefined when the host has no UI.
+	 */
+	const progressWidget = (ctx: CommandContext): SetWidget | undefined =>
+		ctx.hasUI ? (key, lines) => ctx.ui.setWidget(key, lines) : undefined;
+
+	/**
+	 * Run a command body with Progress around it: create the renderer from the
+	 * UI, run the body with it, and clear in `finally` so a throw strands no
+	 * widget. `new` does not use this: its clear belongs to the replacement
+	 * session's `session_start`.
+	 */
+	const withProgress = async (
+		ctx: CommandContext,
+		run: (progress: Progress) => Promise<void>,
+	): Promise<void> => {
+		const progress = createProgress(progressWidget(ctx), {
+			delayMs: progressDelay(),
+		});
+		try {
+			await run(progress);
+		} finally {
+			progress.end();
+		}
+	};
+
+	/**
+	 * Build the `onStatus` sink every action shares: it maps status events to
+	 * debug logs, UI notifications, and Progress, so one policy serves every
+	 * Action the adapter drives.
+	 */
+	const createStatusSink = (ctx: CommandContext, progress?: Progress) => {
 		return (s: StatusEvent) => {
 			if (s.kind === "phase") {
-				debug.event(`action_phase_${s.code}`, {});
+				debug.event(
+					`action_phase_${s.code}`,
+					s.target === undefined ? {} : { target: s.target },
+				);
+				progress?.onStatus(s);
 			} else if (s.kind === "info") {
 				debug.event(`action_info_${s.code}`, { message: s.message });
 				if (ctx.hasUI) {
@@ -287,14 +335,8 @@ export default function (pi: ExtensionAPI) {
 				if (ctx.hasUI) {
 					ctx.ui.notify(`[sillajje] ${s.message}`, "error");
 				}
+				progress?.onStatus(s);
 			}
-		};
-	};
-
-	type CommandContext = {
-		hasUI: boolean;
-		ui: {
-			notify: (msg: string, type: "info" | "warning" | "error") => void;
 		};
 	};
 
@@ -303,7 +345,11 @@ export default function (pi: ExtensionAPI) {
 	 * factory takes the intersection it needs from this bundle, so port
 	 * construction lives in one place.
 	 */
-	const buildPorts = (ctx: CommandContext, repoRoot?: string) => {
+	const buildPorts = (
+		ctx: CommandContext,
+		repoRoot?: string,
+		progress?: Progress,
+	) => {
 		const root =
 			repoRoot ?? state.getRepoRoot() ?? state.getWorkspacePath() ?? ".";
 		return {
@@ -312,7 +358,7 @@ export default function (pi: ExtensionAPI) {
 			config: activeConfig ?? loadSillajjeConfig(),
 			versions: env,
 			run: resolveRunSubagent(),
-			onStatus: createStatusSink(ctx),
+			onStatus: createStatusSink(ctx, progress),
 		};
 	};
 
@@ -323,8 +369,11 @@ export default function (pi: ExtensionAPI) {
 	 * `Workspaces` port; the current-session exemption keeps jj out of the
 	 * common path.
 	 */
-	const buildStamp = (ctx: CommandContext, repoRoot?: string) =>
-		createStamp(buildPorts(ctx, repoRoot));
+	const buildStamp = (
+		ctx: CommandContext,
+		repoRoot?: string,
+		progress?: Progress,
+	) => createStamp(buildPorts(ctx, repoRoot, progress));
 
 	/**
 	 * The command spelling the adapter owns. The core renders the usage line
@@ -640,6 +689,16 @@ export default function (pi: ExtensionAPI) {
 				sessionId,
 				base: baseMarker?.base,
 			});
+			// A `/sillajje:new` session does its slow work here: creating the
+			// workspace and running post-init. Drive Progress from this session,
+			// so the steps are real and outlive the replacement.
+			const progress =
+				baseMarker === undefined
+					? undefined
+					: createProgress(progressWidget(ctx), {
+							delayMs: progressDelay(),
+						});
+			progress?.step("creating-workspace");
 			try {
 				const workspaces = workspacesFor(repoRoot);
 				const result = await workspaces.ensure(
@@ -669,6 +728,7 @@ export default function (pi: ExtensionAPI) {
 				state.setSessionKey(info.sessionKey);
 
 				// Run post-init commands (non-fatal — session activates regardless).
+				progress?.step("running-post-init");
 				await runPostInit(ctx);
 
 				debug.event("workspace_ready", {
@@ -692,6 +752,7 @@ export default function (pi: ExtensionAPI) {
 					}
 				}
 			} catch (err) {
+				progress?.fail();
 				debug.error("workspace_creation_failed", err);
 				state.setInactive();
 				syncPill(ctx);
@@ -702,6 +763,8 @@ export default function (pi: ExtensionAPI) {
 						"error",
 					);
 				}
+			} finally {
+				progress?.end();
 			}
 		} else {
 			syncPill(ctx);
@@ -830,27 +893,29 @@ export default function (pi: ExtensionAPI) {
 			lastEntryId: projected.range?.last,
 		});
 
-		const result = await buildStamp(ctx).session({
-			target: sessionKey,
-			current: { sessionKey, wsPath },
-			interaction: projected,
-		});
-
-		if (result.ok) {
-			debug.event("stamp_done", {
-				subject: result.subject,
-				rev: result.rev,
+		await withProgress(ctx, async (progress) => {
+			const result = await buildStamp(ctx, undefined, progress).session({
+				target: sessionKey,
+				current: { sessionKey, wsPath },
+				interaction: projected,
 			});
-		} else if (result.reason === "failed") {
-			// The stamp action emits an error status before returning `failed`,
-			// and createStatusSink notifies the user on every error status — the
-			// sink is the single notification point for stamp failures.
-			debug.error("stamp_failed", new Error("stamp returned failed"));
-		}
 
-		// Advance the Stamp marker whether the stamp succeeded, failed, or
-		// found no changes, so the next Interaction starts after it.
-		markStamped(ctx, result.ok ? result.rev : null);
+			if (result.ok) {
+				debug.event("stamp_done", {
+					subject: result.subject,
+					rev: result.rev,
+				});
+			} else if (result.reason === "failed") {
+				// The stamp action emits an error status before returning `failed`,
+				// and createStatusSink notifies the user on every error status — the
+				// sink is the single notification point for stamp failures.
+				debug.error("stamp_failed", new Error("stamp returned failed"));
+			}
+
+			// Advance the Stamp marker whether the stamp succeeded, failed, or
+			// found no changes, so the next Interaction starts after it.
+			markStamped(ctx, result.ok ? result.rev : null);
+		});
 	};
 
 	// -----------------------------------------------------------------------
@@ -875,41 +940,43 @@ export default function (pi: ExtensionAPI) {
 
 		debug.event("stamp_manual_start");
 
-		const result = await buildStamp(ctx).session({
-			target: sessionKey,
-			current: { sessionKey, wsPath },
-		});
-
-		if (result.ok) {
-			debug.event("stamp_manual_done", {
-				subject: result.subject,
-				rev: result.rev,
+		await withProgress(ctx, async (progress) => {
+			const result = await buildStamp(ctx, undefined, progress).session({
+				target: sessionKey,
+				current: { sessionKey, wsPath },
 			});
-			// A manual stamp consumes the pending Interaction: write a Stamp
-			// marker so the next auto-stamp starts after it.
-			markStamped(ctx, result.rev);
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] workspace stamped: ${result.subject}`,
-					"info",
+
+			if (result.ok) {
+				debug.event("stamp_manual_done", {
+					subject: result.subject,
+					rev: result.rev,
+				});
+				// A manual stamp consumes the pending Interaction: write a Stamp
+				// marker so the next auto-stamp starts after it.
+				markStamped(ctx, result.rev);
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] workspace stamped: ${result.subject}`,
+						"info",
+					);
+				}
+			} else if (result.reason === "no-changes") {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						"[sillajje] nothing to stamp — working copy has no changes",
+						"info",
+					);
+				}
+			} else {
+				// The stamp action emits an error status before returning `failed`,
+				// and createStatusSink notifies the user on every error status — the
+				// sink is the single notification point for stamp failures.
+				debug.error(
+					"stamp_manual_failed",
+					new Error("stamp returned failed"),
 				);
 			}
-		} else if (result.reason === "no-changes") {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					"[sillajje] nothing to stamp — working copy has no changes",
-					"info",
-				);
-			}
-		} else {
-			// The stamp action emits an error status before returning `failed`,
-			// and createStatusSink notifies the user on every error status — the
-			// sink is the single notification point for stamp failures.
-			debug.error(
-				"stamp_manual_failed",
-				new Error("stamp returned failed"),
-			);
-		}
+		});
 	};
 
 	// -----------------------------------------------------------------------
@@ -1278,56 +1345,57 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const ports = buildPorts(ctx, repoRoot);
-		const result = await createArchive(ports)({
-			target,
-			current: {
-				sessionKey: state.getSessionKey(),
-				wsPath: state.getWorkspacePath(),
-			},
-		});
-		if (!result.ok) {
-			if (result.reason === "failed") {
-				// The action already emitted the error status.
-				debug.error("archive_failed", new Error(result.message));
-			} else if (ctx.hasUI) {
+		await withProgress(ctx, async (progress) => {
+			const ports = buildPorts(ctx, repoRoot, progress);
+			const result = await createArchive(ports)({
+				target,
+				current: {
+					sessionKey: state.getSessionKey(),
+					wsPath: state.getWorkspacePath(),
+				},
+			});
+			if (!result.ok) {
+				if (result.reason === "failed") {
+					// The action already emitted the error status.
+					debug.error("archive_failed", new Error(result.message));
+				} else if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] ${renderSessionFailure(result.reason, target)}`,
+						"error",
+					);
+				}
+				return;
+			}
+
+			debug.event("session_archived", {
+				sessionKey: result.sessionKey,
+				outcome: result.status,
+			});
+
+			// Update state if this is the current session.
+			if (result.sessionKey === state.getSessionKey()) {
+				state.setArchived();
+				state.clearWorkspacePath();
+				state.setCursorId(null);
+			}
+
+			// The served workspace is gone; the server has nothing left to serve.
+			if (serve.status()?.sessionKey === result.sessionKey) {
+				await stopServe(ctx, result.sessionKey);
+			}
+
+			syncPill(ctx);
+
+			if (ctx.hasUI) {
+				const label = ports.workspaces.unqualified(result.sessionKey);
 				ctx.ui.notify(
-					`[sillajje] ${renderSessionFailure(result.reason, target)}`,
-					"error",
+					result.status === "removed"
+						? `[sillajje] session ${label} archived`
+						: `[sillajje] session ${label} archived (workspace already gone)`,
+					"info",
 				);
 			}
-			return;
-		}
-
-		debug.event("session_archived", {
-			sessionKey: result.sessionKey,
-			outcome: result.status,
 		});
-
-		// Update state if this is the current session.
-		if (result.sessionKey === state.getSessionKey()) {
-			state.setArchived();
-			state.clearWorkspacePath();
-			state.setCursorId(null);
-		}
-
-		// The served workspace is gone; the server has nothing left to serve.
-		if (serve.status()?.sessionKey === result.sessionKey) {
-			await stopServe(ctx, result.sessionKey);
-		}
-
-		syncPill(ctx);
-
-		if (ctx.hasUI) {
-			const label = ports.workspaces.unqualified(result.sessionKey);
-			ctx.ui.notify(
-				result.status === "removed"
-					? `[sillajje] session ${label} archived`
-					: `[sillajje] session ${label} archived (workspace already gone)`,
-				"info",
-			);
-		}
-		return;
 	};
 
 	const handleStamp = async (
@@ -1375,37 +1443,43 @@ export default function (pi: ExtensionAPI) {
 			// adapter resolved it above (active workspace or repo root).
 			// Side-effect scope: a Rev stamp touches no session state —
 			// the pending interaction survives and still auto-stamps.
-			const revResult = await buildStamp(ctx).rev({
-				cwd: wsPath,
-				rev,
-			});
-
-			if (revResult.ok) {
-				debug.event("stamp_rev_done", {
-					subject: revResult.subject,
-					rev: revResult.rev,
+			await withProgress(ctx, async (progress) => {
+				const revResult = await buildStamp(
+					ctx,
+					undefined,
+					progress,
+				).rev({
+					cwd: wsPath,
+					rev,
 				});
-				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`[sillajje] change ${rev} stamped: ${revResult.subject}`,
-						"info",
+
+				if (revResult.ok) {
+					debug.event("stamp_rev_done", {
+						subject: revResult.subject,
+						rev: revResult.rev,
+					});
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] change ${rev} stamped: ${revResult.subject}`,
+							"info",
+						);
+					}
+				} else if (revResult.reason === "no-changes") {
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] nothing to stamp at ${rev} — no changes`,
+							"info",
+						);
+					}
+				} else {
+					// The stamp action emits an error status before returning
+					// `failed`; createStatusSink already notified the user.
+					debug.error(
+						"stamp_rev_failed",
+						new Error("stamp rev returned failed"),
 					);
 				}
-			} else if (revResult.reason === "no-changes") {
-				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`[sillajje] nothing to stamp at ${rev} — no changes`,
-						"info",
-					);
-				}
-			} else {
-				// The stamp action emits an error status before returning
-				// `failed`; createStatusSink already notified the user.
-				debug.error(
-					"stamp_rev_failed",
-					new Error("stamp rev returned failed"),
-				);
-			}
+			});
 			return;
 		}
 
@@ -1450,58 +1524,64 @@ export default function (pi: ExtensionAPI) {
 				stampingCurrent,
 			});
 
-			const sessionResult = await buildStamp(ctx, repoRoot).session({
-				target: sessionId,
-				current: {
-					sessionKey: state.getSessionKey(),
-					wsPath: state.getWorkspacePath(),
-				},
-			});
-
-			if (sessionResult.ok) {
-				debug.event("stamp_session_done", {
-					subject: sessionResult.subject,
-					sessionKey: targetKey,
+			await withProgress(ctx, async (progress) => {
+				const sessionResult = await buildStamp(
+					ctx,
+					repoRoot,
+					progress,
+				).session({
+					target: sessionId,
+					current: {
+						sessionKey: state.getSessionKey(),
+						wsPath: state.getWorkspacePath(),
+					},
 				});
-				if (stampingCurrent) {
-					// Sealing the working copy covers the pending
-					// Interaction — advance the Stamp marker.
-					markStamped(ctx, sessionResult.rev);
-				}
-				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`[sillajje] session ${targetKey} stamped: ${sessionResult.subject}`,
-						"info",
+
+				if (sessionResult.ok) {
+					debug.event("stamp_session_done", {
+						subject: sessionResult.subject,
+						sessionKey: targetKey,
+					});
+					if (stampingCurrent) {
+						// Sealing the working copy covers the pending
+						// Interaction — advance the Stamp marker.
+						markStamped(ctx, sessionResult.rev);
+					}
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] session ${targetKey} stamped: ${sessionResult.subject}`,
+							"info",
+						);
+					}
+					if (stampingCurrent) {
+						syncPill(ctx);
+					}
+				} else if (sessionResult.reason === "no-changes") {
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] nothing to stamp at session ${targetKey} — no changes`,
+							"info",
+						);
+					}
+				} else if (sessionResult.reason === "failed") {
+					// The stamp action emits an error status before
+					// returning `failed`; createStatusSink already
+					// notified the user.
+					debug.error(
+						"stamp_session_failed",
+						new Error("stamp session returned failed"),
 					);
+				} else {
+					// A session target the port could not resolve: render the
+					// same three-state message sync and fold use.
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] ${renderSessionFailure(sessionResult.reason, sessionId)}`,
+							"error",
+						);
+					}
 				}
-				if (stampingCurrent) {
-					syncPill(ctx);
-				}
-			} else if (sessionResult.reason === "no-changes") {
-				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`[sillajje] nothing to stamp at session ${targetKey} — no changes`,
-						"info",
-					);
-				}
-			} else if (sessionResult.reason === "failed") {
-				// The stamp action emits an error status before
-				// returning `failed`; createStatusSink already
-				// notified the user.
-				debug.error(
-					"stamp_session_failed",
-					new Error("stamp session returned failed"),
-				);
-			} else {
-				// A session target the port could not resolve: render the
-				// same three-state message sync and fold use.
-				if (ctx.hasUI) {
-					ctx.ui.notify(
-						`[sillajje] ${renderSessionFailure(sessionResult.reason, sessionId)}`,
-						"error",
-					);
-				}
-			}
+			});
 			return;
 		}
 
@@ -1535,59 +1615,60 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const ports = buildPorts(ctx, repoRoot);
-		const result = await createUnarchive(ports)({
-			target,
-			current: {
-				sessionKey: state.getSessionKey(),
-				wsPath: state.getWorkspacePath(),
-			},
-		});
-		if (!result.ok) {
-			if (result.reason === "failed") {
-				// The action already emitted the error status.
-				debug.error("unarchive_failed", new Error(result.message));
-			} else if (result.reason === "active") {
-				if (ctx.hasUI) {
+		await withProgress(ctx, async (progress) => {
+			const ports = buildPorts(ctx, repoRoot, progress);
+			const result = await createUnarchive(ports)({
+				target,
+				current: {
+					sessionKey: state.getSessionKey(),
+					wsPath: state.getWorkspacePath(),
+				},
+			});
+			if (!result.ok) {
+				if (result.reason === "failed") {
+					// The action already emitted the error status.
+					debug.error("unarchive_failed", new Error(result.message));
+				} else if (result.reason === "active") {
+					if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] session ${ports.workspaces.unqualified(result.sessionKey)} is already active — archive it first`,
+							"error",
+						);
+					}
+				} else if (ctx.hasUI) {
 					ctx.ui.notify(
-						`[sillajje] session ${ports.workspaces.unqualified(result.sessionKey)} is already active — archive it first`,
+						`[sillajje] ${renderSessionFailure(result.reason, target)}`,
 						"error",
 					);
 				}
-			} else if (ctx.hasUI) {
+				return;
+			}
+
+			// Restore state for the unarchived session.
+			state.setSessionId(result.sessionId);
+			state.setSessionKey(result.workspace.sessionKey);
+			state.setActive();
+			// Unarchive can rebuild a workspace that was deleted externally, so a
+			// successful restore leaves missing mode.
+			state.clearMissingWorkspace();
+			state.setWorkspacePath(result.workspace.workspacePath);
+			// Archive cleared the cursor. Rebuild it from the last Stamp marker,
+			// or the next stamp projects the whole branch and re-includes the
+			// prompts and responses of already-stamped Interactions.
+			syncCursor(ctx);
+			debug.event("session_unarchived", {
+				sessionKey: result.sessionKey,
+				path: result.workspace.workspacePath,
+			});
+			syncPill(ctx);
+
+			if (ctx.hasUI) {
 				ctx.ui.notify(
-					`[sillajje] ${renderSessionFailure(result.reason, target)}`,
-					"error",
+					`[sillajje] workspace restored at ${result.workspace.workspacePath}`,
+					"info",
 				);
 			}
-			return;
-		}
-
-		// Restore state for the unarchived session.
-		state.setSessionId(result.sessionId);
-		state.setSessionKey(result.workspace.sessionKey);
-		state.setActive();
-		// Unarchive can rebuild a workspace that was deleted externally, so a
-		// successful restore leaves missing mode.
-		state.clearMissingWorkspace();
-		state.setWorkspacePath(result.workspace.workspacePath);
-		// Archive cleared the cursor. Rebuild it from the last Stamp marker,
-		// or the next stamp projects the whole branch and re-includes the
-		// prompts and responses of already-stamped Interactions.
-		syncCursor(ctx);
-		debug.event("session_unarchived", {
-			sessionKey: result.sessionKey,
-			path: result.workspace.workspacePath,
 		});
-		syncPill(ctx);
-
-		if (ctx.hasUI) {
-			ctx.ui.notify(
-				`[sillajje] workspace restored at ${result.workspace.workspacePath}`,
-				"info",
-			);
-		}
-		return;
 	};
 
 	// -----------------------------------------------------------------------
@@ -1788,44 +1869,50 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const sync = createSync(buildPorts(ctx, repoRoot));
-		const result = await sync({
-			target: session,
-			current: {
-				sessionKey: state.getSessionKey(),
-				wsPath: state.getWorkspacePath(),
-			},
-			rev,
-		});
-
-		if (result.ok) {
-			// The session stays active after a successful sync.
-			debug.event("sync_done", {
-				sessionKey: result.sessionKey,
-				rev: result.rev,
+		await withProgress(ctx, async (progress) => {
+			const sync = createSync(buildPorts(ctx, repoRoot, progress));
+			const result = await sync({
+				target: session,
+				current: {
+					sessionKey: state.getSessionKey(),
+					wsPath: state.getWorkspacePath(),
+				},
+				rev,
 			});
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] session ${result.sessionKey} synced onto ${result.rev}`,
-					"info",
+
+			if (result.ok) {
+				// The session stays active after a successful sync.
+				debug.event("sync_done", {
+					sessionKey: result.sessionKey,
+					rev: result.rev,
+				});
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] session ${result.sessionKey} synced onto ${result.rev}`,
+						"info",
+					);
+				}
+			} else if (
+				result.reason === "failed" ||
+				result.reason === "conflict"
+			) {
+				// The action emitted an error or conflict status; the sink
+				// already notified the user. A conflict is a warning, so Progress
+				// needs the explicit failure signal to freeze the step.
+				progress.fail();
+				debug.error(
+					`sync_${result.reason}`,
+					new Error("sync returned a failure"),
 				);
+			} else {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] ${renderSessionFailure(result.reason, session)}`,
+						"error",
+					);
+				}
 			}
-		} else if (result.reason === "failed" || result.reason === "conflict") {
-			// The action emitted an error or conflict status; the sink
-			// already notified the user.
-			debug.error(
-				`sync_${result.reason}`,
-				new Error("sync returned a failure"),
-			);
-		} else {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] ${renderSessionFailure(result.reason, session)}`,
-					"error",
-				);
-			}
-		}
-		return;
+		});
 	};
 
 	const handleFold = async (
@@ -1869,98 +1956,104 @@ export default function (pi: ExtensionAPI) {
 			named,
 			exclude,
 		});
-		const fold = createFold(buildPorts(ctx, repoRoot));
-		const result = await fold({
-			session,
-			rev,
-			onto,
-			update,
-			named,
-			exclude,
-			land,
-			push,
-			archive,
-			current: {
-				sessionKey: state.getSessionKey(),
-				wsPath: state.getWorkspacePath(),
-			},
-			cwd: repoRoot,
-		});
-
-		const targetLabel = update ?? onto ?? "the target";
-		if (result.ok) {
-			debug.event("fold_done", {
-				rev: result.rev,
-				ref: result.ref,
-				bookmark: result.bookmark,
-				pushed: result.pushed,
+		await withProgress(ctx, async (progress) => {
+			const fold = createFold(buildPorts(ctx, repoRoot, progress));
+			const result = await fold({
+				session,
+				rev,
+				onto,
+				update,
+				named,
+				exclude,
+				land,
+				push,
+				archive,
+				current: {
+					sessionKey: state.getSessionKey(),
+					wsPath: state.getWorkspacePath(),
+				},
+				cwd: repoRoot,
 			});
-			// Archiving the current session is an adapter-side state change:
-			// the action archived the workspace, the adapter owns the session.
-			if (
-				result.archived &&
-				result.sessionKey === state.getSessionKey()
+
+			const targetLabel = update ?? onto ?? "the target";
+			if (result.ok) {
+				debug.event("fold_done", {
+					rev: result.rev,
+					ref: result.ref,
+					bookmark: result.bookmark,
+					pushed: result.pushed,
+				});
+				// Archiving the current session is an adapter-side state change:
+				// the action archived the workspace, the adapter owns the session.
+				if (
+					result.archived &&
+					result.sessionKey === state.getSessionKey()
+				) {
+					state.setArchived();
+					state.clearWorkspacePath();
+					state.setCursorId(null);
+					syncPill(ctx);
+				}
+				// A folded source can be any session, the current one included. Stop
+				// the server when the session it serves is the one just archived.
+				const servedKey = serve.status()?.sessionKey;
+				if (
+					result.archived &&
+					servedKey !== undefined &&
+					servedKey === result.sessionKey
+				) {
+					await stopServe(ctx, servedKey);
+				}
+				if (ctx.hasUI) {
+					const namedNote =
+						result.bookmark !== undefined &&
+						result.bookmark !== targetLabel
+							? ` (named ${result.bookmark})`
+							: "";
+					const pushed =
+						result.pushed.length > 0
+							? ` (pushed ${result.pushed.join(", ")})`
+							: "";
+					ctx.ui.notify(
+						`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${namedNote}${pushed}`,
+						"info",
+					);
+				}
+			} else if (result.reason === "no-changes") {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] nothing to fold onto ${targetLabel} — no new changes`,
+						"info",
+					);
+				}
+			} else if (result.reason === "usage") {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] ${result.message ?? "invalid fold arguments"}`,
+						"warning",
+					);
+				}
+			} else if (
+				result.reason === "failed" ||
+				result.reason === "conflict"
 			) {
-				state.setArchived();
-				state.clearWorkspacePath();
-				state.setCursorId(null);
-				syncPill(ctx);
-			}
-			// A folded source can be any session, the current one included. Stop
-			// the server when the session it serves is the one just archived.
-			const servedKey = serve.status()?.sessionKey;
-			if (
-				result.archived &&
-				servedKey !== undefined &&
-				servedKey === result.sessionKey
-			) {
-				await stopServe(ctx, servedKey);
-			}
-			if (ctx.hasUI) {
-				const namedNote =
-					result.bookmark !== undefined &&
-					result.bookmark !== targetLabel
-						? ` (named ${result.bookmark})`
-						: "";
-				const pushed =
-					result.pushed.length > 0
-						? ` (pushed ${result.pushed.join(", ")})`
-						: "";
-				ctx.ui.notify(
-					`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${namedNote}${pushed}`,
-					"info",
+				// The action emitted an error or conflict status; the sink
+				// already notified the user. A conflict is a warning, so Progress
+				// needs the explicit failure signal to freeze the step.
+				progress.fail();
+				debug.error(
+					`fold_${result.reason}`,
+					new Error("fold returned a failure"),
 				);
+			} else {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] ${renderSessionFailure(result.reason, session ?? "@")}`,
+						"error",
+					);
+				}
 			}
-		} else if (result.reason === "no-changes") {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] nothing to fold onto ${targetLabel} — no new changes`,
-					"info",
-				);
-			}
-		} else if (result.reason === "usage") {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] ${result.message ?? "invalid fold arguments"}`,
-					"warning",
-				);
-			}
-		} else if (result.reason === "failed" || result.reason === "conflict") {
-			// The action emitted an error or conflict status; the sink
-			// already notified the user.
-			debug.error(
-				`fold_${result.reason}`,
-				new Error("fold returned a failure"),
-			);
-		} else {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] ${renderSessionFailure(result.reason, session ?? "@")}`,
-					"error",
-				);
-			}
-		}
-		return;
+		});
 	};
 
 	// -----------------------------------------------------------------------

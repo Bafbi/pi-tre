@@ -29,6 +29,7 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		runner.setUIContext(
 			{
 				setStatus,
+				setWidget: () => {},
 				notify: () => {},
 				setEditorText: () => {},
 				getEditorText: () => "",

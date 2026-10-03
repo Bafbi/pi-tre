@@ -77,7 +77,9 @@ describe("createArchive", () => {
 			status: "removed",
 		});
 		expect(workspaces.archive).toHaveBeenCalledWith("owner/host/s1");
-		expect(statuses).toEqual([{ kind: "phase", code: "archiving" }]);
+		expect(statuses).toEqual([
+			{ kind: "phase", code: "archiving", target: "s1" },
+		]);
 	});
 
 	it("qualifies a named session id", async () => {
@@ -262,7 +264,9 @@ describe("createUnarchive", () => {
 			workspace: WORKSPACE,
 		});
 		expect(workspaces.unarchive).toHaveBeenCalledWith("owner/host/s1");
-		expect(statuses).toEqual([{ kind: "phase", code: "unarchiving" }]);
+		expect(statuses).toEqual([
+			{ kind: "phase", code: "unarchiving", target: "s1" },
+		]);
 	});
 
 	it("rejects a foreign session without touching the port", async () => {

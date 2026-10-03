@@ -7,6 +7,7 @@ import { setTestPorts } from "../../src/index.js";
 import { STAMP_MARKER_TYPE } from "../../src/interaction.js";
 import {
 	assistantMsg,
+	captureUi,
 	createRunner,
 	describeJj,
 	getSessionId,
@@ -18,6 +19,7 @@ import {
 	recordAssistantMessage,
 	recordInteraction,
 	recordUserMessage,
+	runSillajje,
 	sessionBookmark,
 	tempDirs,
 	wsPath,
@@ -135,6 +137,49 @@ describeJj("sillajje change stamping", () => {
 		const bookmarks = jj(["bookmark", "list"], cwd);
 		expect(bookmarks).toContain(sessionBookmark(sessionId));
 	}, 10_000);
+
+	it("shows Progress for the auto-stamp and clears it when the stamp returns", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const { widgets } = captureUi(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		writeFileSync(join(workspace, "work.txt"), "work\n");
+		await runner.emitInput("Do the work", undefined, "interactive");
+		recordInteraction(runner, "Do the work", "Done.");
+		await runner.emit({ type: "agent_settled" });
+
+		const rendered = widgets
+			.map((write) => write.lines)
+			.filter((lines): lines is string[] => lines !== undefined)
+			.flat();
+		expect(rendered).toContain("● collecting diff");
+		expect(rendered.some((line) => line.startsWith("● sealing "))).toBe(
+			true,
+		);
+		expect(widgets.at(-1)?.lines).toBeUndefined();
+	}, 15_000);
+
+	it("shows Progress for a manual stamp and clears it", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+		writeFileSync(join(workspace, "work.txt"), "work\n");
+
+		const { widgets } = captureUi(runner);
+		await runSillajje(runner, "stamp");
+
+		const rendered = widgets
+			.map((write) => write.lines)
+			.filter((lines): lines is string[] => lines !== undefined)
+			.flat();
+		expect(rendered).toContain("● collecting diff");
+		expect(widgets.at(-1)?.lines).toBeUndefined();
+	}, 15_000);
 
 	it("reconstructs the cursor on session_start so a reload does not re-stamp", async () => {
 		const cwd = initRepo();
