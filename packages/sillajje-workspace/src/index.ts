@@ -135,6 +135,25 @@ export function isSafeSeedPath(rel: string): boolean {
 }
 
 /**
+ * Whether any existing parent of `dest`, up to `root`, is a symlink. A symlink
+ * parent would let the copy write outside `root`.
+ */
+function hasSymlinkParent(dest: string, root: string): boolean {
+	let parent = dirname(dest);
+	while (parent !== root) {
+		try {
+			if (lstatSync(parent).isSymbolicLink()) return true;
+		} catch {
+			// A missing parent is created later.
+		}
+		const next = dirname(parent);
+		if (next === parent) break;
+		parent = next;
+	}
+	return false;
+}
+
+/**
  * SHA-256 of a file's bytes, as lowercase hex. Hashes in fixed-size chunks so a
  * large file never loads into memory. Throws when the file cannot be read;
  * every caller runs it right after a successful copy.
@@ -364,6 +383,11 @@ export function createWorkspaces(
 			out.skipped.push({ path: rel, reason: "invalid" });
 			return;
 		}
+		// A symlink parent would let the copy write outside the Workspace.
+		if (hasSymlinkParent(dest, workspacePath)) {
+			out.skipped.push({ path: rel, reason: "invalid" });
+			return;
+		}
 		// `lstatSync` so a symlink, including a broken one, counts as existing.
 		let destStat: ReturnType<typeof lstatSync> | undefined;
 		try {
@@ -384,6 +408,12 @@ export function createWorkspaces(
 			for (const name of readdirSync(source)) {
 				copySeedEntry(sourceRoot, workspacePath, join(rel, name), out);
 			}
+			return;
+		}
+		if (!stat.isFile()) {
+			// A FIFO, socket, or device would hang or misbehave on copy; only
+			// regular files are Seed material.
+			out.skipped.push({ path: rel, reason: "invalid" });
 			return;
 		}
 		if (destStat !== undefined) {

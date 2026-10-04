@@ -12,11 +12,13 @@ import {
 	existsSync,
 	lstatSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { lastSeedRecord, SESSION_SEED_TYPE } from "../../src/seed.js";
@@ -641,6 +643,60 @@ describeJj("sillajje seed — path and symlink safety", () => {
 
 		const workspace = wsPath(cwd, getSessionId(runner));
 		expect(existsSync(join(workspace, "link.txt"))).toBe(false);
+		expect(
+			notifications.some(
+				(n) => n.type === "warning" && n.msg.includes("invalid"),
+			),
+		).toBe(true);
+	});
+
+	it("skips a non-regular file such as a FIFO", async () => {
+		const cwd = initSeedRepo();
+		mkdirSync(join(cwd, ".local"), { recursive: true });
+		writeFileSync(join(cwd, ".local/a.txt"), "a\n");
+		execSync(`mkfifo '${join(cwd, ".local/pipe")}'`);
+		writeSillajjeConfig(cwd, { seed: [".local"] });
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const workspace = wsPath(cwd, getSessionId(runner));
+		expect(existsSync(join(workspace, ".local/a.txt"))).toBe(true);
+		expect(existsSync(join(workspace, ".local/pipe"))).toBe(false);
+	});
+
+	it("skips a seed path whose workspace parent is a symlink", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		const outside = mkdtempSync(join(tmpdir(), "sillajje-outside-"));
+		tempDirs.push(outside);
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+		writeFileSync(join(cwd, ".gitignore"), ".env\n");
+		// A tracked symlink in the base tree becomes the Workspace's `config`.
+		symlinkSync(outside, join(cwd, "config"));
+		execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+		execSync(`jj config set --repo 'revset-aliases."trunk()"' main`, {
+			cwd,
+			stdio: "pipe",
+		});
+		execSync("jj new -m 'work'", { cwd, stdio: "pipe" });
+		// Replace the tracked symlink with a real directory in the checkout.
+		rmSync(join(cwd, "config"));
+		mkdirSync(join(cwd, "config"));
+		writeFileSync(join(cwd, "config/secret"), "S\n");
+		writeSillajjeConfig(cwd, { seed: ["config/secret"] });
+
+		const notifications: Array<{ msg: string; type: string }> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push({ msg, type }),
+		});
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		expect(existsSync(join(outside, "secret"))).toBe(false);
 		expect(
 			notifications.some(
 				(n) => n.type === "warning" && n.msg.includes("invalid"),
