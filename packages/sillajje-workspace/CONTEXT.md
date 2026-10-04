@@ -52,6 +52,10 @@ _Avoid_: Restore, reopen
 The condition where a session's workspace directory no longer exists on disk — deleted by hand, or removed by an archive that did not forget the workspace. A session in this state cannot be used until it is unarchived.
 _Avoid_: Stale (that is jj's word for a working copy behind the operation log)
 
+**Seed copy**:
+The workspace boundary's copy of the project's `seed` paths from a source checkout into a Workspace, at creation and at unarchive. It never overwrites a path already present, so a tracked file and the agent's edits survive.
+_Avoid_: Seed (that is the extension's user-facing concept), sync, overlay
+
 ### Session targeting
 
 **Session owner**:

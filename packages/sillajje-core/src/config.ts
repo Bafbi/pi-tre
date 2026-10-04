@@ -211,6 +211,12 @@ export const SillajjeConfigSchema = Type.Object(
 		 */
 		postInit: Type.Optional(Type.Array(Type.String(), { default: [] })),
 		/**
+		 * Workspace-relative ignored paths a session workspace copies in from the
+		 * checkout that launched the session, at creation and at unarchive. A
+		 * directory entry copies recursively.
+		 */
+		seed: Type.Optional(Type.Array(Type.String(), { default: [] })),
+		/**
 		 * Per-action body and section configuration.
 		 */
 		actions: Type.Optional(ActionsSchema),

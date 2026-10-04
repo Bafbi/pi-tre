@@ -25,6 +25,13 @@
 				"type": "string"
 			}
 		},
+		"seed": {
+			"default": [],
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
 		"actions": {
 			"default": {},
 			"additionalProperties": false,

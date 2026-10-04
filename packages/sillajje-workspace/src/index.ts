@@ -14,9 +14,21 @@
  * names the process.
  */
 
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+	closeSync,
+	constants,
+	copyFileSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	openSync,
+	readdirSync,
+	readSync,
+	rmSync,
+} from "node:fs";
 import { hostname, userInfo } from "node:os";
-import { basename, dirname } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
 import type { ExecOptions, Jj } from "@pi-tre/sillajje-jj";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +95,86 @@ export type BaseSourceResolution =
 	| { ok: true; sessionKey: string; revision: string }
 	| { ok: false; reason: "not-a-session" | "foreign" | "ambiguous" };
 
+/** The input a Seed copy needs: the source checkout, the Workspace, the paths. */
+export interface SeedRequest {
+	/** Absolute source checkout root. */
+	source: string;
+	/** Absolute Workspace directory. */
+	workspacePath: string;
+	/** Workspace-relative paths to copy. */
+	paths: string[];
+}
+
+/** What a Seed copy did. */
+export interface SeedOutcome {
+	/** Copied file path (Workspace-relative) → SHA-256 of its content. */
+	copied: Record<string, string>;
+	/** Paths left alone, with the reason. */
+	skipped: SeedSkip[];
+}
+
+/** A seeded path that was not copied. */
+export interface SeedSkip {
+	path: string;
+	reason: "missing" | "exists" | "invalid";
+}
+
+/**
+ * Whether a Seed entry is a workspace-relative path that cannot escape the
+ * checkout or the Workspace. Rejects an absolute path, `.`, and any `..` that
+ * climbs out, so `join(root, rel)` stays under `root`.
+ */
+export function isSafeSeedPath(rel: string): boolean {
+	if (rel.length === 0) return false;
+	const normalized = normalize(rel);
+	return (
+		!isAbsolute(normalized) &&
+		normalized !== "." &&
+		normalized !== ".." &&
+		!normalized.startsWith(`..${sep}`)
+	);
+}
+
+/**
+ * Whether any existing parent of `dest`, up to `root`, is a symlink. A symlink
+ * parent would let the copy write outside `root`.
+ */
+function hasSymlinkParent(dest: string, root: string): boolean {
+	let parent = dirname(dest);
+	while (parent !== root) {
+		try {
+			if (lstatSync(parent).isSymbolicLink()) return true;
+		} catch {
+			// A missing parent is created later.
+		}
+		const next = dirname(parent);
+		if (next === parent) break;
+		parent = next;
+	}
+	return false;
+}
+
+/**
+ * SHA-256 of a file's bytes, as lowercase hex. Hashes in fixed-size chunks so a
+ * large file never loads into memory. Throws when the file cannot be read;
+ * every caller runs it right after a successful copy.
+ */
+function sha256File(path: string): string {
+	const hash = createHash("sha256");
+	const fd = openSync(path, "r");
+	const buffer = Buffer.allocUnsafe(64 * 1024);
+	try {
+		for (;;) {
+			const read = readSync(fd, buffer, 0, buffer.length, null);
+			if (read === 0) break;
+			hash.update(buffer.subarray(0, read));
+		}
+	} finally {
+		closeSync(fd);
+	}
+	return hash.digest("hex");
+}
+
 export interface Workspaces {
 	/** The running process's owner: `<user>/<host>`. */
 	owner: string;
@@ -116,6 +208,12 @@ export interface Workspaces {
 	isLive(sessionKey: string): Promise<boolean>;
 	archive(sessionKey: string): Promise<ArchiveOutcome>;
 	unarchive(sessionKey: string): Promise<WorkspaceInfo>;
+	/**
+	 * Copy the requested ignored paths from the source checkout into the
+	 * Workspace, never overwriting an existing path. A directory recurses and
+	 * merges. Returns the hashes of what it copied and the paths it skipped.
+	 */
+	seed(request: SeedRequest): Promise<SeedOutcome>;
 	resolveTarget(
 		target: string,
 		current: CurrentSession,
@@ -256,6 +354,93 @@ export function createWorkspaces(
 		return (await jj.bookmarks(jjOptions)).some((b) => b.name === name);
 	};
 
+	/**
+	 * Copy one Seed entry, recursing a directory and never overwriting a path
+	 * that already exists in the Workspace. A tracked path is materialized in
+	 * the Workspace, so existence is the guard that keeps the Base tree intact.
+	 */
+	const copySeedEntry = (
+		sourceRoot: string,
+		workspacePath: string,
+		rel: string,
+		out: SeedOutcome,
+	): void => {
+		if (!isSafeSeedPath(rel)) {
+			out.skipped.push({ path: rel, reason: "invalid" });
+			return;
+		}
+		const source = join(sourceRoot, rel);
+		const dest = join(workspacePath, rel);
+		let stat: ReturnType<typeof lstatSync>;
+		try {
+			stat = lstatSync(source);
+		} catch {
+			out.skipped.push({ path: rel, reason: "missing" });
+			return;
+		}
+		// Never dereference a source symlink: a directory link can recurse, and a
+		// file link can copy content from outside the checkout.
+		if (stat.isSymbolicLink()) {
+			out.skipped.push({ path: rel, reason: "invalid" });
+			return;
+		}
+		// A symlink parent would let the copy write outside the Workspace.
+		if (hasSymlinkParent(dest, workspacePath)) {
+			out.skipped.push({ path: rel, reason: "invalid" });
+			return;
+		}
+		// `lstatSync` so a symlink, including a broken one, counts as existing.
+		let destStat: ReturnType<typeof lstatSync> | undefined;
+		try {
+			destStat = lstatSync(dest);
+		} catch {
+			// No destination yet.
+		}
+		if (stat.isDirectory()) {
+			// A directory that maps onto an existing file is skipped, not descended
+			// into: recursing would make `mkdirSync` throw ENOTDIR.
+			if (destStat !== undefined && !destStat.isDirectory()) {
+				out.skipped.push({ path: rel, reason: "exists" });
+				return;
+			}
+			// Create the directory itself, so an empty source directory still
+			// materializes in the Workspace.
+			mkdirSync(dest, { recursive: true });
+			for (const name of readdirSync(source)) {
+				copySeedEntry(sourceRoot, workspacePath, join(rel, name), out);
+			}
+			return;
+		}
+		if (!stat.isFile()) {
+			// A FIFO, socket, or device would hang or misbehave on copy; only
+			// regular files are Seed material.
+			out.skipped.push({ path: rel, reason: "invalid" });
+			return;
+		}
+		if (destStat !== undefined) {
+			out.skipped.push({ path: rel, reason: "exists" });
+			return;
+		}
+		mkdirSync(dirname(dest), { recursive: true });
+		// Exclusive create, so a file that appears after the `lstatSync` check is
+		// still never overwritten: the copy fails instead.
+		try {
+			copyFileSync(source, dest, constants.COPYFILE_EXCL);
+		} catch (error) {
+			if (
+				typeof error === "object" &&
+				error !== null &&
+				"code" in error &&
+				error.code === "EEXIST"
+			) {
+				out.skipped.push({ path: rel, reason: "exists" });
+				return;
+			}
+			throw error;
+		}
+		out.copied[rel] = sha256File(dest);
+	};
+
 	return {
 		owner,
 		sessionKey: qualify,
@@ -364,6 +549,14 @@ export function createWorkspaces(
 				jjOptions,
 			);
 			return { sessionKey, workspaceName: name, workspacePath: path };
+		},
+
+		async seed(request) {
+			const out: SeedOutcome = { copied: {}, skipped: [] };
+			for (const rel of request.paths) {
+				copySeedEntry(request.source, request.workspacePath, rel, out);
+			}
+			return out;
 		},
 
 		async resolveTarget(target, current) {
