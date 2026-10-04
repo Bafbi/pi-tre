@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -7,6 +7,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type ExtensionContext,
+	SessionManager,
 	type UserBashEventResult,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -63,6 +64,16 @@ import {
 	type Progress,
 	type SetWidget,
 } from "./progress.js";
+import {
+	copySeedFile,
+	hashFile,
+	lastSeedRecord,
+	SEED_ARGS,
+	SEED_HELP,
+	SESSION_SEED_TYPE,
+	type SeedRecord,
+	seedFileState,
+} from "./seed.js";
 import { createServeController, type ServeStatus } from "./serve.js";
 import {
 	lastSessionBase,
@@ -499,6 +510,67 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
+	// -------------------------------------------------------------------
+	// runSeed — copy the configured ignored paths into a fresh workspace
+	// -------------------------------------------------------------------
+
+	/**
+	 * Copy the project's `seed` paths from the source checkout into the
+	 * Workspace, and write the Seed record. Non-fatal: a failed copy leaves the
+	 * session usable, it just lacks the local files.
+	 */
+	const runSeed = async (
+		ctx: CommandContext,
+		source: string,
+		workspacePath: string,
+		workspaces: ReturnType<typeof workspacesFor>,
+	): Promise<void> => {
+		const paths = activeConfig?.seed ?? [];
+		if (paths.length === 0) return;
+
+		let outcome: Awaited<ReturnType<typeof workspaces.seed>>;
+		try {
+			outcome = await workspaces.seed({
+				source,
+				workspacePath,
+				paths,
+			});
+		} catch (err) {
+			debug.error("seed_failed", err);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] seed failed: ${String(err)}`,
+					"error",
+				);
+			}
+			return;
+		}
+
+		for (const skip of outcome.skipped) {
+			debug.event("seed_skipped", { ...skip });
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] seed: ${skip.path} not copied (${skip.reason})`,
+					"warning",
+				);
+			}
+		}
+
+		const copied = Object.keys(outcome.copied);
+		if (copied.length === 0) return;
+		pi.appendEntry(SESSION_SEED_TYPE, {
+			source,
+			paths: outcome.copied,
+		} satisfies SeedRecord);
+		debug.event("seed_copied", { count: copied.length, source });
+		if (ctx.hasUI) {
+			ctx.ui.notify(
+				`[sillajje] seed: copied ${copied.length} path(s)`,
+				"info",
+			);
+		}
+	};
+
 	// Helper: sync the footer status pill to current state.
 	const syncPill = (ctx: {
 		hasUI: boolean;
@@ -726,6 +798,18 @@ export default function (pi: ExtensionAPI) {
 				const info = result.workspace;
 				state.setWorkspacePath(info.workspacePath);
 				state.setSessionKey(info.sessionKey);
+
+				// Seed the configured ignored paths before post-init, so a post-init
+				// command can read them. Only on a fresh Workspace: a reused one keeps
+				// the agent's edits to seeded files.
+				if (result.status === "created") {
+					await runSeed(
+						ctx,
+						repoRoot,
+						info.workspacePath,
+						workspaces,
+					);
+				}
 
 				// Run post-init commands (non-fatal — session activates regardless).
 				progress?.step("running-post-init");
@@ -1204,6 +1288,245 @@ export default function (pi: ExtensionAPI) {
 		return;
 	};
 
+	/** The Seed record of another session's log, or undefined when unreadable. */
+	const readForeignSeedRecord = async (
+		ctx: ExtensionCommandContext,
+		repoRoot: string,
+		target: string,
+	): Promise<SeedRecord | undefined> => {
+		const rawId = target.includes("/")
+			? (target.split("/").pop() ?? target)
+			: target;
+		try {
+			const sessions = await SessionManager.list(
+				repoRoot,
+				ctx.sessionManager.getSessionDir(),
+			);
+			const info = sessions.find((s) => s.id === rawId);
+			if (info === undefined) return undefined;
+			return lastSeedRecord(SessionManager.open(info.path).getBranch());
+		} catch (err) {
+			debug.error("seed_foreign_record_failed", err);
+			return undefined;
+		}
+	};
+
+	/** Seeded paths whose Workspace copy differs from the Seed record. */
+	const divergedSeedPaths = async (
+		ctx: ExtensionCommandContext,
+		repoRoot: string,
+		target: string,
+		sessionKey: string,
+		wsPath: string,
+	): Promise<string[]> => {
+		const record =
+			sessionKey === state.getSessionKey()
+				? lastSeedRecord(ctx.sessionManager.getBranch())
+				: await readForeignSeedRecord(ctx, repoRoot, target);
+		if (record === undefined) return [];
+		return Object.entries(record.paths)
+			.filter(
+				([rel, recorded]) => hashFile(join(wsPath, rel)) !== recorded,
+			)
+			.map(([rel]) => rel);
+	};
+
+	/**
+	 * Move each seeded path in one direction, reporting the outcome per path.
+	 * `push` writes Workspace → checkout; `pull` writes checkout → Workspace.
+	 * Returns the updated hashes and whether any file moved.
+	 */
+	const moveSeedPaths = (
+		ctx: CommandContext,
+		record: SeedRecord,
+		workspacePath: string,
+		options: { push: boolean; force: boolean },
+	): { moved: boolean; updated: Record<string, string> } => {
+		const { push, force } = options;
+		const updated = { ...record.paths };
+		let moved = false;
+		for (const [rel, recorded] of Object.entries(record.paths)) {
+			const wsFile = join(workspacePath, rel);
+			const coFile = join(record.source, rel);
+			const wsHash = hashFile(wsFile);
+			const coHash = hashFile(coFile);
+			const report = (text: string): void => {
+				if (ctx.hasUI) {
+					ctx.ui.notify(`[sillajje] seed: ${rel} ${text}`, "info");
+				}
+			};
+
+			if (push) {
+				if (wsHash === undefined) {
+					report("missing in the workspace — nothing to push");
+					continue;
+				}
+				if (wsHash === recorded && coHash !== undefined) {
+					report("unchanged in the workspace — nothing to push");
+					continue;
+				}
+				if (
+					wsHash !== recorded &&
+					coHash !== undefined &&
+					coHash !== recorded &&
+					coHash !== wsHash &&
+					!force
+				) {
+					report("moved on both sides — refused (use --force)");
+					continue;
+				}
+				copySeedFile(wsFile, coFile);
+				updated[rel] = hashFile(coFile) ?? wsHash;
+				moved = true;
+				report("pushed to the checkout");
+				continue;
+			}
+
+			// pull
+			if (coHash === undefined) {
+				report("missing in the checkout — nothing to pull");
+				continue;
+			}
+			if (wsHash === coHash) {
+				report("unchanged — nothing to pull");
+				continue;
+			}
+			// The Workspace moved: refuse unless the user forces the overwrite,
+			// whether or not the checkout moved too.
+			if (wsHash !== undefined && wsHash !== recorded && !force) {
+				report("the workspace moved — refused (use --force)");
+				continue;
+			}
+			copySeedFile(coFile, wsFile);
+			updated[rel] = hashFile(wsFile) ?? coHash;
+			moved = true;
+			report("pulled from the checkout");
+		}
+		return { moved, updated };
+	};
+
+	const handleSeed = async (
+		args: string,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const values = parseOrReport(
+			ctx,
+			sessionDefault(args),
+			SEED_ARGS,
+			SEED_HELP,
+			"seed",
+		);
+		if (values === undefined) return;
+
+		const target =
+			typeof values.session === "string" ? values.session : "@";
+		const push = values.push === true;
+		const pull = values.pull === true;
+		const force = values.force === true;
+
+		// Validate the flags before any session lookup, so `seed --force` with no
+		// record still reports the flag error, not a missing record.
+		if (force && !push && !pull) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] seed: --force requires --push or --pull",
+					"warning",
+				);
+			}
+			return;
+		}
+
+		// Resolve `@` to this session's key, so the current-session exemption in
+		// `resolveTarget` applies (the bookmark may not exist yet).
+		const currentKey = state.getSessionKey();
+		const resolvedTarget =
+			target === "@" && currentKey !== undefined ? currentKey : target;
+		const repoRoot = state.getRepoRoot() ?? state.getWorkspacePath();
+		if (repoRoot === undefined) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot seed: no jj repo detected",
+					"error",
+				);
+			}
+			return;
+		}
+
+		const current = {
+			sessionKey: state.getSessionKey(),
+			wsPath: state.getWorkspacePath(),
+		};
+		const resolved = await workspacesFor(repoRoot).resolveTarget(
+			resolvedTarget,
+			current,
+		);
+		if (!resolved.ok) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] ${renderSessionFailure(resolved.reason, resolvedTarget)}`,
+					"error",
+				);
+			}
+			return;
+		}
+
+		const record =
+			resolved.sessionKey === state.getSessionKey()
+				? lastSeedRecord(ctx.sessionManager.getBranch())
+				: await readForeignSeedRecord(ctx, repoRoot, resolvedTarget);
+		if (record === undefined) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					(activeConfig?.seed?.length ?? 0) === 0
+						? "[sillajje] seed: no seed list configured for this project"
+						: "[sillajje] seed: no Seed record for this session",
+					"info",
+				);
+			}
+			return;
+		}
+
+		const isCurrent = resolved.sessionKey === state.getSessionKey();
+
+		if (push || pull) {
+			const { moved, updated } = moveSeedPaths(
+				ctx,
+				record,
+				resolved.wsPath,
+				{
+					push,
+					force,
+				},
+			);
+
+			// Advance the baseline so a later move is measured against the synced
+			// content. A foreign session's log is not ours to write.
+			if (moved && isCurrent) {
+				pi.appendEntry(SESSION_SEED_TYPE, {
+					source: record.source,
+					paths: updated,
+				} satisfies SeedRecord);
+			}
+			debug.event("seed_moved", { target, push, pull, force, moved });
+			return;
+		}
+
+		if (ctx.hasUI) {
+			for (const [rel, recorded] of Object.entries(record.paths)) {
+				const stateName = seedFileState(
+					recorded,
+					hashFile(join(resolved.wsPath, rel)),
+					hashFile(join(record.source, rel)),
+				);
+				ctx.ui.notify(`[sillajje] seed: ${rel} — ${stateName}`, "info");
+			}
+		}
+		debug.event("seed_reported", {
+			target,
+			count: Object.keys(record.paths).length,
+		});
+	};
+
 	const handleServe = async (
 		args: string,
 		ctx: ExtensionCommandContext,
@@ -1343,6 +1666,34 @@ export default function (pi: ExtensionAPI) {
 				);
 			}
 			return;
+		}
+
+		// Warn about a seeded path the agent changed, before the Workspace is
+		// deleted. Archive never pushes; the user decides whether to.
+		const currentKey = state.getSessionKey();
+		const archiveTarget =
+			target === "@" && currentKey !== undefined ? currentKey : target;
+		const resolvedArchive = await workspacesFor(repoRoot).resolveTarget(
+			archiveTarget,
+			{
+				sessionKey: state.getSessionKey(),
+				wsPath: state.getWorkspacePath(),
+			},
+		);
+		if (resolvedArchive.ok) {
+			const diverged = await divergedSeedPaths(
+				ctx,
+				repoRoot,
+				archiveTarget,
+				resolvedArchive.sessionKey,
+				resolvedArchive.wsPath,
+			);
+			if (diverged.length > 0 && ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] seed: ${diverged.length} path(s) changed in the workspace and will be lost on archive:\n${diverged.join("\n")}`,
+					"warning",
+				);
+			}
 		}
 
 		await withProgress(ctx, async (progress) => {
@@ -1652,6 +2003,30 @@ export default function (pi: ExtensionAPI) {
 			// successful restore leaves missing mode.
 			state.clearMissingWorkspace();
 			state.setWorkspacePath(result.workspace.workspacePath);
+
+			// Re-seed from the checkout the session was seeded from, so a restored
+			// Workspace has the same local files. Fall back to the current repo root
+			// when that checkout is gone.
+			const seedRecord = lastSeedRecord(ctx.sessionManager.getBranch());
+			if (seedRecord !== undefined) {
+				let seedSource = repoRoot;
+				if (seedRecord.source !== repoRoot) {
+					if (existsSync(seedRecord.source)) {
+						seedSource = seedRecord.source;
+					} else if (ctx.hasUI) {
+						ctx.ui.notify(
+							`[sillajje] seed: source ${seedRecord.source} is gone — copying from ${repoRoot}`,
+							"warning",
+						);
+					}
+				}
+				await runSeed(
+					ctx,
+					seedSource,
+					result.workspace.workspacePath,
+					ports.workspaces,
+				);
+			}
 			// Archive cleared the cursor. Rebuild it from the last Stamp marker,
 			// or the next stamp projects the whole branch and re-includes the
 			// prompts and responses of already-stamped Interactions.
@@ -2066,6 +2441,14 @@ export default function (pi: ExtensionAPI) {
 		description: "Report the sillajje session status",
 		handler: async (_args, ctx) => {
 			await handleStatus(ctx);
+		},
+	});
+
+	pi.registerCommand("sillajje:seed", {
+		description:
+			"Report the paths this session seeded and whether they diverged",
+		handler: async (args, ctx) => {
+			await handleSeed(args, ctx);
 		},
 	});
 

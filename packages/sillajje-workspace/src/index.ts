@@ -14,9 +14,18 @@
  * names the process.
  */
 
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { hostname, userInfo } from "node:os";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { ExecOptions, Jj } from "@pi-tre/sillajje-jj";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +92,38 @@ export type BaseSourceResolution =
 	| { ok: true; sessionKey: string; revision: string }
 	| { ok: false; reason: "not-a-session" | "foreign" | "ambiguous" };
 
+/** The input a Seed copy needs: the source checkout, the Workspace, the paths. */
+export interface SeedRequest {
+	/** Absolute source checkout root. */
+	source: string;
+	/** Absolute Workspace directory. */
+	workspacePath: string;
+	/** Workspace-relative paths to copy. */
+	paths: string[];
+}
+
+/** What a Seed copy did. */
+export interface SeedOutcome {
+	/** Copied file path (Workspace-relative) → SHA-256 of its content. */
+	copied: Record<string, string>;
+	/** Paths left alone, with the reason. */
+	skipped: SeedSkip[];
+}
+
+/** A seeded path that was not copied. */
+export interface SeedSkip {
+	path: string;
+	reason: "missing" | "exists";
+}
+
+/**
+ * SHA-256 of a file's bytes, as lowercase hex. Throws when the file cannot be
+ * read; every caller runs it right after a successful copy.
+ */
+function sha256File(path: string): string {
+	return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
 export interface Workspaces {
 	/** The running process's owner: `<user>/<host>`. */
 	owner: string;
@@ -116,6 +157,12 @@ export interface Workspaces {
 	isLive(sessionKey: string): Promise<boolean>;
 	archive(sessionKey: string): Promise<ArchiveOutcome>;
 	unarchive(sessionKey: string): Promise<WorkspaceInfo>;
+	/**
+	 * Copy the requested ignored paths from the source checkout into the
+	 * Workspace, never overwriting an existing path. A directory recurses and
+	 * merges. Returns the hashes of what it copied and the paths it skipped.
+	 */
+	seed(request: SeedRequest): Promise<SeedOutcome>;
 	resolveTarget(
 		target: string,
 		current: CurrentSession,
@@ -256,6 +303,41 @@ export function createWorkspaces(
 		return (await jj.bookmarks(jjOptions)).some((b) => b.name === name);
 	};
 
+	/**
+	 * Copy one Seed entry, recursing a directory and never overwriting a path
+	 * that already exists in the Workspace. A tracked path is materialized in
+	 * the Workspace, so existence is the guard that keeps the Base tree intact.
+	 */
+	const copySeedEntry = (
+		sourceRoot: string,
+		workspacePath: string,
+		rel: string,
+		out: SeedOutcome,
+	): void => {
+		const source = join(sourceRoot, rel);
+		const dest = join(workspacePath, rel);
+		let stat: ReturnType<typeof statSync>;
+		try {
+			stat = statSync(source);
+		} catch {
+			out.skipped.push({ path: rel, reason: "missing" });
+			return;
+		}
+		if (stat.isDirectory()) {
+			for (const name of readdirSync(source)) {
+				copySeedEntry(sourceRoot, workspacePath, join(rel, name), out);
+			}
+			return;
+		}
+		if (existsSync(dest)) {
+			out.skipped.push({ path: rel, reason: "exists" });
+			return;
+		}
+		mkdirSync(dirname(dest), { recursive: true });
+		copyFileSync(source, dest);
+		out.copied[rel] = sha256File(dest);
+	};
+
 	return {
 		owner,
 		sessionKey: qualify,
@@ -364,6 +446,14 @@ export function createWorkspaces(
 				jjOptions,
 			);
 			return { sessionKey, workspaceName: name, workspacePath: path };
+		},
+
+		async seed(request) {
+			const out: SeedOutcome = { copied: {}, skipped: [] };
+			for (const rel of request.paths) {
+				copySeedEntry(request.source, request.workspacePath, rel, out);
+			}
+			return out;
 		},
 
 		async resolveTarget(target, current) {

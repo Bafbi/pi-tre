@@ -208,6 +208,7 @@ function fakeWorkspaces(
 		lookup: async () => undefined,
 		isLive: async () => false,
 		archive: async () => ({ status: "already-gone" }),
+		seed: async () => ({ copied: {}, skipped: [] }),
 		unarchive: async () => {
 			throw new Error("unarchive is not used by the stamp tests");
 		},

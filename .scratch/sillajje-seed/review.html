@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Code review — sillajje Seed</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Code review — sillajje Seed</h1>
+		<p class="sub">One spec bug: <code>--pull --force</code> cannot restore a workspace file when the checkout has not moved. The rest is sound.</p>
+		<div class="meta">
+			<span class="chip">2026-10-04</span>
+			<span class="chip">extensions/sillajje + packages/sillajje-core + packages/sillajje-workspace</span>
+			<span class="chip">fixed point: main @ 0e571dec</span>
+			<span class="chip">axes: Standards, Spec</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#standards">Standards</a>
+		<a href="#spec">Spec</a>
+		<a href="#open">Open questions</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>Both axes ran against one diff: the merge-base of <code>@</code> and <code>main</code> at <code>0e571dec</code>, twelve commits, 1,476 insertions. <code>main</code> later advanced to <code>54e8602a</code> ("chore: remove sillajje progress and serve planning docs"); the merge-base is unchanged, so the reviewed diff is stable.</p>
+		<table>
+			<thead><tr><th>Axis</th><th>Findings</th><th>Worst</th></tr></thead>
+			<tbody>
+				<tr><td>Standards</td><td>0 hard, 7 judgement calls</td><td>Dead duplicate JSDoc on <code>hashFile</code></td></tr>
+				<tr><td>Spec</td><td>1 wrong behavior, 1 ordering nit, 1 test gap</td><td><code>--pull --force</code> ignores <code>--force</code></td></tr>
+			</tbody>
+		</table>
+		<div class="callout ok">
+			<p><code>mise run //extensions/sillajje:check</code> is green: 305 tests pass, lint and typecheck clean. No tooling-enforced issue exists in the diff.</p>
+		</div>
+	</section>
+
+	<section id="standards">
+		<h2>Standards</h2>
+		<p>Standards sources read: <code>AGENTS.md</code> (repo workflow, config loader, check gate), <code>CONTEXT-MAP.md</code>, <code>extensions/sillajje/CONTEXT.md</code>, <code>packages/sillajje-workspace/CONTEXT.md</code>, <code>docs/adr/0002-extension-config-layout.md</code>, <code>docs/agents/domain.md</code>, and the baseline smell list. No <code>CONTRIBUTING.md</code> or <code>CODING_STANDARDS.md</code> exists.</p>
+
+		<h3>Hard violations</h3>
+		<p>None. The <code>seed</code> key goes through the shared <code>@pi-tre/pi-config</code> loader with the trust gate (<code>loadSillajjeConfig({ trusted: ctx.isProjectTrusted() })</code>), the committed schema is regenerated, and the per-extension check passes. AGENTS.md's rules are met.</p>
+
+		<h3>Judgement calls (baseline smells)</h3>
+
+		<p><strong>S1 — Duplicated Code; dead comment.</strong> <code>extensions/sillajje/src/seed.ts:104-107</code> stacks two JSDoc blocks on <code>hashFile</code>. The first is orphaned and says nothing the second does not.</p>
+		<pre><code>/** SHA-256 of a file's bytes, or undefined when the file cannot be read. */
+/**
+ * SHA-256 of a file's bytes, or undefined when the file cannot be read. The
+ * undefined result is a state, not an error: the caller reports a missing file.
+ */
+export function hashFile(path: string): string | undefined {</code></pre>
+		<p>Delete line 104. Concrete defect, not a matter of taste.</p>
+
+		<p><strong>S2 — Duplicated Code.</strong> <code>extensions/sillajje/test/integration/seed.test.ts:188-204</code> and <code>:280-296</code> define a byte-identical <code>startSeeded</code> helper (only the first has a doc comment). Hoist one to file scope, or to <code>test/integration/_helpers.ts</code>.</p>
+
+		<p><strong>S3 — Duplicated Code (accept or justify).</strong> SHA-256 hashing appears twice: <code>packages/sillajje-workspace/src/index.ts:123</code> (<code>sha256File</code>, throws) and <code>extensions/sillajje/src/seed.ts:109</code> (<code>hashFile</code>, returns <code>undefined</code>). The contracts differ and the sites are in different packages, so extracting is a real trade-off rather than an obvious win. Note only.</p>
+
+		<p><strong>S4 — Long method / Divergent Change.</strong> <code>extensions/sillajje/src/index.ts:1334-1508</code>: <code>handleSeed</code> runs about 175 lines and mixes argument parsing, target resolution, record lookup, the push/pull loop, and reporting. Extracting the move loop would leave the command with one job. Judgement call.</p>
+
+		<p><strong>S5 — Duplicated condition.</strong> The four-clause refusal test is written out twice, at <code>index.ts:1440-1449</code> and <code>:1466-1475</code>. One predicate would keep the two directions honest.</p>
+
+		<p><strong>S6 — Spec placement.</strong> <code>SEED_ARGS</code> and <code>SEED_HELP</code> live in the extension (<code>seed.ts:69-93</code>); <code>STAMP_ARGS</code> and <code>SERVE_ARGS</code> live in core <code>args.ts</code>, whose header calls the rules shared data. But <code>NEW_ARGS</code> is already extension-local (<code>session-base.ts:51</code>), so the repo's pattern is mixed and this is defensible.</p>
+
+		<p><strong>S7 — Domain docs.</strong> The <code>Workspaces</code> port gained a <code>seed</code> capability (<code>SeedRequest</code>, <code>SeedOutcome</code>, <code>SeedSkip</code>), but <code>packages/sillajje-workspace/CONTEXT.md</code> does not name Seed. <code>extensions/sillajje/CONTEXT.md</code> defines it. <code>docs/agents/domain.md</code> treats CONTEXT files as lazily updated, so this is optional.</p>
+	</section>
+
+	<section id="spec">
+		<h2>Spec</h2>
+		<p>Spec source: <code>.scratch/sillajje-seed/PRD.md</code>, the four tickets under <code>.scratch/sillajje-seed/issues/</code>, and <code>extensions/sillajje/docs/adr/0009-seed-ignored-paths-into-a-workspace.md</code>.</p>
+
+		<h3>Wrong behavior</h3>
+		<div class="callout crit">
+			<p><strong>P1 — <code>--pull --force</code> ignores <code>--force</code> when the checkout is unchanged.</strong></p>
+		</div>
+		<p>The PRD table says <code>--pull</code> refuses when "the Workspace hash moved since the seed" and <code>--force</code> the workspace. Ticket 03 repeats it: "&=nbsp;<code>--pull</code> refuses a path whose Workspace copy moved since the seed. Each refusal names the path."</p>
+		<p><code>index.ts:1462</code> short-circuits before the force check at <code>:1466</code>:</p>
+		<pre><code>if (coHash === recorded &amp;&amp; wsHash !== undefined) {
+	report("unchanged in the checkout — nothing to pull");
+	continue;
+}</code></pre>
+		<p>So when the agent edits a seeded file and the checkout has not moved, the workspace divergence is reported as "nothing to pull", and <code>--pull --force</code> also does nothing. There is no command path to discard a workspace edit, even though the spec promises one. The refusal test (<code>seed.test.ts:320-341</code>) only covers the case where both sides moved, so it passes.</p>
+		<p>Fix shape: treat the path as "nothing to pull" only when the workspace is also unchanged; otherwise refuse it by name unless <code>force</code> is set, then copy.</p>
+
+		<h3>Partial</h3>
+		<p><strong>P2 — flag validation order.</strong> Ticket 03: "&=nbsp;<code>--force</code> requires one of them." The check lives at <code>index.ts:1404</code>, after the record lookup returns at <code>:1387-1397</code>. On a session with no Seed record, <code>seed --force</code> reports "no Seed record" instead of the flag error. Minor; move the validation above the lookup.</p>
+
+		<h3>Missing test coverage</h3>
+		<p><strong>P3 — directory growth across a re-seed.</strong> PRD Testing Decisions: "A listed ignored directory is copied recursively, including new files that appear inside it later." <code>seed.test.ts:84-107</code> asserts only the files present at copy time. No test adds a file to the checkout's <code>.local/</code> after creation and checks it arrives (the unarchive re-seed at <code>index.ts:2003</code> is the path that would carry it). Ticket 01's recursive bullet is only partly covered.</p>
+
+		<h3>Scope creep</h3>
+		<p>None found. The extra states <code>both-moved</code>, <code>workspace-missing</code>, and <code>checkout-missing</code> and the foreign-session <code>-s</code> push are all named in the tickets or the issue comments. Serve is documented as unchanged, matching the PRD.</p>
+	</section>
+
+	<section id="open">
+		<h2>Open questions</h2>
+		<ul>
+			<li>Should <code>--pull --force</code> restore a workspace file from an unchanged checkout (the spec's reading), or is the current "nothing to pull" the intended behavior? If the latter, the PRD table and ticket 03 need rewording.</li>
+			<li>Is the SHA-256 helper duplication (S3) worth one shared function in <code>sillajje-core</code>, or do the throw/no-throw contracts justify two?</li>
+			<li>Should the workspace CONTEXT.md name the new Seed capability (S7), or is the extension CONTEXT.md the single home?</li>
+		</ul>
+	</section>
+
+	<footer>Generated by the agent from the diff <code>jj diff --from 'heads(::@ & ::main)' --to @</code> at merge-base 0e571dec. Report: .scratch/sillajje-seed/review.html</footer>
+</main>
+</body>
+</html>

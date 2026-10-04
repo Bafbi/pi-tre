@@ -18,3 +18,5 @@ Pi extensions cannot change `ctx.cwd` — it's a getter backed by a private fiel
 ## Amendment
 
 ADR 0008 lets `/sillajje:new` create a session's workspace from a named Base instead of `trunk()`. The "clean slate per session" consequence above holds only for a session that names no base.
+
+ADR 0009 lets a session workspace Seed ignored paths from the launching checkout. "Gitignored files are absent from workspaces" holds except for the paths the project's `seed` list names; a Seed stays invisible to jj, so it never enters a stamp or a Fold.

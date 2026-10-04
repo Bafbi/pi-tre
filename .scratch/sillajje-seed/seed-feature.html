@@ -1,0 +1,539 @@
+<!-- Interactive feature report for Sillajje Seed. Template: ~/.agents/templates/report.html -->
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Sillajje Seed — feature report</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+
+		/* --- report additions --- */
+		.toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 1rem 0; }
+		.btn {
+			font: inherit; font-size: .9rem; cursor: pointer;
+			background: var(--bg); color: var(--fg);
+			border: 1px solid var(--line); border-radius: 8px;
+			padding: .4rem .75rem;
+		}
+		.btn:hover { border-color: var(--accent); }
+		.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+		.btn.ghost { background: transparent; color: var(--muted); }
+		.btn.toggle[aria-pressed="true"] { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+		.files { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+		@media (max-width: 40rem) { .files { grid-template-columns: 1fr; } }
+		.filecard { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+		.filecard .name {
+			display: flex; justify-content: space-between; gap: .5rem;
+			background: var(--panel); padding: .5rem .8rem;
+			font-size: .82rem; color: var(--muted); border-bottom: 1px solid var(--line);
+		}
+		.filecard pre { margin: 0; border: 0; border-radius: 0; min-height: 3.4rem; }
+		.filecard.absent pre { color: var(--muted); font-style: italic; }
+		.state {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .82rem; padding: .1rem .5rem; border-radius: 999px;
+			border: 1px solid var(--line); background: var(--code-bg);
+		}
+		.state.unchanged { color: var(--ok); border-color: var(--ok); }
+		.state.moved { color: var(--warn); border-color: var(--warn); }
+		.state.missing { color: var(--crit); border-color: var(--crit); }
+		.term {
+			background: #0d1117; color: #c9d1d9; border: 1px solid var(--line);
+			border-radius: 10px; padding: .9rem 1rem; min-height: 8rem; max-height: 18rem;
+			overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .84rem; line-height: 1.55; margin: 1rem 0;
+		}
+		.term .line { white-space: pre-wrap; }
+		.term .cmd { color: #79c0ff; }
+		.term .ok { color: #7ee787; }
+		.term .warn { color: #e3b341; }
+		.term .crit { color: #ff7b72; }
+		.term .muted { color: #8b949e; }
+		.tabs { display: flex; flex-wrap: wrap; gap: .4rem; border-bottom: 1px solid var(--line); margin: 1rem 0 0; }
+		.tab {
+			font: inherit; font-size: .9rem; cursor: pointer; background: none; color: var(--muted);
+			border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0;
+			padding: .45rem .8rem; margin-bottom: -1px;
+		}
+		.tab:hover { color: var(--fg); }
+		.tab.active { color: var(--fg); background: var(--panel); border-color: var(--line); }
+		.panel { display: none; padding: 1rem 0 0; }
+		.panel.active { display: block; }
+		.flow { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 1rem 0; }
+		.flow .step { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: .5rem .7rem; font-size: .85rem; }
+		.flow .arrow { color: var(--muted); }
+		.legend { color: var(--muted); font-size: .85rem; }
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Sillajje Seed — feature report</h1>
+		<p class="sub">A session Workspace copies the ignored paths a project names, then moves edits back and forth with a divergence check.</p>
+		<div class="meta">
+			<span class="chip">2026-10-04</span>
+			<span class="chip">extensions/sillajje + packages/sillajje-workspace + packages/sillajje-core</span>
+			<span class="chip">status: implemented, check green</span>
+			<span class="chip">24 integration tests</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#demo">Interactive demo</a>
+		<a href="#how">How it works</a>
+		<a href="#reference">Reference</a>
+		<a href="#guarantees">Guarantees</a>
+		<a href="#where">Where it lives</a>
+		<a href="#notes">Notes</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>A sillajje Workspace is a clean checkout of the Base tree. jj never materializes a gitignored file, so a session starts without <code>.env</code>, <code>mise.local.toml</code>, or <code>.local/</code>. Seed lets a project name those paths once, and the Workspace copies them in from the checkout that launched the session.</p>
+		<div class="grid">
+			<div class="card"><h3>Opt-in</h3><p>A <code>seed</code> list in the project config. Empty by default; nothing is copied until a project asks.</p></div>
+			<div class="card"><h3>Copy, not symlink</h3><p>The agent edits the Workspace copy. It never writes through to your checkout.</p></div>
+			<div class="card"><h3>Never overwrites</h3><p>A path already in the Workspace is skipped, so a tracked file and the agent's edits survive.</p></div>
+			<div class="card"><h3>Invisible to jj</h3><p>A Seed path never enters a stamp, a Fold, or <code>jj diff</code>.</p></div>
+			<div class="card"><h3>Two-way with a check</h3><p><code>--push</code> and <code>--pull</code> move edits, refusing a path that moved on both sides.</p></div>
+			<div class="card"><h3>Lifecycle-aware</h3><p>Copies at creation and at Unarchive. Archive warns before it deletes.</p></div>
+		</div>
+		<div class="callout info">
+			<p><strong>Try it.</strong> The demo below is a working model of the command. Click through a session: seed, edit, list, push, pull, force. The two file cards and the terminal update as you go.</p>
+		</div>
+	</section>
+
+	<section id="demo">
+		<h2>Interactive demo</h2>
+		<p>Model of one seeded path (<code>.env</code>). The checkout is where you launched pi; the Workspace is the session's jj checkout. The Seed record stores the baseline the command compares against.</p>
+
+		<div class="files">
+			<div class="filecard" id="card-checkout">
+				<div class="name"><span>checkout <code>.env</code></span><span class="state" id="state-checkout">—</span></div>
+				<pre><code id="content-checkout"></code></pre>
+			</div>
+			<div class="filecard" id="card-workspace">
+				<div class="name"><span>workspace <code>.env</code></span><span class="state" id="state-workspace">—</span></div>
+				<pre><code id="content-workspace"></code></pre>
+			</div>
+		</div>
+
+		<div class="toolbar">
+			<button class="btn primary" data-act="seed">Start session (seed)</button>
+			<button class="btn" data-act="edit-ws">Edit workspace</button>
+			<button class="btn" data-act="edit-co">Edit checkout</button>
+			<button class="btn" data-act="del-ws">Delete workspace file</button>
+			<button class="btn" data-act="del-co">Delete checkout file</button>
+			<button class="btn ghost" data-act="reset">Reset</button>
+		</div>
+		<div class="toolbar">
+			<button class="btn" data-act="list">/sillajje:seed</button>
+			<button class="btn" data-act="push">/sillajje:seed --push</button>
+			<button class="btn" data-act="pull">/sillajje:seed --pull</button>
+			<button class="btn toggle" id="force-toggle" aria-pressed="false">--force: off</button>
+		</div>
+
+		<div class="term" id="term" aria-live="polite"></div>
+		<p class="legend">The model uses content equality where the implementation uses a SHA-256 per path. The refusal rules and the never-delete rule match the code.</p>
+	</section>
+
+	<section id="how">
+		<h2>How it works</h2>
+		<div class="tabs" role="tablist">
+			<button class="tab active" data-tab="create" role="tab">Create</button>
+			<button class="tab" data-tab="unarchive" role="tab">Unarchive</button>
+			<button class="tab" data-tab="archive" role="tab">Archive</button>
+			<button class="tab" data-tab="move" role="tab">Push &amp; pull</button>
+		</div>
+
+		<div class="panel active" id="panel-create">
+			<p>On the first <code>session_start</code> that creates a Workspace, the adapter seeds it before <code>postInit</code>, so a post-init command can read a seeded file.</p>
+			<div class="flow">
+				<span class="step">session_start</span><span class="arrow">→</span>
+				<span class="step">ensure() → created</span><span class="arrow">→</span>
+				<span class="step">seed paths</span><span class="arrow">→</span>
+				<span class="step">write sillajje/seed</span><span class="arrow">→</span>
+				<span class="step">postInit</span>
+			</div>
+			<p>The copy walks each listed path. A directory recurses; a path that already exists in the Workspace is skipped, so a tracked file is never overwritten. The Seed record carries the source checkout root and a SHA-256 per copied file.</p>
+			<div class="callout warn"><p>Seeding runs only when <code>ensure</code> returns <code>created</code>. A reused Workspace is left alone, so a reload or resume never clobbers the agent's edits.</p></div>
+		</div>
+
+		<div class="panel" id="panel-unarchive">
+			<p>Unarchive rebuilds the Workspace from the session bookmark, then re-copies the config's <code>seed</code> list.</p>
+			<div class="flow">
+				<span class="step">jj workspace add --revision bookmark</span><span class="arrow">→</span>
+				<span class="step">read Seed record</span><span class="arrow">→</span>
+				<span class="step">copy from record.source</span><span class="arrow">→</span>
+				<span class="step">write new record</span>
+			</div>
+			<p>The source is the checkout the session was seeded from, not wherever the process was later launched. If that checkout is gone, Unarchive falls back to the current repo root and warns.</p>
+		</div>
+
+		<div class="panel" id="panel-archive">
+			<p>Archive reads the Seed record, names each seeded path whose Workspace copy differs, warns, then deletes the Workspace.</p>
+			<pre><code>[sillajje] seed: 1 path(s) changed in the workspace and will be lost on archive:
+.env</code></pre>
+			<div class="callout crit"><p>Archive never pushes. An unpushed edit to a seeded path is lost when the Workspace is deleted. Run <code>/sillajje:seed --push</code> first if you want it.</p></div>
+		</div>
+
+		<div class="panel" id="panel-move">
+			<p><code>--push</code> writes Workspace → checkout. <code>--pull</code> writes checkout → Workspace. Both compare each path's current hash on each side against the record.</p>
+			<table>
+				<thead><tr><th></th><th>writes</th><th>refuses when</th><th><code>--force</code></th></tr></thead>
+				<tbody>
+					<tr><td><code>--push</code></td><td>Workspace → checkout</td><td>the checkout also moved since the seed</td><td>overwrite the checkout</td></tr>
+					<tr><td><code>--pull</code></td><td>checkout → Workspace</td><td>the Workspace moved since the seed</td><td>overwrite the Workspace</td></tr>
+				</tbody>
+			</table>
+			<p>A missing source is reported and left alone. A missing destination is created from the surviving side. No move ever deletes a file on the other side. A successful move advances the Seed record, so the next move is measured against the synced content.</p>
+		</div>
+	</section>
+
+	<section id="reference">
+		<h2>Reference</h2>
+
+		<h3>Config</h3>
+		<p>Project layer wins per key. Read only when pi trusts the project, like <code>postInit</code>.</p>
+		<pre><code>{
+  "seed": [".env", "mise.local.toml", ".local"]
+}</code></pre>
+		<table>
+			<thead><tr><th>Key</th><th>Type</th><th>Default</th><th>Purpose</th></tr></thead>
+			<tbody>
+				<tr><td><code>seed</code></td><td>string[]</td><td><code>[]</code></td><td>Workspace-relative ignored paths copied from the launching checkout at creation and Unarchive.</td></tr>
+			</tbody>
+		</table>
+		<p>Global: <code>~/.pi/agent/configs/sillajje.json</code>. Project: <code>&lt;repo-root&gt;/.pi/configs/sillajje.json</code>.</p>
+
+		<h3>Command</h3>
+		<pre><code>/sillajje:seed [-s | --session &lt;id&gt;] [--push | --pull] [--force] [-h | --help]</code></pre>
+		<table>
+			<thead><tr><th>Form</th><th>Effect</th></tr></thead>
+			<tbody>
+				<tr><td>bare</td><td>Lists each seeded path and its state: unchanged, workspace-moved, checkout-moved, both-moved, or missing on one side.</td></tr>
+				<tr><td><code>--push</code></td><td>Copies Workspace edits back to the source checkout.</td></tr>
+				<tr><td><code>--pull</code></td><td>Refreshes the Workspace copies from the checkout.</td></tr>
+				<tr><td><code>--force</code></td><td>Overwrites a path that moved on both sides. Requires <code>--push</code> or <code>--pull</code>.</td></tr>
+				<tr><td><code>-s &lt;id&gt;</code></td><td>Targets another session. A foreign push writes to the root recorded in that session's Seed record.</td></tr>
+			</tbody>
+		</table>
+	</section>
+
+	<section id="guarantees">
+		<h2>Guarantees</h2>
+		<ul>
+			<li><strong>Isolation holds.</strong> The copy is a copy. The agent never writes into your checkout except through an explicit <code>--push</code>.</li>
+			<li><strong>A tracked file is safe.</strong> Existence in the Workspace is the guard. A tracked path is already materialized, so the seed skips it.</li>
+			<li><strong>Nothing is deleted.</strong> A move writes one side from the other; a path missing on the source side is reported and skipped.</li>
+			<li><strong>jj never sees a Seed.</strong> Ignored paths stay out of <code>jj status</code>, <code>jj diff</code>, stamps, and folds.</li>
+			<li><strong>A reload cannot clobber an edit.</strong> Seeding is gated on a newly created Workspace.</li>
+			<li><strong>Archive tells you first.</strong> It names a diverged seed before deleting the Workspace.</li>
+		</ul>
+		<div class="callout warn">
+			<p><strong>Serve exposes seeds.</strong> <code>/sillajje:serve</code> serves the whole Workspace over HTTP on the LAN, so a served session hands out its seeded secrets. Serve is opt-in, so this is a choice you make per session.</p>
+		</div>
+	</section>
+
+	<section id="where">
+		<h2>Where it lives</h2>
+		<table>
+			<thead><tr><th>Module</th><th>Owns</th></tr></thead>
+			<tbody>
+				<tr><td><code>@pi-tre/sillajje-core</code></td><td>The <code>seed</code> config key and its schema.</td></tr>
+				<tr><td><code>@pi-tre/sillajje-workspace</code></td><td>The <code>seed</code> capability on the <code>Workspaces</code> port: the recursive copy, the existence guard, the SHA-256 per file.</td></tr>
+				<tr><td>sillajje extension</td><td>The <code>sillajje/seed</code> record, the config wiring, the <code>/sillajje:seed</code> command, the Archive warning, the Unarchive re-seed.</td></tr>
+			</tbody>
+		</table>
+		<p>Tests: <code>extensions/sillajje/test/integration/seed.test.ts</code>, 24 cases at the extension integration seam — real jj, real Workspace, real fs. The full gate is <code>mise run check</code>: 308 tests across 31 files.</p>
+	</section>
+
+	<section id="notes">
+		<h2>Notes</h2>
+		<ul>
+			<li>The term is <strong>Seed</strong> (<code>extensions/sillajje/CONTEXT.md</code>), distinct from the Fold's <strong>Excluded paths</strong>. The workspace boundary names its operation a <strong>Seed copy</strong>.</li>
+			<li><code>extensions/sillajje/docs/adr/0009-seed-ignored-paths-into-a-workspace.md</code> records the decision and the rejected alternatives; it amends ADR 0001's "Gitignored files are absent from workspaces" consequence.</li>
+			<li>Spec: <code>.scratch/sillajje-seed/PRD.md</code> and tickets <code>01</code>–<code>04</code>.</li>
+			<li>Out of scope: globs, per-entry excludes, a symlink mode, auto-push on Archive, seeding on a reused Workspace, and cross-machine sync.</li>
+		</ul>
+	</section>
+
+	<footer>Generated by the agent. Feature: Sillajje Seed. Report: <code>.scratch/sillajje-seed/seed-feature.html</code>. Source of truth: the implementation and <code>seed.test.ts</code> at this revision.</footer>
+</main>
+
+<script>
+(function () {
+	"use strict";
+
+	// --- interactive demo -------------------------------------------------
+	var demo = {
+		checkout: "SECRET=1",
+		workspace: null, // null = file absent
+		record: null, // baseline content the record stores
+		force: false,
+		lines: []
+	};
+
+	var term = document.getElementById("term");
+	var forceToggle = document.getElementById("force-toggle");
+
+	function contentOf(side) {
+		var v = side === "checkout" ? demo.checkout : demo.workspace;
+		return v === null ? "(absent)" : v;
+	}
+
+	function stateOf(side) {
+		var v = side === "checkout" ? demo.checkout : demo.workspace;
+		if (v === null) return "missing";
+		if (demo.record === null) return "unseeded";
+		if (v !== demo.record) return "moved";
+		return "unchanged";
+	}
+
+	function listState() {
+		var ws = demo.workspace;
+		var co = demo.checkout;
+		var rec = demo.record;
+		if (ws === null) return "workspace-missing";
+		if (co === null) return "checkout-missing";
+		var wm = ws !== rec;
+		var cm = co !== rec;
+		if (wm && cm) return ws === co ? "both-moved (same content)" : "both-moved";
+		if (wm) return "workspace-moved";
+		if (cm) return "checkout-moved";
+		return "unchanged";
+	}
+
+	function log(text, cls) {
+		demo.lines.push({ text: text, cls: cls || "" });
+		if (demo.lines.length > 40) demo.lines.shift();
+	}
+
+	function render() {
+		["checkout", "workspace"].forEach(function (side) {
+			var card = document.getElementById("card-" + side);
+			var content = document.getElementById("content-" + side);
+			var state = document.getElementById("state-" + side);
+			content.textContent = contentOf(side);
+			card.classList.toggle("absent", (side === "checkout" ? demo.checkout : demo.workspace) === null);
+			var s = stateOf(side);
+			state.textContent = s;
+			state.className = "state " + (s === "unchanged" ? "unchanged" : s === "moved" ? "moved" : s === "missing" ? "missing" : "");
+		});
+		term.innerHTML = "";
+		demo.lines.forEach(function (l) {
+			var div = document.createElement("div");
+			div.className = "line " + l.cls;
+			div.textContent = l.text;
+			term.appendChild(div);
+		});
+		term.scrollTop = term.scrollHeight;
+		forceToggle.textContent = "--force: " + (demo.force ? "on" : "off");
+		forceToggle.setAttribute("aria-pressed", demo.force ? "true" : "false");
+	}
+
+	function doSeed() {
+		if (demo.workspace !== null) {
+			log("$ start session", "cmd");
+			log("seed: .env not copied (exists) — a tracked or existing path is never overwritten", "warn");
+			render();
+			return;
+		}
+		log("$ start session", "cmd");
+		demo.workspace = demo.checkout;
+		demo.record = demo.checkout;
+		log("seed: copied 1 path(s)", "ok");
+		render();
+	}
+
+	function doPush() {
+		log("$ /sillajje:seed --push", "cmd");
+		var ws = demo.workspace;
+		var co = demo.checkout;
+		var rec = demo.record;
+		if (ws === null) {
+			log("seed: .env missing in the workspace — nothing to push", "warn");
+		} else if (ws === rec && co !== null) {
+			log("seed: .env unchanged in the workspace — nothing to push", "muted");
+		} else if (ws !== rec && co !== null && co !== rec && co !== ws && !demo.force) {
+			log("seed: .env moved on both sides — refused (use --force)", "crit");
+		} else {
+			demo.checkout = ws;
+			demo.record = ws;
+			log("seed: .env pushed to the checkout", "ok");
+		}
+		render();
+	}
+
+	function doPull() {
+		log("$ /sillajje:seed --pull", "cmd");
+		var ws = demo.workspace;
+		var co = demo.checkout;
+		var rec = demo.record;
+		if (co === null) {
+			log("seed: .env missing in the checkout — nothing to pull", "warn");
+		} else if (ws === co) {
+			log("seed: .env unchanged — nothing to pull", "muted");
+		} else if (ws !== null && ws !== rec && !demo.force) {
+			log("seed: .env the workspace moved — refused (use --force)", "crit");
+		} else {
+			demo.workspace = co;
+			demo.record = co;
+			log("seed: .env pulled from the checkout", "ok");
+		}
+		render();
+	}
+
+	function doList() {
+		log("$ /sillajje:seed", "cmd");
+		if (demo.record === null) {
+			log("seed: no Seed record for this session", "warn");
+		} else {
+			log("seed: .env — " + listState(), "ok");
+		}
+		render();
+	}
+
+	document.querySelectorAll("[data-act]").forEach(function (btn) {
+		btn.addEventListener("click", function () {
+			var act = btn.getAttribute("data-act");
+			if (act === "seed") doSeed();
+			else if (act === "edit-ws") { demo.workspace = "EDITED"; log("(you edited workspace/.env)", "muted"); render(); }
+			else if (act === "edit-co") { demo.checkout = "CHECKOUT"; log("(you edited checkout/.env)", "muted"); render(); }
+			else if (act === "del-ws") { demo.workspace = null; log("(workspace/.env deleted)", "muted"); render(); }
+			else if (act === "del-co") { demo.checkout = null; log("(checkout/.env deleted)", "muted"); render(); }
+			else if (act === "list") doList();
+			else if (act === "push") doPush();
+			else if (act === "pull") doPull();
+			else if (act === "reset") {
+				demo.checkout = "SECRET=1";
+				demo.workspace = null;
+				demo.record = null;
+				demo.force = false;
+				demo.lines = [];
+				log("$ reset — checkout/.env = SECRET=1, workspace unseeded", "muted");
+				render();
+			}
+		});
+	});
+
+	forceToggle.addEventListener("click", function () {
+		demo.force = !demo.force;
+		log("(force " + (demo.force ? "on" : "off") + ")", "muted");
+		render();
+	});
+
+	// --- tabs -------------------------------------------------------------
+	document.querySelectorAll(".tab").forEach(function (tab) {
+		tab.addEventListener("click", function () {
+			var name = tab.getAttribute("data-tab");
+			document.querySelectorAll(".tab").forEach(function (t) {
+				t.classList.toggle("active", t === tab);
+			});
+			document.querySelectorAll(".panel").forEach(function (p) {
+				p.classList.toggle("active", p.id === "panel-" + name);
+			});
+		});
+	});
+
+	// Seed once on load, so the demo opens on a live session.
+	doSeed();
+})();
+</script>
+</body>
+</html>

@@ -18,6 +18,19 @@ Archives a session: keeps the `sillajje/<session-id>` bookmark, deletes the work
 
 Recreates the workspace for an archived session. `-s` defaults to `@` (this session), so a bare `/sillajje:unarchive` restores the session you are in. A foreign session, or one whose workspace is still live, is rejected.
 
+### `/sillajje:seed [-s | --session <id>] [--push | --pull] [--force] [-h | --help]`
+
+Reports the ignored paths a session's workspace copied in from the checkout that launched it, and moves edits in either direction. `-s` defaults to `@` (this session).
+
+- **bare** — lists each seeded path and whether it changed in the workspace, in the checkout, or both.
+- **`--push`** — copies workspace edits back to the source checkout.
+- **`--pull`** — refreshes the workspace copies from the checkout.
+- **`--force`** — overwrites a path that moved on both sides. Requires `--push` or `--pull`.
+
+`--push` and `--pull` are mutually exclusive. Neither ever deletes a file on the other side; a path missing on the destination side is created from the surviving side. A successful move advances the session's Seed record, so the next move is measured against the synced content.
+
+The `seed` list lives in the project config. A path already present in the workspace is skipped, so a tracked file and the agent's edits survive. A seeded path stays invisible to jj: it never enters a stamp or a fold. Serve exposes the whole workspace, so a served session exposes its seeded secrets.
+
 ### `/sillajje:new [-o | --onto <rev>] [-s | --onto-session <id>] [-h | --help]`
 
 Starts a new pi session whose workspace branches from a chosen base instead of `trunk()`. The new session has fresh history; the workspace tree carries the continuity.
@@ -65,6 +78,7 @@ The project config wins per key. Sillajje reads it only when pi trusts the proje
 | `workspacesRoot` | string | `~/.pi/sillajje` | Root directory for session workspaces. |
 | `subGeneratorModel` | string | `openai/gpt-4o-mini` | Model for the header and trace sub-generators. |
 | `postInit` | string[] | `[]` | Shell commands to run after workspace creation. |
+| `seed` | string[] | `[]` | Workspace-relative ignored paths copied from the launching checkout at creation and unarchive. |
 | `vcsGuard` | boolean | `true` | Tell the agent to ask before running jj or git commands. |
 | `actions.stamp.body` | section list | `["trace","meta","loop","prompt","response"]` | Ordered sections the stamp body renders. |
 | `actions.stamp.header.mode` | `"one_line"` or `"user_prompt"` | `"one_line"` | Source of the commit header. |

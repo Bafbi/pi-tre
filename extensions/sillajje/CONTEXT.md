@@ -47,6 +47,10 @@ _Avoid_: Delete (the bookmark survives), Close
 A `/sillajje:unarchive [-s <id>]` subcommand that recreates an archived session's workspace from its bookmark and reactivates the session. `-s` defaults to `@`, so a bare invocation restores the session you are in. A foreign session is rejected, and so is a session whose workspace is still live.
 _Avoid_: Restore, Reopen
 
+**Seed**:
+The ignored paths a session workspace copies in from the checkout that launched the session, named by the project's `seed` list, at workspace creation and at unarchive. A Seed is one-way in by default: `/sillajje:seed --push` copies workspace edits back to the source checkout, `--pull` refreshes the workspace copy, and each refuses a path the other side changed.
+_Avoid_: Local files, Overlay, Gitignored files
+
 **Serve**:
 A `/sillajje:serve [-s <id>] [--stop|--status]` subcommand that exposes a session's workspace over HTTP on the LAN for the life of the pi process. The port is ephemeral and the URL is reported to the user; Serve stops on pi exit, on the Archive of the session it serves, or on `--stop`. `-s` defaults to `@`, so the bare form serves the current session's workspace.
 _Avoid_: Preview, dev server, share, static server (that names the mechanism, not the capability)
