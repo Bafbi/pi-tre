@@ -1931,7 +1931,8 @@ export default function (pi: ExtensionAPI) {
 		const exclude = Array.isArray(values.exclude)
 			? values.exclude
 			: undefined;
-		const land = values.land === true;
+		const update =
+			typeof values.update === "string" ? values.update : undefined;
 		const push = values.push === true;
 		const archive = values.archive === true;
 		const noMarker = values.noMarker === true;
@@ -1953,6 +1954,7 @@ export default function (pi: ExtensionAPI) {
 			onto,
 			named,
 			exclude,
+			update,
 			noMarker,
 		});
 		await withProgress(ctx, async (progress) => {
@@ -1963,7 +1965,7 @@ export default function (pi: ExtensionAPI) {
 				onto,
 				named,
 				exclude,
-				land,
+				update,
 				push,
 				archive,
 				noMarker,

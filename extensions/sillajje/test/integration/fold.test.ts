@@ -192,7 +192,7 @@ describeJj("sillajje fold", () => {
 		// A second interaction stamps new work on top of the first stamp.
 		writeFileSync(join(workspace, "two.txt"), "two\n");
 		await simulateInteraction(runner, "Second", "Done.");
-		await runSillajje(runner, "fold -s @ -o review --land");
+		await runSillajje(runner, "fold -s @ -o review --update");
 
 		const files = jj(["file", "list", "-r", "review"], cwd);
 		expect(files).toContain("one.txt");
@@ -229,7 +229,7 @@ describeJj("sillajje fold", () => {
 		writeFileSync(join(workspaceB, "two.txt"), "two\n");
 		await simulateInteraction(runnerB, "Second", "Done.");
 
-		await runSillajje(runnerB, "fold -s @ -o review --land");
+		await runSillajje(runnerB, "fold -s @ -o review --update");
 
 		const files = jj(["file", "list", "-r", "review"], cwd);
 		expect(files).toContain("one.txt");
@@ -449,7 +449,7 @@ describeJj("sillajje fold", () => {
 		writeFileSync(join(cwd, "e.txt"), "e\n");
 		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
 
-		await runSillajje(runner, "fold -r feat -o review --land");
+		await runSillajje(runner, "fold -r feat -o review --update");
 
 		const files = jj(["file", "list", "-r", "review"], cwd);
 		expect(files).toContain("d.txt");
@@ -481,7 +481,7 @@ describeJj("sillajje fold", () => {
 		writeFileSync(join(cwd, "e.txt"), "e\n");
 		jj(["bookmark", "set", "feat2", "-r", "@"], cwd);
 
-		await runSillajje(runner, "fold -r feat2 -o review --land");
+		await runSillajje(runner, "fold -r feat2 -o review --update");
 
 		expect(jj(["file", "list", "-r", "review"], cwd)).toContain("d.txt");
 		expect(jj(["file", "list", "-r", "review"], cwd)).toContain("e.txt");
@@ -520,7 +520,7 @@ describeJj("sillajje fold", () => {
 		await runSillajje(runner, "fold -r feat -o main --named review");
 		// `other` does not descend from the recorded tip, so the marker is not a
 		// usable base.
-		await runSillajje(runner, "fold -r other -o review --land");
+		await runSillajje(runner, "fold -r other -o review --update");
 
 		// The unrelated marker is not an ancestor, so the fold bases on the fork
 		// point and still publishes other's work.
@@ -550,24 +550,23 @@ describeJj("sillajje fold", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 		captureNotifications(runner);
 
-		await runSillajje(runner, "fold -r feat -o main");
+		const dChange = changeId(cwd, "feat");
+		await runSillajje(runner, "fold -r feat -o main --update");
 
 		jj(["new", "feat", "-m", "E"], cwd);
 		writeFileSync(join(cwd, "e.txt"), "e\n");
 		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+		const eChange = changeId(cwd, "feat");
 
-		// --no-marker: the whole range is published again, so the second
-		// folded change carries d.txt, not only e.txt.
-		await runSillajje(runner, "fold -r feat -o main --no-marker");
+		// --no-marker ignores the marker: the Ref spans the fork point, not D.
+		await runSillajje(runner, "fold -r feat -o main --update --no-marker");
 
-		const foldedWithE = childrenOf(cwd, "main")
-			.map((c) => ({ c, files: jj(["file", "list", "-r", c.id], cwd) }))
-			.find((x) => x.files.includes("e.txt"));
-		expect(foldedWithE).toBeDefined();
-		expect(foldedWithE?.files).toContain("d.txt");
+		const desc = description(cwd, "main");
+		expect(desc).toContain(`Ref: ${base}..${eChange}`);
+		expect(desc).not.toContain(`Ref: ${dChange}..${eChange}`);
 	}, 30_000);
 
-	it("a second plain fold appends only the new work via the marker", async () => {
+	it("a second --update fold appends only the new work via the marker", async () => {
 		const cwd = initRepo();
 		const base = baseChangeId(cwd);
 
@@ -583,21 +582,20 @@ describeJj("sillajje fold", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 		captureNotifications(runner);
 
-		await runSillajje(runner, "fold -r feat -o main");
+		await runSillajje(runner, "fold -r feat -o main --update");
 
 		jj(["new", "feat", "-m", "E"], cwd);
 		writeFileSync(join(cwd, "e.txt"), "e\n");
 		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
 
-		await runSillajje(runner, "fold -r feat -o main");
+		await runSillajje(runner, "fold -r feat -o main --update");
 
-		// The marker makes the second fold carry only e.txt; d.txt stays in the
-		// first folded change.
-		const foldedWithE = childrenOf(cwd, "main")
-			.map((c) => ({ c, files: jj(["file", "list", "-r", c.id], cwd) }))
-			.find((x) => x.files.includes("e.txt"));
-		expect(foldedWithE).toBeDefined();
-		expect(foldedWithE?.files).not.toContain("d.txt");
+		// The marker makes the second fold's diff only e.txt; d.txt was
+		// published by the first fold and is inherited.
+		const summary = jj(["diff", "-r", "main", "--summary"], cwd);
+		expect(summary).toContain("e.txt");
+		expect(summary).not.toContain("d.txt");
+		expect(changeId(cwd, "slj/f/main/feat")).toBe(changeId(cwd, "feat"));
 	}, 30_000);
 
 	it("keeps a separate marker per review branch", async () => {
@@ -620,7 +618,7 @@ describeJj("sillajje fold", () => {
 		writeFileSync(join(cwd, "e.txt"), "e\n");
 		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
 
-		await runSillajje(runner, "fold -r feat -o review-a --land");
+		await runSillajje(runner, "fold -r feat -o review-a --update");
 
 		// review-a's source marker moved forward; review-b's still records the
 		// first tip.
@@ -636,7 +634,7 @@ describeJj("sillajje fold", () => {
 		);
 	}, 30_000);
 
-	it("--land advances the target bookmark; without it the bookmark is untouched", async () => {
+	it("--update advances the target bookmark; without it the bookmark is untouched", async () => {
 		const cwd = initRepo();
 		const base = baseChangeId(cwd);
 
@@ -653,15 +651,15 @@ describeJj("sillajje fold", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 		captureNotifications(runner);
 
-		// Without --land the target bookmark does not move.
+		// Without --update the target bookmark does not move.
 		await runSillajje(runner, "fold -r feat -o main");
 		expect(changeId(cwd, "main")).toBe(mainBefore);
 
-		// Add work and fold again with --land.
+		// Add work and fold again with --update.
 		jj(["new", "feat", "-m", "feat2"], cwd);
 		writeFileSync(join(cwd, "feat2.txt"), "feat2\n");
 		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
-		await runSillajje(runner, "fold -r feat -o main --land");
+		await runSillajje(runner, "fold -r feat -o main --update");
 
 		const mainAfter = changeId(cwd, "main");
 		expect(mainAfter).not.toBe(mainBefore);
@@ -670,7 +668,7 @@ describeJj("sillajje fold", () => {
 		);
 	}, 30_000);
 
-	it("--land errors when --onto is not a single local bookmark", async () => {
+	it("--update errors when --onto is not a single local bookmark", async () => {
 		const cwd = initRepo();
 		const base = baseChangeId(cwd);
 
@@ -687,12 +685,12 @@ describeJj("sillajje fold", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const notifications = captureNotifications(runner);
 
-		await runSillajje(runner, `fold -r feat -o ${targetId} --land`);
+		await runSillajje(runner, `fold -r feat -o ${targetId} --update`);
 
 		expect(notifications).toContainEqual(
 			expect.objectContaining({
 				type: "warning",
-				msg: expect.stringContaining("exactly one local bookmark"),
+				msg: expect.stringContaining("pass --update <bookmark>"),
 			}),
 		);
 	}, 30_000);
@@ -722,14 +720,14 @@ describeJj("sillajje fold", () => {
 		jj(["new", "feat", "-m", "E"], cwd);
 		writeFileSync(join(cwd, "e.txt"), "e\n");
 		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
-		await runSillajje(runner, "fold -r feat -o review --land --push");
+		await runSillajje(runner, "fold -r feat -o review --update --push");
 		expect(bareRef(remote, "review")).toBe(commitId(cwd, "review"));
 
 		// The bookmark is now tracked; the next push moves the remote.
 		jj(["new", "feat", "-m", "F"], cwd);
 		writeFileSync(join(cwd, "f.txt"), "f\n");
 		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
-		await runSillajje(runner, "fold -r feat -o review --land --push");
+		await runSillajje(runner, "fold -r feat -o review --update --push");
 		expect(bareRef(remote, "review")).toBe(commitId(cwd, "review"));
 		expect(jj(["file", "list", "-r", "review"], cwd)).toContain("f.txt");
 		expect(notifications).toContainEqual(
@@ -740,7 +738,7 @@ describeJj("sillajje fold", () => {
 		);
 	}, 30_000);
 
-	it("--land --push advances the landed bookmark on the remote", async () => {
+	it("--update --push advances the landed bookmark on the remote", async () => {
 		const cwd = initRepo();
 		const base = baseChangeId(cwd);
 
@@ -757,7 +755,7 @@ describeJj("sillajje fold", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 		captureNotifications(runner);
 
-		await runSillajje(runner, "fold -r feat -o main --land --push");
+		await runSillajje(runner, "fold -r feat -o main --update --push");
 		expect(bareRef(remote, "main")).toBe(commitId(cwd, "main"));
 	}, 30_000);
 
@@ -778,7 +776,7 @@ describeJj("sillajje fold", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const notifications = captureNotifications(runner);
 
-		await runSillajje(runner, "fold -r feat -o main --land --push");
+		await runSillajje(runner, "fold -r feat -o main --update --push");
 
 		// The fold landed despite the failed push.
 		expect(notifications).toContainEqual(
@@ -818,7 +816,7 @@ describeJj("sillajje fold", () => {
 		await simulateInteraction(runner, "Second", "Done.");
 		await runSillajje(
 			runner,
-			"fold -s @ -o review --land --push --archive",
+			"fold -s @ -o review --update --push --archive",
 		);
 
 		// A push after archive would run in the removed workspace and fail,

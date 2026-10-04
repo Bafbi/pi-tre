@@ -99,7 +99,7 @@
 <main>
 	<header>
 		<h1>Fold — one command, appendable review branches</h1>
-		<p class="sub">`fold` publishes a source delta as one clean change, records a per-source marker, and bases the next fold on it. No `--update` mode; `-o &lt;rev&gt;` plus `--land` covers publishing, appending, and landing.</p>
+		<p class="sub">`fold` publishes a source delta as one clean change, records a per-source marker, and bases the next fold on it. No `--update` mode; `-o &lt;rev&gt;` plus `--update` covers publishing, appending, and advancing.</p>
 		<div class="meta">
 			<span class="chip">sillajje / fold</span>
 			<span class="chip">jj 0.44</span>
@@ -120,15 +120,15 @@
 	<section id="cmd">
 		<h2>Command</h2>
 		<pre><code>fold (-s &lt;id|@&gt; | -r &lt;rev&gt;) -o &lt;rev&gt;
-     [--named [&lt;branch&gt;]] [--land] [--push] [--archive]
+     [--named [&lt;branch&gt;]] [--update [&lt;bookmark&gt;]] [--push] [--archive]
      [--exclude &lt;path&gt;] [--no-marker]</code></pre>
-		<p>Every fold records a Folded source marker and bases its delta on the tip-most recorded tip that is an ancestor of the source. A missing marker is a normal first fold: it bases on the fork point.</p>
+		<p>A fold records a Folded source marker when it names or advances a destination and bases its delta on the tip-most recorded tip that is an ancestor of the source. A missing marker is a normal first fold: it bases on the fork point.</p>
 		<table>
 			<tr><th>Flag</th><th>Effect</th></tr>
 			<tr><td><code>-o &lt;rev&gt;</code></td><td>The target the folded change is placed under.</td></tr>
-			<tr><td><code>--named [&lt;branch&gt;]</code></td><td>Name the folded change with a review bookmark. Empty names it <code>fold-&lt;change id&gt;</code>. It also keys the marker.</td></tr>
-			<tr><td><code>--land</code></td><td>Advance the target's single local bookmark to the folded change. This is how a review branch grows.</td></tr>
-			<tr><td><code>--push</code></td><td>Push the landed bookmark to its tracking remotes (requires <code>--land</code>).</td></tr>
+			<tr><td><code>--named [&lt;branch&gt;]</code></td><td>Name the folded change with a review bookmark. Empty names it <code>fold-&lt;change id&gt;</code>. It also keys the marker. Mutually exclusive with <code>--update</code>.</td></tr>
+			<tr><td><code>--update [&lt;bookmark&gt;]</code></td><td>Advance the target's single local bookmark, or <code>&lt;bookmark&gt;</code>, to the folded change. This is how a review branch grows. Mutually exclusive with <code>--named</code>.</td></tr>
+			<tr><td><code>--push</code></td><td>Push the advanced bookmark to its tracking remotes (requires <code>--update</code>).</td></tr>
 			<tr><td><code>--exclude &lt;path&gt;</code></td><td>Leave paths out of the published change (repeatable). The source keeps them.</td></tr>
 			<tr><td><code>--no-marker</code></td><td>Ignore the store and record none: re-aggregate from the fork point.</td></tr>
 		</table>
@@ -139,10 +139,11 @@
 		<p>A fold reads and writes one bookmark per source:</p>
 		<pre><code>slj/f/&lt;dest&gt;/&lt;source&gt;   = the source tip last published to &lt;dest&gt;</code></pre>
 		<ul>
-			<li><code>&lt;dest&gt;</code> — the <code>--named</code> branch, or the target's single local bookmark.</li>
+			<li><code>&lt;dest&gt;</code> — the <code>--named</code> branch, or the <code>--update</code> bookmark.</li>
 			<li><code>&lt;source&gt;</code> — the session key, or the source bookmark (else the tip's change id) for a rev.</li>
 			<li><code>&lt;dest&gt;</code> is escaped to one path segment, so <code>review</code> never reads markers written for <code>review/extra</code>.</li>
 		</ul>
+		<p>The marker is opt-in: it is read and written only when the fold names a destination (<code>--named</code>) or advances one (<code>--update</code>), and the two are mutually exclusive. A plain <code>-o</code> is a one-shot publish: fork-point base, nothing recorded, nothing advanced. <code>--update</code> without a value advances the target's single local bookmark; with several it is a usage error asking for <code>--update &lt;bookmark&gt;</code>.</p>
 		<div class="callout info">
 			<p>The lookup does not read the marker's name. It takes the tip-most marker whose recorded tip is an ancestor of the source, so a handoff, a rename, or a rewrite still finds its predecessor.</p>
 		</div>
@@ -157,7 +158,7 @@
 				<label>target (-o)<select id="destSel"></select></label>
 				<label>--named<input type="text" id="named" placeholder="(none)"></label>
 				<label>--exclude<input type="text" id="exclude" placeholder=".scratch/"></label>
-				<label class="check"><input type="checkbox" id="land"> --land</label>
+				<label class="check"><input type="checkbox" id="update"> --update</label>
 				<label class="check"><input type="checkbox" id="noMarker"> --no-marker</label>
 				<button id="foldBtn" class="primary">Fold</button>
 				<button id="editBtn">Reviewer edits x</button>
@@ -184,27 +185,27 @@
 			</div>
 			<div class="card">
 				<h3>Append</h3>
-				<p><code>fold -s @ -o review --land</code></p>
-				<p>The marker gives the last published tip, so only the new work is replayed. <code>--land</code> moves <code>review</code>.</p>
+				<p><code>fold -s @ -o review --update</code></p>
+				<p>The marker gives the last published tip, so only the new work is replayed. <code>--update</code> moves <code>review</code>.</p>
 			</div>
 			<div class="card">
 				<h3>Hand off</h3>
-				<p><code>fold -s sNew -o review --land</code></p>
+				<p><code>fold -s sNew -o review --update</code></p>
 				<p>A new session key has no marker, but the predecessor's tip is an ancestor, so the lookup finds it. Only the new work is replayed.</p>
 			</div>
 			<div class="card">
 				<h3>Concurrent sources</h3>
-				<p><code>fold -s s2 -o review --land</code></p>
+				<p><code>fold -s s2 -o review --update</code></p>
 				<p>Markers are per source, so <code>s2</code> never reads <code>s1</code>'s cursor and every source appends only its own work.</p>
 			</div>
 			<div class="card">
 				<h3>Land</h3>
-				<p><code>fold -s @ -o main --land</code></p>
+				<p><code>fold -s @ -o main --update</code></p>
 				<p>Targets <code>main</code> directly. With no marker for that destination, it re-aggregates the session's net delta and advances <code>main</code>.</p>
 			</div>
 			<div class="card">
 				<h3>Fresh aggregate</h3>
-				<p><code>fold -s @ -o review --land --no-marker</code></p>
+				<p><code>fold -s @ -o review --update --no-marker</code></p>
 				<p>Ignores the store and re-publishes the whole source range from the fork point. The escape hatch.</p>
 			</div>
 		</div>
@@ -227,17 +228,17 @@
 			<tr><th>Test</th><th>What it locks</th></tr>
 			<tr><td><code>appends onto the branch from a session handed off with new -s</code></td><td>handoff finds the predecessor's marker by ancestry</td></tr>
 			<tr><td><code>appends across a renamed source because the lookup is by ancestry</code></td><td>rename does not lose the cursor</td></tr>
-			<tr><td><code>a second plain fold appends only the new work via the marker</code></td><td>plain <code>-o</code> is incremental</td></tr>
+			<tr><td><code>a second --update fold appends only the new work via the marker</code></td><td>the marker makes a repeat <code>--update</code> fold incremental</td></tr>
 			<tr><td><code>--no-marker ignores the Folded source marker and re-aggregates from the fork point</code></td><td>the bypass</td></tr>
 			<tr><td><code>does not read a marker written for a nested destination</code></td><td>destination encoding</td></tr>
-			<tr><td><code>ignores sillajje's own bookmarks when resolving --land</code></td><td>markers never block landing</td></tr>
+			<tr><td><code>ignores sillajje's own bookmarks when resolving --update</code></td><td>markers never block advancing</td></tr>
 			<tr><td><code>pushes before archiving the session workspace</code></td><td>push ordering with <code>--archive</code></td></tr>
 			<tr><td><code>leaves excluded paths out of the folded change while the source keeps them</code></td><td><code>--exclude</code></td></tr>
 		</table>
 		<p class="files">Source: <code>packages/sillajje-core/src/fold.ts</code>, <code>extensions/sillajje/docs/adr/0006-fold-publishes-a-source-range.md</code>, <code>extensions/sillajje/CONTEXT.md</code>. Core check 248 tests, extension check 285 tests.</p>
 	</section>
 
-	<footer>Generated by the agent. The sandbox mirrors the implementation's base selection, marker naming, conflict rule, and <code>--land</code>/<code>--exclude</code>/<code>--no-marker</code> handling.</footer>
+	<footer>Generated by the agent. The sandbox mirrors the implementation's base selection, marker naming, conflict rule, and <code>--update</code>/<code>--exclude</code>/<code>--no-marker</code> handling.</footer>
 </main>
 
 <script>
@@ -264,11 +265,11 @@
 	];
 	var WORKFLOW = [
 		{ tip: "A", name: "s1", dest: "main", named: "review" },
-		{ tip: "A2", name: "s1", dest: "review", land: true },
-		{ tip: "H", name: "sNew", dest: "review", land: true },
-		{ tip: "B", name: "s2", dest: "review", land: true },
-		{ tip: "B2", name: "s2", dest: "review", land: true },
-		{ tip: "H", name: "sNew", dest: "main", land: true }
+		{ tip: "A2", name: "s1", dest: "review", update: true },
+		{ tip: "H", name: "sNew", dest: "review", update: true },
+		{ tip: "B", name: "s2", dest: "review", update: true },
+		{ tip: "B2", name: "s2", dest: "review", update: true },
+		{ tip: "H", name: "sNew", dest: "main", update: true }
 	];
 
 	/* ---------------- state ---------------- */
@@ -310,17 +311,19 @@
 		if (!target) return { error: "target '" + opts.dest + "' is not a bookmark — fold with --named first" };
 		target = state.commits[target];
 
-		var destName = opts.named ? opts.named : opts.dest;
-		var prefix = "slj/f/" + encodeDest(destName) + "/";
+		if (opts.named && opts.update) return { error: "--named and --update are mutually exclusive" };
+		// The marker is opt-in: it needs a named destination or --update.
+		var destName = opts.named ? opts.named : (opts.update ? opts.dest : undefined);
+		var prefix = destName ? "slj/f/" + encodeDest(destName) + "/" : null;
 		var candidates = [];
 		var baseName = null;
-		Object.keys(state.markers).forEach(function (name) {
-			if (name.indexOf(prefix) !== 0) return;
-			var tip = state.markers[name];
-			if (isAncestor(tip, opts.tip)) { candidates.push(tip); if (baseName === null || isAncestor(baseName.tip, tip)) baseName = { name: name, tip: tip }; }
-		});
-		// --no-marker ignores the store entirely.
-		if (opts.noMarker) { candidates = []; baseName = null; }
+		if (prefix && !opts.noMarker) {
+			Object.keys(state.markers).forEach(function (name) {
+				if (name.indexOf(prefix) !== 0) return;
+				var tip = state.markers[name];
+				if (isAncestor(tip, opts.tip)) { candidates.push(tip); if (baseName === null || isAncestor(baseName.tip, tip)) baseName = { name: name, tip: tip }; }
+			});
+		}
 		var base = tipMost(candidates);
 		if (!base) base = forkPoint(opts.tip, target.id);
 		if (!base) return { error: "no common ancestor" };
@@ -346,9 +349,9 @@
 		var id = "F" + state.nextF++;
 		state.commits[id] = { id: id, parents: [target.id], content: content, lane: opts.dest, label: id };
 		if (opts.named) state.bookmarks[opts.named] = id;
-		if (opts.land) state.bookmarks[opts.dest] = id;
+		if (opts.update) state.bookmarks[opts.dest] = id;
 		var markerName = null;
-		if (!opts.noMarker) { markerName = "slj/f/" + encodeDest(destName) + "/" + opts.name; state.markers[markerName] = opts.tip; }
+		if (destName && !opts.noMarker) { markerName = "slj/f/" + encodeDest(destName) + "/" + opts.name; state.markers[markerName] = opts.tip; }
 
 		var entry = { cmd: cmdString(opts), id: id, dest: opts.dest, base: baseLabel, baseMarker: baseName ? baseName.name : null, range: base + ".." + opts.tip, files: files, skipped: skipped, conflicts: conflicts, source: opts.name, tip: opts.tip };
 		state.folds.push(entry);
@@ -359,7 +362,7 @@
 	function cmdString(o) {
 		var s = "fold -s " + o.name + " -o " + o.dest;
 		if (o.named) s += " --named " + o.named;
-		if (o.land) s += " --land";
+		if (o.update) s += " --update";
 		if (o.noMarker) s += " --no-marker";
 		if (o.exclude) s += " --exclude " + o.exclude;
 		return s;
@@ -428,7 +431,7 @@
 			dest: document.getElementById("destSel").value,
 			named: document.getElementById("named").value.trim() || undefined,
 			exclude: document.getElementById("exclude").value.trim() || undefined,
-			land: document.getElementById("land").checked,
+			update: document.getElementById("update").checked,
 			noMarker: document.getElementById("noMarker").checked
 		};
 	}
@@ -444,7 +447,7 @@
 	function loadWorkflow() {
 		resetState();
 		WORKFLOW.forEach(function (step, i) {
-			var r = fold({ tip: step.tip, name: step.name, dest: step.dest, named: step.named, land: step.land, noMarker: false, exclude: undefined });
+			var r = fold({ tip: step.tip, name: step.name, dest: step.dest, named: step.named, update: step.update, noMarker: false, exclude: undefined });
 			state.lastFoldId = r && r.id ? r.id : null;
 			if (i === WORKFLOW.length - 1) setCmd("workflow loaded — " + state.folds.length + " folds, " + Object.keys(state.markers).length + " markers");
 		});
@@ -467,9 +470,9 @@
 
 	function conflictDemo() {
 		resetState();
-		fold({ tip: "A", name: "s1", dest: "main", named: "review", land: false, noMarker: false });
+		fold({ tip: "A", name: "s1", dest: "main", named: "review", update: false, noMarker: false });
 		reviewerEdit();
-		var r = fold({ tip: "A2", name: "s1", dest: "review", land: true, noMarker: false });
+		var r = fold({ tip: "A2", name: "s1", dest: "review", update: true, noMarker: false });
 		state.lastFoldId = r && r.id ? r.id : null;
 		setCmd("conflict demo — s1 appends x (one→two) onto the reviewer's x=reviewed");
 		render();
