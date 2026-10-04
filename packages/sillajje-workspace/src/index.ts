@@ -17,6 +17,7 @@
 import { createHash } from "node:crypto";
 import {
 	closeSync,
+	constants,
 	copyFileSync,
 	existsSync,
 	lstatSync,
@@ -421,7 +422,22 @@ export function createWorkspaces(
 			return;
 		}
 		mkdirSync(dirname(dest), { recursive: true });
-		copyFileSync(source, dest);
+		// Exclusive create, so a file that appears after the `lstatSync` check is
+		// still never overwritten: the copy fails instead.
+		try {
+			copyFileSync(source, dest, constants.COPYFILE_EXCL);
+		} catch (error) {
+			if (
+				typeof error === "object" &&
+				error !== null &&
+				"code" in error &&
+				error.code === "EEXIST"
+			) {
+				out.skipped.push({ path: rel, reason: "exists" });
+				return;
+			}
+			throw error;
+		}
 		out.copied[rel] = sha256File(dest);
 	};
 
