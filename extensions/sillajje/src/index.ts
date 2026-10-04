@@ -7,7 +7,6 @@ import {
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type ExtensionContext,
-	SessionManager,
 	type UserBashEventResult,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -1290,41 +1289,15 @@ export default function (pi: ExtensionAPI) {
 		return;
 	};
 
-	/** The Seed record of another session's log, or undefined when unreadable. */
-	const readForeignSeedRecord = async (
+	/**
+	 * Seeded paths whose Workspace copy differs from this session's Seed record.
+	 * Only the current session has a record this process may read.
+	 */
+	const divergedSeedPaths = (
 		ctx: ExtensionCommandContext,
-		repoRoot: string,
-		target: string,
-	): Promise<SeedRecord | undefined> => {
-		const rawId = target.includes("/")
-			? (target.split("/").pop() ?? target)
-			: target;
-		try {
-			const sessions = await SessionManager.list(
-				repoRoot,
-				ctx.sessionManager.getSessionDir(),
-			);
-			const info = sessions.find((s) => s.id === rawId);
-			if (info === undefined) return undefined;
-			return lastSeedRecord(SessionManager.open(info.path).getBranch());
-		} catch (err) {
-			debug.error("seed_foreign_record_failed", err);
-			return undefined;
-		}
-	};
-
-	/** Seeded paths whose Workspace copy differs from the Seed record. */
-	const divergedSeedPaths = async (
-		ctx: ExtensionCommandContext,
-		repoRoot: string,
-		target: string,
-		sessionKey: string,
 		wsPath: string,
-	): Promise<string[]> => {
-		const record =
-			sessionKey === state.getSessionKey()
-				? lastSeedRecord(ctx.sessionManager.getBranch())
-				: await readForeignSeedRecord(ctx, repoRoot, target);
+	): string[] => {
+		const record = lastSeedRecord(ctx.sessionManager.getBranch());
 		if (record === undefined) return [];
 		return Object.entries(record.paths)
 			.filter(
@@ -1399,6 +1372,12 @@ export default function (pi: ExtensionAPI) {
 				continue;
 			}
 			if (wsHash === coHash) {
+				// Both sides converged on the same content. Advance the baseline so a
+				// later edit is not mistaken for a two-sided conflict.
+				if (wsHash !== recorded) {
+					updated[rel] = wsHash;
+					moved = true;
+				}
 				report("unchanged — nothing to pull");
 				continue;
 			}
@@ -1447,44 +1426,39 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		// Resolve `@` to this session's key, so the current-session exemption in
-		// `resolveTarget` applies (the bookmark may not exist yet).
-		const currentKey = state.getSessionKey();
-		const resolvedTarget =
-			target === "@" && currentKey !== undefined ? currentKey : target;
-		const repoRoot = state.getRepoRoot() ?? state.getWorkspacePath();
-		if (repoRoot === undefined) {
+		// Seed is a current-session command. The record and the Workspace it
+		// names are this process's own; a foreign target would mean reading and
+		// advancing another session's log, which is not ours to write.
+		if (target !== "@") {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
-					"[sillajje] cannot seed: no jj repo detected",
+					"[sillajje] only this session can be seeded — use -s @ or omit -s",
+					"warning",
+				);
+			}
+			return;
+		}
+
+		const sessionKey = state.getSessionKey();
+		const workspacePath = state.getWorkspacePath();
+		const repoRoot = state.getRepoRoot();
+		if (
+			!state.isActive() ||
+			state.isMissingWorkspace() ||
+			sessionKey === undefined ||
+			workspacePath === undefined ||
+			repoRoot === undefined
+		) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot seed: this session has no workspace",
 					"error",
 				);
 			}
 			return;
 		}
 
-		const current = {
-			sessionKey: state.getSessionKey(),
-			wsPath: state.getWorkspacePath(),
-		};
-		const resolved = await workspacesFor(repoRoot).resolveTarget(
-			resolvedTarget,
-			current,
-		);
-		if (!resolved.ok) {
-			if (ctx.hasUI) {
-				ctx.ui.notify(
-					`[sillajje] ${renderSessionFailure(resolved.reason, resolvedTarget)}`,
-					"error",
-				);
-			}
-			return;
-		}
-
-		const record =
-			resolved.sessionKey === state.getSessionKey()
-				? lastSeedRecord(ctx.sessionManager.getBranch())
-				: await readForeignSeedRecord(ctx, repoRoot, resolvedTarget);
+		const record = lastSeedRecord(ctx.sessionManager.getBranch());
 		if (record === undefined) {
 			if (ctx.hasUI) {
 				ctx.ui.notify(
@@ -1497,13 +1471,11 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const isCurrent = resolved.sessionKey === state.getSessionKey();
-
 		if (push || pull) {
 			const { moved, updated } = moveSeedPaths(
 				ctx,
 				record,
-				resolved.wsPath,
+				workspacePath,
 				{
 					push,
 					force,
@@ -1511,8 +1483,8 @@ export default function (pi: ExtensionAPI) {
 			);
 
 			// Advance the baseline so a later move is measured against the synced
-			// content. A foreign session's log is not ours to write.
-			if (moved && isCurrent) {
+			// content.
+			if (moved) {
 				pi.appendEntry(SESSION_SEED_TYPE, {
 					source: record.source,
 					paths: updated,
@@ -1533,7 +1505,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				const stateName = seedFileState(
 					recorded,
-					hashFile(join(resolved.wsPath, rel)),
+					hashFile(join(workspacePath, rel)),
 					hashFile(join(record.source, rel)),
 				);
 				ctx.ui.notify(`[sillajje] seed: ${rel} — ${stateName}`, "info");
@@ -1687,25 +1659,18 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Warn about a seeded path the agent changed, before the Workspace is
-		// deleted. Archive never pushes; the user decides whether to.
+		// deleted. Archive never pushes; the user decides whether to. Only the
+		// current session has a Seed record this process may read, so a foreign
+		// archive target gets no warning.
 		const currentKey = state.getSessionKey();
 		const archiveTarget =
 			target === "@" && currentKey !== undefined ? currentKey : target;
-		const resolvedArchive = await workspacesFor(repoRoot).resolveTarget(
-			archiveTarget,
-			{
-				sessionKey: state.getSessionKey(),
-				wsPath: state.getWorkspacePath(),
-			},
-		);
-		if (resolvedArchive.ok) {
-			const diverged = await divergedSeedPaths(
-				ctx,
-				repoRoot,
-				archiveTarget,
-				resolvedArchive.sessionKey,
-				resolvedArchive.wsPath,
-			);
+		if (archiveTarget === currentKey) {
+			const workspacePath = state.getWorkspacePath();
+			const diverged =
+				workspacePath === undefined
+					? []
+					: divergedSeedPaths(ctx, workspacePath);
 			if (diverged.length > 0 && ctx.hasUI) {
 				ctx.ui.notify(
 					`[sillajje] seed: ${diverged.length} path(s) changed in the workspace and will be lost on archive:\n${diverged.join("\n")}`,

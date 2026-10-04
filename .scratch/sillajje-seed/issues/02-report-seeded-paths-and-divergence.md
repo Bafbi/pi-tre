@@ -8,7 +8,7 @@
 
 - [ ] A bare `/sillajje:seed` lists each seeded path with its state: unchanged, moved in the Workspace, or moved in the checkout.
 - [ ] The state comes from comparing the record hash against the current Workspace file and the current checkout file.
-- [ ] `-s @` and no `-s` target the current session; `-s <id>` targets another session.
+- [ ] `-s @` and no `-s` target the current session; any other target is rejected.
 - [ ] `-h` and `--help` print the command usage.
 - [ ] A session with no `seed` list, or none seeded, reports that and takes no other action.
 - [ ] The command writes to neither the Workspace nor the checkout.
@@ -17,9 +17,7 @@
 ## Comments
 
 Built: `-s @` maps to the current session key before the target resolves, so the
-current-session exemption applies before the session bookmark exists. A foreign
-session's record is read by opening its session log. pi persists a session log
-only after its first assistant message, so a message-less session has no
-readable record and reports none. The listing also reports `both-moved`,
-`workspace-missing`, and `checkout-missing`, beyond the three states in the
-ticket.
+current-session exemption applies before the session bookmark exists. Seed is
+current-session-only: a non-`@` target is rejected, so no foreign session's log
+is ever read. The listing also reports `both-moved`, `workspace-missing`, and
+`checkout-missing`, beyond the three states in the ticket.

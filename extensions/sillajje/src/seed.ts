@@ -89,7 +89,7 @@ export const SEED_HELP: CommandHelp = {
 	usage: SEED_ARGS.usage,
 	lines: [
 		"Reports the ignored paths this session seeded and whether either side moved.",
-		"  -s, --session <id>  target another session; @ means this session",
+		"  -s, --session <id>  only @ (this session) is accepted",
 		"  --push              copy Workspace edits back to the checkout",
 		"  --pull              refresh the Workspace copies from the checkout",
 		"  --force             overwrite a path that moved on both sides",

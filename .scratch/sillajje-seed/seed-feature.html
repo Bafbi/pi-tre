@@ -310,7 +310,7 @@
 				<tr><td><code>--push</code></td><td>Copies Workspace edits back to the source checkout.</td></tr>
 				<tr><td><code>--pull</code></td><td>Refreshes the Workspace copies from the checkout.</td></tr>
 				<tr><td><code>--force</code></td><td>Overwrites a path that moved on both sides. Requires <code>--push</code> or <code>--pull</code>.</td></tr>
-				<tr><td><code>-s &lt;id&gt;</code></td><td>Targets another session. A foreign push writes to the root recorded in that session's Seed record.</td></tr>
+				<tr><td><code>-s &lt;id&gt;</code></td><td>Only <code>@</code> (this session) is accepted; any other target is rejected. Seed acts on the session it runs in.</td></tr>
 			</tbody>
 		</table>
 	</section>

@@ -20,7 +20,7 @@ Recreates the workspace for an archived session. `-s` defaults to `@` (this sess
 
 ### `/sillajje:seed [-s | --session <id>] [--push | --pull] [--force] [-h | --help]`
 
-Reports the ignored paths a session's workspace copied in from the checkout that launched it, and moves edits in either direction. `-s` defaults to `@` (this session).
+Reports the ignored paths a session's workspace copied in from the checkout that launched it, and moves edits in either direction. Seed acts only on this session: `-s` defaults to `@`, and any other target is rejected.
 
 - **bare** — lists each seeded path and whether it changed in the workspace, in the checkout, or both.
 - **`--push`** — copies workspace edits back to the source checkout.

@@ -16,14 +16,15 @@
 
 import { createHash } from "node:crypto";
 import {
+	closeSync,
 	copyFileSync,
 	existsSync,
 	lstatSync,
 	mkdirSync,
+	openSync,
 	readdirSync,
-	readFileSync,
+	readSync,
 	rmSync,
-	statSync,
 } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
@@ -134,11 +135,24 @@ export function isSafeSeedPath(rel: string): boolean {
 }
 
 /**
- * SHA-256 of a file's bytes, as lowercase hex. Throws when the file cannot be
- * read; every caller runs it right after a successful copy.
+ * SHA-256 of a file's bytes, as lowercase hex. Hashes in fixed-size chunks so a
+ * large file never loads into memory. Throws when the file cannot be read;
+ * every caller runs it right after a successful copy.
  */
 function sha256File(path: string): string {
-	return createHash("sha256").update(readFileSync(path)).digest("hex");
+	const hash = createHash("sha256");
+	const fd = openSync(path, "r");
+	const buffer = Buffer.allocUnsafe(64 * 1024);
+	try {
+		for (;;) {
+			const read = readSync(fd, buffer, 0, buffer.length, null);
+			if (read === 0) break;
+			hash.update(buffer.subarray(0, read));
+		}
+	} finally {
+		closeSync(fd);
+	}
+	return hash.digest("hex");
 }
 
 export interface Workspaces {
@@ -337,11 +351,17 @@ export function createWorkspaces(
 		}
 		const source = join(sourceRoot, rel);
 		const dest = join(workspacePath, rel);
-		let stat: ReturnType<typeof statSync>;
+		let stat: ReturnType<typeof lstatSync>;
 		try {
-			stat = statSync(source);
+			stat = lstatSync(source);
 		} catch {
 			out.skipped.push({ path: rel, reason: "missing" });
+			return;
+		}
+		// Never dereference a source symlink: a directory link can recurse, and a
+		// file link can copy content from outside the checkout.
+		if (stat.isSymbolicLink()) {
+			out.skipped.push({ path: rel, reason: "invalid" });
 			return;
 		}
 		// `lstatSync` so a symlink, including a broken one, counts as existing.

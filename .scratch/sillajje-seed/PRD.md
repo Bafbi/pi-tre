@@ -86,11 +86,10 @@ warns, naming the diverged paths, then proceeds.
 17. As a pi user, I want `--force` to override a refusal, so I can resolve a
     divergence I have judged.
 18. As a pi user, I want a refusal to name the diverged path, so I can decide.
-19. As a pi user, I want `/sillajje:seed -s <id>` to target another session,
-    like the other subcommands, so I can push from the session I am in.
-20. As a pi user, I want a foreign session's `--push` to target the checkout
-    recorded in its Seed record, so a resumed session dragged to another clone
-    still pushes to the right place.
+19. As a pi user, I want `/sillajje:seed` to act only on the session I am in,
+    so the Seed record it reads and advances is this process's own.
+20. As a pi user, I want a non-`@` target rejected with a clear message, so I
+    am not left wondering why nothing happened.
 21. As a pi user, I want Archive to warn, naming the diverged paths, before it
     deletes the Workspace, so I know what an unpushed edit would lose.
 22. As a pi user, I want a seeded path deleted in the Workspace to be reported,
@@ -144,8 +143,9 @@ checkout root, and it warns only when a recorded root is gone.
 
 **The command.** `/sillajje:seed [-s|--session <id>] [--push|--pull] [--force]
 [-h|--help]`. `-s` defaults to `@`. `--push` and `--pull` are mutually
-exclusive; `--force` requires one of them. A foreign target resolves the Seed
-record from that session's log; `--push` writes to the root recorded there.
+exclusive; `--force` requires one of them. Seed is current-session-only: only
+`@` (or no `-s`) is accepted, because the Seed record and the Workspace it names
+belong to this process. Any other target is rejected.
 
 **Push and pull.** Both compare the current hash of a path on each side to the
 hash in the Seed record.
@@ -197,8 +197,7 @@ Cases to cover at that seam:
 - `--pull` refreshes the Workspace file from the checkout; it refuses when the
   Workspace copy moved; `--force` overwrites.
 - A path deleted on one side is reported and not deleted on the other.
-- `-s <id>` targets another session, and a foreign session's push writes to its
-  recorded source root.
+- A non-`@` target is rejected with a clear message.
 - Archive warns, naming a diverged path, and still deletes the Workspace.
 - Unarchive re-copies from the recorded source root, and falls back to the
   current root with a warning when it is gone.

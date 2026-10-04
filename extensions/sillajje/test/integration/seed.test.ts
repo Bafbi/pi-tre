@@ -26,7 +26,6 @@ import {
 	getSessionId,
 	getSessionManager,
 	makeRunnerCwd,
-	recordInteraction,
 	runSillajje,
 	tempDirs,
 	wsPath,
@@ -115,6 +114,22 @@ describeJj("sillajje seed — copy at workspace creation", () => {
 
 		const workspace = wsPath(cwd, getSessionId(runner));
 		expect(lstatSync(join(workspace, ".local")).isDirectory()).toBe(true);
+	});
+
+	it("hashes a file larger than one read chunk", async () => {
+		const cwd = initSeedRepo();
+		mkdirSync(join(cwd, ".local"), { recursive: true });
+		writeFileSync(join(cwd, ".local/big.bin"), Buffer.alloc(200_000, "a"));
+		writeSillajjeConfig(cwd, { seed: [".local"] });
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const record = lastSeedRecord(getSessionManager(runner).getBranch());
+		// sha256sum of 200000 'a' bytes.
+		expect(record?.paths[".local/big.bin"]).toBe(
+			"2287d207f24a941ff3b56c04c8a25ad56b63e3023207b3bb5b4ac0c9869d74be",
+		);
 	});
 
 	it("copies a seeded ignored directory recursively", async () => {
@@ -269,27 +284,11 @@ describeJj("sillajje seed — /sillajje:seed reports divergence", () => {
 		expect(notifications.at(-1)?.msg).toContain("no Seed record");
 	});
 
-	it("targets another session with -s <id>", async () => {
-		const cwd = initSeedRepo();
-		writeFileSync(join(cwd, ".env"), "SECRET=1\n");
-		writeSillajjeConfig(cwd, { seed: [".env"] });
-
-		const first = await createRunner(cwd);
-		await first.emit({ type: "session_start", reason: "startup" });
-		// A session log is not written to disk until its first assistant message,
-		// so give the first session an interaction before reading it by id.
-		recordInteraction(first, "hello", "hi");
-		const firstId = getSessionId(first);
-
-		const notifications: Array<{ msg: string; type: string }> = [];
-		const second = await createRunner(cwd, {
-			onNotify: (msg, type) => notifications.push({ msg, type }),
-		});
-		await second.emit({ type: "session_start", reason: "startup" });
-
-		await runSillajje(second, `seed -s ${firstId}`);
-		expect(notifications.at(-1)?.msg).toContain(".env");
-		expect(notifications.at(-1)?.msg).toContain("unchanged");
+	it("rejects another session target", async () => {
+		const { runner, notifications } = await startSeeded();
+		await runSillajje(runner, "seed -s another-session");
+		expect(notifications.at(-1)?.type).toBe("warning");
+		expect(notifications.at(-1)?.msg).toContain("only this session");
 	});
 });
 
@@ -394,26 +393,17 @@ describeJj("sillajje seed — /sillajje:seed moves edits", () => {
 		expect(readFileSync(join(cwd, ".env"), "utf-8")).toBe("W2\n");
 	});
 
-	it("pushes a foreign session's edit to its recorded source", async () => {
-		const cwd = initSeedRepo();
-		writeFileSync(join(cwd, ".env"), "SECRET=1\n");
-		writeSillajjeConfig(cwd, { seed: [".env"] });
+	it("advances the baseline when both sides converge on the same content", async () => {
+		const { cwd, workspace, runner } = await startSeeded();
+		// Both sides move to the same content, so no file is copied.
+		writeFileSync(join(workspace, ".env"), "CONVERGED\n");
+		writeFileSync(join(cwd, ".env"), "CONVERGED\n");
+		await runSillajje(runner, "seed --pull");
 
-		const first = await createRunner(cwd);
-		await first.emit({ type: "session_start", reason: "startup" });
-		recordInteraction(first, "hello", "hi");
-		const firstId = getSessionId(first);
-		writeFileSync(join(wsPath(cwd, firstId), ".env"), "EDITED\n");
-
-		const notifications: Array<{ msg: string; type: string }> = [];
-		const second = await createRunner(cwd, {
-			onNotify: (msg, type) => notifications.push({ msg, type }),
-		});
-		await second.emit({ type: "session_start", reason: "startup" });
-
-		await runSillajje(second, `seed -s ${firstId} --push`);
-		expect(readFileSync(join(cwd, ".env"), "utf-8")).toBe("EDITED\n");
-		expect(notifications.at(-1)?.msg).toContain(".env");
+		// Now only the workspace moves; a push must not be a false conflict.
+		writeFileSync(join(workspace, ".env"), "NEXT\n");
+		await runSillajje(runner, "seed --push");
+		expect(readFileSync(join(cwd, ".env"), "utf-8")).toBe("NEXT\n");
 	});
 });
 
@@ -635,5 +625,26 @@ describeJj("sillajje seed — path and symlink safety", () => {
 		expect(readFileSync(target, "utf-8")).toBe("TARGET\n");
 		expect(readFileSync(join(cwd, ".env"), "utf-8")).toBe("EDITED\n");
 		expect(lstatSync(join(cwd, ".env")).isSymbolicLink()).toBe(false);
+	});
+
+	it("skips a symlinked seed source", async () => {
+		const cwd = initSeedRepo();
+		writeFileSync(join(cwd, "real.txt"), "REAL\n");
+		symlinkSync(join(cwd, "real.txt"), join(cwd, "link.txt"));
+		writeSillajjeConfig(cwd, { seed: ["link.txt"] });
+
+		const notifications: Array<{ msg: string; type: string }> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push({ msg, type }),
+		});
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const workspace = wsPath(cwd, getSessionId(runner));
+		expect(existsSync(join(workspace, "link.txt"))).toBe(false);
+		expect(
+			notifications.some(
+				(n) => n.type === "warning" && n.msg.includes("invalid"),
+			),
+		).toBe(true);
 	});
 });

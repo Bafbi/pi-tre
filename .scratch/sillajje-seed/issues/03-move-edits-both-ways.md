@@ -12,15 +12,15 @@
 - [ ] `--force` overrides a refusal and completes the write, used with `--push` or `--pull`.
 - [ ] `--push` and `--pull` are mutually exclusive, and `--force` requires one of them.
 - [ ] A path present on one side and missing on the other is reported and is never deleted on the other side.
-- [ ] `-s <id>` targets another session. A foreign session's `--push` writes to the source root recorded in that session's Seed record.
+- [ ] A non-`@` target is rejected; Seed acts only on this session.
 - [ ] The Outcome names every moved, refused, and missing path.
 - [ ] Tests cover the above at the extension integration seam.
 
 ## Comments
 
 Built: a successful move appends a new Seed record, advancing the baseline, so
-a second `--push` is not a false conflict. A foreign session's log is not ours
-to write, so a foreign `--push` leaves its baseline stale; a repeated foreign
-push can then report both sides moved. A missing source is reported and the
-other side is never deleted; a missing destination is created from the source
-when the source exists.
+a second `--push` is not a false conflict, and the baseline also advances when
+both sides converge on the same content. Seed is current-session-only, so the
+record is always this session's and no foreign log is written. A missing source
+is reported and the other side is never deleted; a missing destination is
+created from the source when the source exists.
