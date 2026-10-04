@@ -27,6 +27,25 @@ describe("sillajje old-form guard", () => {
 		).toBe(true);
 	});
 
+	it("corrects the seed command to its colon form", async () => {
+		const cwd = makeRunnerCwd();
+		const notifications: Array<[string, string]> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push([msg, type]),
+		});
+
+		const result = await runner.emitInput(
+			"/sillajje seed",
+			undefined,
+			"interactive",
+		);
+
+		expect(result).toEqual({ action: "handled" });
+		expect(notifications.some((n) => n[0].includes("/sillajje:seed"))).toBe(
+			true,
+		);
+	});
+
 	it("catches the bare command", async () => {
 		const cwd = makeRunnerCwd();
 		const notifications: Array<[string, string]> = [];

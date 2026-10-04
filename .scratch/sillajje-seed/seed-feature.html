@@ -428,13 +428,17 @@
 	}
 
 	function doSeed() {
+		log("$ start session", "cmd");
 		if (demo.workspace !== null) {
-			log("$ start session", "cmd");
 			log("seed: .env not copied (exists) — a tracked or existing path is never overwritten", "warn");
 			render();
 			return;
 		}
-		log("$ start session", "cmd");
+		if (demo.checkout === null) {
+			log("seed: .env missing in the checkout — nothing copied, no record", "warn");
+			render();
+			return;
+		}
 		demo.workspace = demo.checkout;
 		demo.record = demo.checkout;
 		log("seed: copied 1 path(s)", "ok");

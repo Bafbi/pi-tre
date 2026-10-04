@@ -49,6 +49,7 @@ import {
 	createWorkspaces,
 	defaultOwner,
 	directoryExists,
+	isSafeSeedPath,
 } from "@pi-tre/sillajje-workspace";
 import { loadSillajjeConfig } from "./config.js";
 import { createDebugLogger } from "./debug-log.js";
@@ -1152,6 +1153,7 @@ export default function (pi: ExtensionAPI) {
 			const subcommand = event.text.trim().split(/\s+/)[1];
 			const known = [
 				"status",
+				"seed",
 				"new",
 				"stamp",
 				"archive",
@@ -1162,7 +1164,7 @@ export default function (pi: ExtensionAPI) {
 			].includes(subcommand ?? "");
 			const suggestion = known
 				? `/sillajje:${subcommand}`
-				: "/sillajje:<status|new|stamp|archive|unarchive|sync|fold|serve>";
+				: "/sillajje:<status|seed|new|stamp|archive|unarchive|sync|fold|serve>";
 			debug.event("input_old_form_guard", { text: event.text });
 			if (ctx.hasUI) {
 				ctx.ui.notify(
@@ -1346,6 +1348,15 @@ export default function (pi: ExtensionAPI) {
 		const updated = { ...record.paths };
 		let moved = false;
 		for (const [rel, recorded] of Object.entries(record.paths)) {
+			if (!isSafeSeedPath(rel)) {
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] seed: ${rel} invalid path — refused`,
+						"warning",
+					);
+				}
+				continue;
+			}
 			const wsFile = join(workspacePath, rel);
 			const coFile = join(record.source, rel);
 			const wsHash = hashFile(wsFile);
@@ -1513,6 +1524,13 @@ export default function (pi: ExtensionAPI) {
 
 		if (ctx.hasUI) {
 			for (const [rel, recorded] of Object.entries(record.paths)) {
+				if (!isSafeSeedPath(rel)) {
+					ctx.ui.notify(
+						`[sillajje] seed: ${rel} invalid path — skipped`,
+						"warning",
+					);
+					continue;
+				}
 				const stateName = seedFileState(
 					recorded,
 					hashFile(join(resolved.wsPath, rel)),
@@ -2005,12 +2023,17 @@ export default function (pi: ExtensionAPI) {
 			state.setWorkspacePath(result.workspace.workspacePath);
 
 			// Re-seed from the checkout the session was seeded from, so a restored
-			// Workspace has the same local files. Fall back to the current repo root
-			// when that checkout is gone.
+			// Workspace has the same local files. Unarchive is the next seed
+			// opportunity even when creation copied nothing, so the gate is the
+			// config list, not the record. Fall back to the current repo root when
+			// the recorded checkout is gone.
 			const seedRecord = lastSeedRecord(ctx.sessionManager.getBranch());
-			if (seedRecord !== undefined) {
+			if ((activeConfig?.seed?.length ?? 0) > 0) {
 				let seedSource = repoRoot;
-				if (seedRecord.source !== repoRoot) {
+				if (
+					seedRecord !== undefined &&
+					seedRecord.source !== repoRoot
+				) {
 					if (existsSync(seedRecord.source)) {
 						seedSource = seedRecord.source;
 					} else if (ctx.hasUI) {

@@ -10,9 +10,11 @@
 import { execSync } from "node:child_process";
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -101,6 +103,18 @@ describeJj("sillajje seed — copy at workspace creation", () => {
 		expect(record).toBeDefined();
 		expect(record?.source).toBe(cwd);
 		expect(Object.keys(record?.paths ?? {})).toEqual([".env"]);
+	});
+
+	it("creates an empty seeded directory", async () => {
+		const cwd = initSeedRepo();
+		mkdirSync(join(cwd, ".local"), { recursive: true });
+		writeSillajjeConfig(cwd, { seed: [".local"] });
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const workspace = wsPath(cwd, getSessionId(runner));
+		expect(lstatSync(join(workspace, ".local")).isDirectory()).toBe(true);
 	});
 
 	it("copies a seeded ignored directory recursively", async () => {
@@ -524,5 +538,102 @@ describeJj("sillajje seed — archive and unarchive", () => {
 		expect(readFileSync(join(workspace, ".local/b.txt"), "utf-8")).toBe(
 			"b\n",
 		);
+	});
+
+	it("seeds on unarchive even when creation copied nothing", async () => {
+		const cwd = initSeedRepo();
+		// `.env` is listed but absent at creation, so no Seed record is written.
+		writeSillajjeConfig(cwd, { seed: [".env"] });
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const workspace = wsPath(cwd, getSessionId(runner));
+		await runner.emitBeforeAgentStart(
+			"seed",
+			undefined,
+			"You are helpful.",
+			{ skills: [], contextFiles: [], cwd: "" },
+		);
+
+		await runSillajje(runner, "archive");
+		// The configured path appears in the checkout after creation.
+		writeFileSync(join(cwd, ".env"), "SECRET=1\n");
+
+		await runSillajje(runner, "unarchive");
+		expect(readFileSync(join(workspace, ".env"), "utf-8")).toBe(
+			"SECRET=1\n",
+		);
+	});
+});
+
+describeJj("sillajje seed — path and symlink safety", () => {
+	it("skips a seeded directory that collides with a tracked file", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+		writeFileSync(join(cwd, ".gitignore"), ".env\n");
+		writeFileSync(join(cwd, "localdir"), "tracked\n");
+		execSync("jj describe -m 'initial'", { cwd, stdio: "pipe" });
+		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
+		execSync(`jj config set --repo 'revset-aliases."trunk()"' main`, {
+			cwd,
+			stdio: "pipe",
+		});
+		execSync("jj new -m 'work'", { cwd, stdio: "pipe" });
+		// Replace the tracked file with a directory in the checkout.
+		rmSync(join(cwd, "localdir"));
+		mkdirSync(join(cwd, "localdir"), { recursive: true });
+		writeFileSync(join(cwd, "localdir/x"), "x\n");
+		writeSillajjeConfig(cwd, { seed: ["localdir"] });
+
+		const notifications: Array<{ msg: string; type: string }> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push({ msg, type }),
+		});
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const workspace = wsPath(cwd, getSessionId(runner));
+		expect(readFileSync(join(workspace, "localdir"), "utf-8")).toBe(
+			"tracked\n",
+		);
+		expect(notifications.some((n) => n.msg.includes("seed failed"))).toBe(
+			false,
+		);
+	});
+
+	it("rejects a seed path that escapes the workspace", async () => {
+		const cwd = initSeedRepo();
+		writeSillajjeConfig(cwd, { seed: ["../escape.txt"] });
+		const notifications: Array<{ msg: string; type: string }> = [];
+		const runner = await createRunner(cwd, {
+			onNotify: (msg, type) => notifications.push({ msg, type }),
+		});
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		expect(
+			notifications.some(
+				(n) => n.type === "warning" && n.msg.includes("invalid"),
+			),
+		).toBe(true);
+		expect(
+			lastSeedRecord(getSessionManager(runner).getBranch()),
+		).toBeUndefined();
+	});
+
+	it("does not write through a destination symlink on --push --force", async () => {
+		const { cwd, workspace, runner } = await startSeeded();
+		writeFileSync(join(workspace, ".env"), "EDITED\n");
+		const target = join(cwd, "target.txt");
+		writeFileSync(target, "TARGET\n");
+		rmSync(join(cwd, ".env"));
+		symlinkSync(target, join(cwd, ".env"));
+
+		await runSillajje(runner, "seed --push --force");
+
+		expect(readFileSync(target, "utf-8")).toBe("TARGET\n");
+		expect(readFileSync(join(cwd, ".env"), "utf-8")).toBe("EDITED\n");
+		expect(lstatSync(join(cwd, ".env")).isSymbolicLink()).toBe(false);
 	});
 });

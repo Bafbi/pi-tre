@@ -137,9 +137,10 @@ Workspace-package state.
 
 **When the copy runs.** After `ensure` reports `created`, never on `reused`,
 because `ensure` runs on every `session_start` and re-seeding there would
-clobber the agent's edits on every resume. Unarchive seeds explicitly after it
-rebuilds the Workspace, reading the recorded source root. If the recorded root
-is gone, Unarchive falls back to the current checkout root and warns.
+clobber the agent's edits on every resume. Unarchive seeds whenever the `seed`
+list is non-empty, after it rebuilds the Workspace. It uses the source root
+recorded in the Seed record when one exists and is alive, otherwise the current
+checkout root, and it warns only when a recorded root is gone.
 
 **The command.** `/sillajje:seed [-s|--session <id>] [--push|--pull] [--force]
 [-h|--help]`. `-s` defaults to `@`. `--push` and `--pull` are mutually

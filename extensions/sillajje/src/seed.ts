@@ -8,7 +8,13 @@
  */
 
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import {
+	copyFileSync,
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { CommandHelp, CommandSpec } from "@pi-tre/sillajje-core";
@@ -133,8 +139,17 @@ export function seedFileState(
 	return "unchanged";
 }
 
-/** Copy one file to another path, creating the destination's parents. */
+/**
+ * Copy one file to another path, creating the destination's parents. A
+ * destination symlink is removed first, so the copy never writes through it to
+ * a target outside the Workspace or the checkout.
+ */
 export function copySeedFile(from: string, to: string): void {
 	mkdirSync(dirname(to), { recursive: true });
+	try {
+		if (lstatSync(to).isSymbolicLink()) rmSync(to);
+	} catch {
+		// No destination yet.
+	}
 	copyFileSync(from, to);
 }

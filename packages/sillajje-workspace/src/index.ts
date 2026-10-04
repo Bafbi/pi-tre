@@ -18,6 +18,7 @@ import { createHash } from "node:crypto";
 import {
 	copyFileSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -25,7 +26,7 @@ import {
 	statSync,
 } from "node:fs";
 import { hostname, userInfo } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
 import type { ExecOptions, Jj } from "@pi-tre/sillajje-jj";
 
 // ---------------------------------------------------------------------------
@@ -113,7 +114,23 @@ export interface SeedOutcome {
 /** A seeded path that was not copied. */
 export interface SeedSkip {
 	path: string;
-	reason: "missing" | "exists";
+	reason: "missing" | "exists" | "invalid";
+}
+
+/**
+ * Whether a Seed entry is a workspace-relative path that cannot escape the
+ * checkout or the Workspace. Rejects an absolute path, `.`, and any `..` that
+ * climbs out, so `join(root, rel)` stays under `root`.
+ */
+export function isSafeSeedPath(rel: string): boolean {
+	if (rel.length === 0) return false;
+	const normalized = normalize(rel);
+	return (
+		!isAbsolute(normalized) &&
+		normalized !== "." &&
+		normalized !== ".." &&
+		!normalized.startsWith(`..${sep}`)
+	);
 }
 
 /**
@@ -314,6 +331,10 @@ export function createWorkspaces(
 		rel: string,
 		out: SeedOutcome,
 	): void => {
+		if (!isSafeSeedPath(rel)) {
+			out.skipped.push({ path: rel, reason: "invalid" });
+			return;
+		}
 		const source = join(sourceRoot, rel);
 		const dest = join(workspacePath, rel);
 		let stat: ReturnType<typeof statSync>;
@@ -323,13 +344,29 @@ export function createWorkspaces(
 			out.skipped.push({ path: rel, reason: "missing" });
 			return;
 		}
+		// `lstatSync` so a symlink, including a broken one, counts as existing.
+		let destStat: ReturnType<typeof lstatSync> | undefined;
+		try {
+			destStat = lstatSync(dest);
+		} catch {
+			// No destination yet.
+		}
 		if (stat.isDirectory()) {
+			// A directory that maps onto an existing file is skipped, not descended
+			// into: recursing would make `mkdirSync` throw ENOTDIR.
+			if (destStat !== undefined && !destStat.isDirectory()) {
+				out.skipped.push({ path: rel, reason: "exists" });
+				return;
+			}
+			// Create the directory itself, so an empty source directory still
+			// materializes in the Workspace.
+			mkdirSync(dest, { recursive: true });
 			for (const name of readdirSync(source)) {
 				copySeedEntry(sourceRoot, workspacePath, join(rel, name), out);
 			}
 			return;
 		}
-		if (existsSync(dest)) {
+		if (destStat !== undefined) {
 			out.skipped.push({ path: rel, reason: "exists" });
 			return;
 		}
