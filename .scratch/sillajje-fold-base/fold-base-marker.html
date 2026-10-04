@@ -1,0 +1,736 @@
+<!-- Simulation for the sillajje Folded source marker discussion. -->
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Fold markers — why record a base, and how to make it simple</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+			--session: #7b5cff;
+			--review: #1a7f4b;
+			--main: #5c6570;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+				--session: #b9a6ff;
+				--review: #65d19a;
+				--main: #9aa4af;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+			.sim { break-inside: avoid; }
+		}
+
+		/* ---- simulator ---- */
+		.sim {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 12px; padding: 1rem 1.1rem 1.25rem; margin: 1.25rem 0;
+		}
+		.sim-tabs, .sim-controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+		.sim-tabs { margin-bottom: .35rem; }
+		.sim-tabs button, .sim-controls button, .sim-toggle button {
+			font: inherit; font-size: .88rem; cursor: pointer;
+			border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+			padding: .3rem .7rem; border-radius: 8px;
+		}
+		.sim-tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+		.sim-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+		.sim-toggle button { border: 0; border-radius: 0; }
+		.sim-toggle button + button { border-left: 1px solid var(--line); }
+		.sim-toggle button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+		.sim-controls { margin: .75rem 0; }
+		.sim-controls button:disabled { opacity: .45; cursor: default; }
+		.sim-stepdot { display: inline-flex; gap: .3rem; margin-left: auto; }
+		.sim-stepdot i { width: .5rem; height: .5rem; border-radius: 999px; background: var(--line); display: inline-block; }
+		.sim-stepdot i.on { background: var(--accent); }
+		#graph { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+		.sc-lane { stroke: var(--line); stroke-width: 2; }
+		.sc-lane-label { fill: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
+		.sc-edge { stroke: var(--muted); stroke-width: 2; fill: none; }
+		.sc-edge.copy { stroke: var(--warn); stroke-width: 2.5; stroke-dasharray: 5 4; }
+		.sc-node circle { stroke: var(--bg); stroke-width: 2; }
+		.sc-node text { fill: #fff; font-size: 13px; font-family: ui-monospace, monospace; text-anchor: middle; dominant-baseline: central; }
+		.sc-node.session circle { fill: var(--session); }
+		.sc-node.review circle { fill: var(--review); }
+		.sc-node.main circle { fill: var(--main); }
+		.sc-node.range circle { stroke: var(--warn); stroke-width: 4; }
+		.sc-node.conflict circle { fill: var(--crit); }
+		.sc-node.fold circle { fill: var(--ok); }
+		.sc-node.empty circle { fill: var(--bg); stroke: var(--muted); stroke-width: 2; stroke-dasharray: 4 3; }
+		.sc-node.empty text { fill: var(--fg); }
+		.sc-badge { font-size: 11px; font-family: ui-monospace, monospace; }
+		.sc-badge.warn { fill: var(--warn); }
+		.sc-badge.crit { fill: var(--crit); }
+		.sc-badge.ok { fill: var(--ok); }
+		#outcome { margin-top: .75rem; font-size: .92rem; }
+		#outcome .line { display: block; margin: .15rem 0; }
+		.kv { font-family: ui-monospace, monospace; font-size: .85rem; color: var(--muted); }
+		.pill { display: inline-block; font-size: .78rem; padding: .1rem .5rem; border-radius: 999px; border: 1px solid var(--line); }
+		.pill.ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok); }
+		.pill.crit { color: var(--crit); background: var(--crit-bg); border-color: var(--crit); }
+		.pill.base { color: var(--warn); background: var(--warn-bg); border-color: var(--warn); }
+		.dot { display: inline-block; width: .55rem; height: .55rem; border-radius: 999px; vertical-align: middle; }
+		.dot.session { background: var(--session); }
+		.dot.review { background: var(--review); }
+		.dot.main { background: var(--main); }
+		.lane-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin: .3rem 0; }
+		.lane-row .lane-name { width: 3.2rem; color: var(--muted); font-family: ui-monospace, monospace; font-size: .82rem; text-align: right; }
+		.cnode {
+			font-family: ui-monospace, monospace; font-size: .82rem;
+			border: 1px solid var(--line); background: var(--bg); border-radius: 999px;
+			padding: .12rem .55rem;
+		}
+		.cnode.session { border-color: var(--session); }
+		.cnode.review { border-color: var(--review); }
+		.cnode.main { border-color: var(--main); }
+		.cnode.base { border-color: var(--warn); box-shadow: 0 0 0 2px var(--warn-bg); }
+		.cnode.new { border-color: var(--ok); box-shadow: 0 0 0 2px var(--ok-bg); }
+		.arrow { color: var(--muted); }
+		#mkLog { margin-top: .6rem; font-size: .9rem; }
+		#mkLog .entry { display: block; padding: .2rem 0; border-top: 1px dashed var(--line); }
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Fold markers — why record a base, and how to make it simple</h1>
+		<p class="sub">The marker is useful in every fold, land included. The only real flaw was uniqueness: one ref per branch, shared by every source. Key it per <code>(branch, source)</code> and look it up by ancestry, and the special cases disappear.</p>
+		<div class="meta">
+			<span class="chip">sillajje / fold</span>
+			<span class="chip">jj 0.44</span>
+			<span class="chip">validated in /tmp</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#mechanism">Why a base</a>
+		<a href="#conflict">Base comparison</a>
+		<a href="#uniqueness">The uniqueness flaw</a>
+		<a href="#model">Proposed model</a>
+		<a href="#store">Marker-store simulator</a>
+		<a href="#cost">Why per-source</a>
+		<a href="#changes">What it changes</a>
+		<a href="#open">Open questions</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>A fold onto a review branch always publishes the increment: the folded change is a child of the review head, so its diff is <code>review-head → session-tip</code> whatever the base. The base does not change the tree. It changes <em>which source commits get replayed</em> to get there, and that range becomes the <code>Ref:</code> line and the sub-generator's diff.</p>
+		<ul>
+			<li><strong>Recorded base</strong> (the source tip last published): replay only the new work.</li>
+			<li><strong>Fork-point base</strong> (derived from the graph): replay the whole source range.</li>
+		</ul>
+		<p>The recorded base is never harmful. It buys two things: replaying only the new range (no <code>O(N)</code> re-duplication and no spurious conflict on already-published lines), and a <code>Ref:</code>/summary equal to the change actually appended. So it should be recorded in <strong>every</strong> fold, not only the named-review ones.</p>
+		<p>The old design made the marker a single ref <code>sillajje/folded/&lt;branch&gt;</code>, shared by every source folding onto that branch. The fix is to stop forcing uniqueness: keep one marker per source under <code>slj/f/&lt;dest&gt;/&lt;source&gt;</code>, and pick the applicable one by ancestry — the tip-most recorded tip that is an ancestor of the source. A fold moves <strong>its own source's</strong> marker; a handoff writes a new one and leaves the old, so a fork can never steal it.</p>
+		<div class="callout ok">
+			<p>One command covers both flows: <code>fold -o &lt;target&gt; [--named &lt;branch&gt;] [--land] [--push] [--archive] [--exclude &lt;path&gt;] [--no-marker]</code>. Always record the marker; <code>--no-marker</code> forces the fork point when you want a fresh aggregate.</p>
+		</div>
+	</section>
+
+	<section id="mechanism">
+		<h2>Why a base</h2>
+		<p><code>fold</code> runs three steps in one jj transaction (<code>packages/sillajje-core/src/fold.ts</code>):</p>
+		<ol>
+			<li><code>jj new &lt;target&gt;</code> — the empty folded change <code>F</code>, a child of the review head.</li>
+			<li><code>jj duplicate &lt;base&gt;..&lt;tip&gt; -d &lt;target&gt;</code> — copies of the source range placed on the review head.</li>
+			<li><code>jj squash &lt;root&gt;::&lt;head&gt; --into F</code> — collapse the copies into <code>F</code>.</li>
+		</ol>
+		<p>Step 3 collapses to <code>review-head → tip</code>, so the tree is the same either way when nothing has diverged. The base decides the range in step 2. With the fork point, that range is the whole session; with the marker, only the commits since the last fold. The mechanism is exact — the difference shows up when the review branch has diverged.</p>
+	</section>
+
+	<section id="conflict">
+		<h2>Base comparison</h2>
+		<p>Scenario: the session has <code>A</code> (<code>x: base→one</code>) then <code>B</code>. <code>A</code> was folded onto <code>review</code>. A reviewer then edited the review branch (<code>R</code>). Step through the fold for each base.</p>
+		<div class="sim">
+			<div class="sim-tabs" id="tabs" role="group" aria-label="Scenario"></div>
+			<div class="sim-controls">
+				<span class="sim-toggle" id="baseToggle" role="group" aria-label="Base"></span>
+				<button id="prev">← Prev</button>
+				<button id="next">Next →</button>
+				<button id="reset">Reset</button>
+				<span class="sim-stepdot" id="dots"></span>
+			</div>
+			<svg id="graph" viewBox="0 0 640 300" role="img" aria-label="Commit graph"></svg>
+			<div id="outcome"></div>
+		</div>
+		<p>Scenario A (no divergence): both bases land the same tree; the fork-point base only makes the <code>Ref:</code> span the whole session. Scenario B (diverged, new work elsewhere): the fork-point base replays <code>A</code> onto the reviewer's <code>x</code> and conflicts on a line <code>B</code> never touched — the spurious conflict the marker prevents. Scenario C (your case): the new work edits the same line the reviewer did, so <strong>both</strong> bases conflict — legitimate, and the marker does not hide it.</p>
+	</section>
+
+	<section id="uniqueness">
+		<h2>The uniqueness flaw</h2>
+		<p>With one marker per branch, two sources folding onto the same review branch share a cursor. Session 1 publishes <code>A</code>, session 2 publishes <code>B</code>, and <code>sillajje/folded/review</code> can only hold one of them. Keying by session gives each its own, but then a handoff breaks: <code>/sillajje:new -s @</code> hands the history to a <strong>new</strong> session key, which misses the old record unless the lookup is by ancestry. A renamed or rewritten source has the same problem. That is the trade recorded in ADR 0006.</p>
+		<p>Both constraints drop if markers are non-unique <em>and</em> looked up by ancestry rather than by exact key. Multiple markers per destination are fine; the lookup asks "which recorded tip is the tip-most ancestor of my source?" and gets the right one whether the key matches or not. The name is per source, so a fork cannot overwrite a sibling's marker, and a handoff simply finds the predecessor's by ancestry.</p>
+	</section>
+
+	<section id="model">
+		<h2>Proposed model</h2>
+		<div class="grid">
+			<div class="card">
+				<h3>Record</h3>
+				<p>Every successful fold sets <code>slj/f/&lt;dest&gt;/&lt;source&gt;</code> to the source tip it published. <code>&lt;source&gt;</code> is the session key for a session source, or the source bookmark name (else the tip's change id) for a rev source. Each source moves its own marker; the store holds one per source.</p>
+			</div>
+			<div class="card">
+				<h3>Look up</h3>
+				<p>For destination <code>D</code> and source tip <code>S</code>, take <code>heads(::S &amp; slj/f/D/*)</code> — the tip-most recorded tip that is an ancestor of <code>S</code>. No match means a first fold for this source: base = fork point.</p>
+			</div>
+			<div class="card">
+				<h3>Bypass</h3>
+				<p><code>--no-marker</code> ignores the store and bases on the fork point, then records nothing. The escape hatch for a deliberate fresh aggregate.</p>
+			</div>
+		</div>
+		<p>Consequences: concurrent sources no longer collide, whether they fork from published or unpublished bases; handoff, rename, and rewrite all resolve by ancestry; <code>--update</code> is redundant with <code>-o &lt;branch&gt; --land</code>; and a missing marker is a normal first fold, not an error. The lookup is the only new logic, and it is one revset. The trade: a handoff (or a renamed source) writes a new marker and leaves the predecessor's behind. The old one is harmless — nothing descends from it — but it lingers until pruned.</p>
+	</section>
+
+	<section id="store">
+		<h2>Marker-store simulator</h2>
+		<p>Two independent sessions and a handoff, all folding onto <code>review</code>. Step through and watch the store fill, the base get chosen by ancestry, and each source move its own marker. Toggle markers off to see the fork-point behaviour re-publish earlier work.</p>
+		<div class="sim">
+			<div class="sim-controls">
+				<span class="sim-toggle" id="mkToggle" role="group" aria-label="Marker use"></span>
+				<button id="mkNext">Fold next →</button>
+				<button id="mkReset">Reset</button>
+				<span class="kv" id="mkProgress"></span>
+			</div>
+			<div id="mkLanes"></div>
+			<div id="mkMarkers"></div>
+			<div id="mkLog"></div>
+		</div>
+		<div class="callout info">
+			<p>Every fold carries exactly its own file: the <code>s1</code> source touches <code>x.txt</code>, the <code>s2</code> source touches <code>y.txt</code>. The handoff step runs from a new session key <code>sNew</code>: it finds <code>A2</code> by ancestry, writes <code>slj/f/review/sNew</code>, and leaves <code>s1</code>'s marker behind. The append is still only <code>H</code>.</p>
+		</div>
+	</section>
+
+	<section id="cost">
+		<h2>Why per-source: a fork looks like a handoff</h2>
+		<p>Reusing the base marker's suffix keeps the name stable across a handoff, but it also lets a <strong>fork</strong> from a published base take over that marker. From ancestry alone the two are identical: both have the published commit as an ancestor. In a handoff that is right; in a fork it steals the original source's cursor. That is why the name is per source.</p>
+		<p>Walk the fork: <code>s1</code> publishes <code>A</code>, <code>s2</code> branches from <code>A</code> and publishes <code>B</code> (a sibling, not a continuation), then <code>s1</code> continues with <code>A2</code>. Toggle the naming scheme to compare.</p>
+		<div class="sim">
+			<div class="sim-controls">
+				<span class="sim-toggle" id="costToggle" role="group" aria-label="Naming"></span>
+				<button id="costNext">Fold next →</button>
+				<button id="costReset">Reset</button>
+				<span class="kv" id="costProgress"></span>
+			</div>
+			<div id="costLanes"></div>
+			<div id="costMarkers"></div>
+			<div id="costLog"></div>
+		</div>
+		<div class="callout crit">
+			<p>Reuse mode: <code>s2</code>'s fold moves <code>slj/f/review/A</code> to <code>B</code>. <code>s1</code>'s next fold finds no ancestor marker, bases on the fork point, replays <code>A</code> on top of a review head that already holds <code>B</code>, and conflicts on <code>x.txt</code>. Per-source mode (chosen) writes <code>slj/f/review/s2</code> and leaves <code>s1</code>'s marker alone, so <code>s1</code> folds only <code>A2</code> — clean. The price is a new marker name on handoff.</p>
+		</div>
+	</section>
+
+	<section id="changes">
+		<h2>What it changes</h2>
+		<table>
+			<thead><tr><th>Earlier decision</th><th>Under the simplified model</th></tr></thead>
+			<tbody>
+				<tr><td>Q1 — marker created only by <code>--named</code></td><td>Every fold records one. Non-unique per source, so creation is no longer an ownership claim.</td></tr>
+				<tr><td>Q2 — accept that <code>-o X</code> cannot be updated later</td><td>Dropped. <code>-o X</code> records too, so a later <code>-o X --land</code> appends only the new work.</td></tr>
+				<tr><td>Q3 — exclude <code>sillajje/*</code> from <code>--land</code>'s bookmark count</td><td>Kept. Independent and still correct.</td></tr>
+				<tr><td>Q4 — <code>--update</code> errors with no marker</td><td>Dropped. No marker is a normal first fold; base = fork point.</td></tr>
+				<tr><td>Q5 — error on a foreign marker</td><td>Dropped. Foreign markers are not ancestors, so the lookup ignores them. No ownership conflict.</td></tr>
+				<tr><td>Q6 — <code>--named</code> refuses to hijack an existing branch</td><td>Keep the guard the other way: <code>--named B</code> still must not move an existing <code>B</code> sideways or backwards. jj already refuses that move.</td></tr>
+				<tr><td><code>--update</code> mode</td><td>Becomes <code>-o &lt;branch&gt; --land</code>. The <code>--update</code>/<code>-o</code> split disappears.</td></tr>
+			</tbody>
+		</table>
+		<p>One existing test changes meaning: <code>fold.test.ts</code> "a plain fold ignores the Folded source marker and re-aggregates from the fork point" asserts the old <code>-o</code> behaviour. Under this model a plain <code>-o</code> uses the marker, so that test must assert the increment instead, and the fork-point re-aggregate becomes the <code>--no-marker</code> case.</p>
+	</section>
+
+	<section id="open">
+		<h2>Open questions</h2>
+		<ul>
+			<li>Source name for a rev source: bookmark name when it has one, else the tip's change id. A change-id name accumulates a marker per new tip; prune by keeping only the tip-most ancestor per name?</li>
+			<li>Pruning: orphaned markers linger as bookmarks. Delete them when no live source descends from them, or leave them (ancestry already ignores them)?</li>
+			<li>Keep <code>--update</code> as an alias for <code>-o &lt;branch&gt; --land</code>, or remove it outright?</li>
+			<li>Repro scripts: <code>/tmp/fold-cmp.sh</code>, <code>/tmp/conflict-test.sh</code>, <code>/tmp/uni-fold2.sh</code> (multi-source and handoff).</li>
+		</ul>
+	</section>
+
+	<footer>Source: <code>packages/sillajje-core/src/fold.ts</code>, <code>extensions/sillajje/docs/adr/0006-fold-publishes-a-source-range.md</code>, <code>extensions/sillajje/test/integration/fold.test.ts</code>. jj 0.44.0. Generated by the agent for the fold marker discussion.</footer>
+</main>
+
+<script>
+(function () {
+	"use strict";
+
+	/* =========================================================================
+	 * Simulator 1 — base comparison (marker vs fork point)
+	 * ========================================================================= */
+	var LANES = { session: 60, review: 160, main: 260 };
+	var LANE_ORDER = ["session", "review", "main"];
+
+	function commit(id, lane, x, label) {
+		return { id: id, lane: lane, x: x, label: label };
+	}
+
+	var scenarios = {
+		A: {
+			tab: "A · no divergence",
+			title: "A — review branch not diverged",
+			commits: [commit("M", "main", 130, "main"), commit("A", "session", 240, "A"), commit("B", "session", 390, "B"), commit("F1", "review", 240, "F1")],
+			head: "F1", f2x: 390,
+			range: { marker: ["B"], graph: ["A", "B"] },
+			out: {
+				marker: { ok: true, tree: "x=one, y=two", ref: "A..B", note: "Only B is replayed." },
+				graph: { ok: true, tree: "x=one, y=two", ref: "M..B", note: "A is replayed too and comes out empty; same tree, wider Ref." }
+			}
+		},
+		B: {
+			tab: "B · diverged, new work elsewhere",
+			title: "B — reviewer edited x; the new work edits y",
+			commits: [commit("M", "main", 130, "main"), commit("A", "session", 240, "A"), commit("B", "session", 390, "B"), commit("F1", "review", 240, "F1"), commit("R", "review", 320, "R")],
+			head: "R", f2x: 470,
+			range: { marker: ["B"], graph: ["A", "B"] },
+			out: {
+				marker: { ok: true, tree: "x=reviewed, y=two", ref: "A..B", note: "B touches y only, so it applies onto the reviewer's x cleanly." },
+				graph: { ok: false, tree: "x=reviewed, y=two", ref: "M..B", conflict: ["x.txt"], why: "replaying A (x base→one) onto the reviewer's R (x=reviewed)", note: "B never touches x, yet the fold conflicts on it." }
+			}
+		},
+		C: {
+			tab: "C · your case",
+			title: "C — reviewer edited x; the new work edits x too",
+			commits: [commit("M", "main", 130, "main"), commit("A", "session", 240, "A"), commit("B", "session", 390, "B"), commit("F1", "review", 240, "F1"), commit("R", "review", 320, "R")],
+			head: "R", f2x: 470,
+			range: { marker: ["B"], graph: ["A", "B"] },
+			out: {
+				marker: { ok: false, tree: "x=reviewed, y=two", ref: "A..B", conflict: ["x.txt"], why: "replaying B (x one→two) onto the reviewer's R (x=reviewed)", note: "Correct: two edits of the same line." },
+				graph: { ok: false, tree: "x=reviewed, y=two", ref: "M..B", conflict: ["x.txt"], why: "replaying A and B onto the reviewer's R (x=reviewed)", note: "Also correct, and now two commits conflict." }
+			}
+		}
+	};
+
+	var s1 = { scenario: "A", base: "marker", step: 0 };
+	var MAX_STEP = 3;
+
+	function svgEl(tag, attrs, text) {
+		var node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+		if (attrs) for (var k in attrs) node.setAttribute(k, attrs[k]);
+		if (text != null) node.textContent = text;
+		return node;
+	}
+
+	function nodeAt(sc, id) {
+		for (var i = 0; i < sc.commits.length; i++) if (sc.commits[i].id === id) return sc.commits[i];
+		return null;
+	}
+
+	function renderTabs() {
+		var host = document.getElementById("tabs");
+		host.innerHTML = "";
+		Object.keys(scenarios).forEach(function (key) {
+			var b = document.createElement("button");
+			b.type = "button"; b.textContent = scenarios[key].tab;
+			b.setAttribute("aria-pressed", String(s1.scenario === key));
+			b.addEventListener("click", function () { s1.scenario = key; s1.step = 0; draw1(); });
+			host.appendChild(b);
+		});
+	}
+
+	function renderBaseToggle() {
+		var host = document.getElementById("baseToggle");
+		host.innerHTML = "";
+		[["marker", "marker base"], ["graph", "fork-point base"]].forEach(function (pair) {
+			var b = document.createElement("button");
+			b.type = "button"; b.textContent = pair[1];
+			b.setAttribute("aria-pressed", String(s1.base === pair[0]));
+			b.addEventListener("click", function () { s1.base = pair[0]; draw1(); });
+			host.appendChild(b);
+		});
+	}
+
+	function renderDots() {
+		var host = document.getElementById("dots");
+		host.innerHTML = "";
+		for (var i = 0; i <= MAX_STEP; i++) {
+			var d = document.createElement("i");
+			if (i <= s1.step) d.className = "on";
+			host.appendChild(d);
+		}
+	}
+
+	function drawGraph(sc, out) {
+		var svg = document.getElementById("graph");
+		svg.innerHTML = "";
+		LANE_ORDER.forEach(function (lane) {
+			svg.appendChild(svgEl("line", { class: "sc-lane", x1: 100, y1: LANES[lane], x2: 620, y2: LANES[lane] }));
+			svg.appendChild(svgEl("text", { class: "sc-lane-label", x: 8, y: LANES[lane] + 4 }, lane));
+		});
+		var edgePairs = [["M", "A"], ["M", "F1"], ["A", "B"]];
+		if (nodeAt(sc, "R")) edgePairs.push(["F1", "R"]);
+		var head = nodeAt(sc, sc.head);
+		var f2 = { id: "F2", lane: "review", x: sc.f2x };
+		edgePairs.forEach(function (pair) {
+			var a = nodeAt(sc, pair[0]), b = nodeAt(sc, pair[1]);
+			if (a && b) svg.appendChild(svgEl("path", { class: "sc-edge", d: "M" + a.x + " " + LANES[a.lane] + " C " + (a.x + 20) + " " + LANES[a.lane] + ", " + (b.x - 20) + " " + LANES[b.lane] + ", " + b.x + " " + LANES[b.lane] }));
+		});
+		if (head) svg.appendChild(svgEl("path", { class: "sc-edge", d: "M" + head.x + " " + LANES[head.lane] + " C " + (head.x + 30) + " " + LANES[head.lane] + ", " + (f2.x - 30) + " " + LANES[f2.lane] + ", " + f2.x + " " + LANES[f2.lane] }));
+		var range = sc.range[s1.base];
+		if (s1.step >= 2) {
+			range.forEach(function (id) {
+				var c = nodeAt(sc, id);
+				if (c && head) svg.appendChild(svgEl("path", { class: "sc-edge copy", d: "M" + c.x + " " + (LANES[c.lane] + 22) + " L" + (head.x + (c.id === "A" ? -6 : 6)) + " " + (LANES[head.lane] - 22) }));
+			});
+		}
+		sc.commits.forEach(function (c) {
+			var g = svgEl("g", { class: "sc-node " + c.lane + (range.indexOf(c.id) >= 0 && s1.step >= 2 ? " range" : "") });
+			g.appendChild(svgEl("circle", { cx: c.x, cy: LANES[c.lane], r: 21 }));
+			g.appendChild(svgEl("text", { x: c.x, y: LANES[c.lane] }, c.label));
+			svg.appendChild(g);
+			if (c.id === "R") svg.appendChild(svgEl("text", { class: "sc-badge crit", x: c.x, y: LANES[c.lane] + 36, "text-anchor": "middle" }, "x=reviewed"));
+		});
+		if (s1.step >= 1) {
+			var cls = s1.step < 3 ? "sc-node review empty" : (out.ok ? "sc-node review fold" : "sc-node review conflict");
+			var g2 = svgEl("g", { class: cls });
+			g2.appendChild(svgEl("circle", { cx: f2.x, cy: LANES.review, r: 21 }));
+			g2.appendChild(svgEl("text", { x: f2.x, y: LANES.review }, "F2"));
+			svg.appendChild(g2);
+			if (s1.step >= 3) svg.appendChild(svgEl("text", { class: "sc-badge " + (out.ok ? "ok" : "crit"), x: f2.x, y: LANES.review + 36, "text-anchor": "middle" }, out.ok ? "x=reviewed, y=two" : "x.txt conflict"));
+		}
+	}
+
+	function renderOutcome(sc, out) {
+		var host = document.getElementById("outcome");
+		if (s1.step < 3) {
+			var phases = ["Base state. No fold yet.", "Step 1: an empty child of the review head becomes the folded change.", "Step 2: duplicate the range onto the review head. Range = " + sc.range[s1.base].join(", ") + "."];
+			host.innerHTML = "<span class='line'>" + phases[s1.step] + "</span>";
+			return;
+		}
+		var html = "<span class='line'><strong>" + sc.title + " — " + (s1.base === "marker" ? "marker base" : "fork-point base") + "</strong></span>";
+		html += "<span class='line'>Range replayed: <span class='kv'>" + sc.range[s1.base].join(", ") + "</span> · <code>Ref: " + out.ref + "</code></span>";
+		html += out.ok
+			? "<span class='line'><span class='pill ok'>clean</span> F2 tree: <span class='kv'>" + out.tree + "</span></span>"
+			: "<span class='line'><span class='pill crit'>conflict " + out.conflict.join(", ") + "</span> " + out.why + "</span>";
+		host.innerHTML = html + "<span class='line kv'>" + out.note + "</span>";
+	}
+
+	function draw1() {
+		var sc = scenarios[s1.scenario], out = sc.out[s1.base];
+		renderTabs(); renderBaseToggle(); renderDots(); drawGraph(sc, out); renderOutcome(sc, out);
+		document.getElementById("prev").disabled = s1.step === 0;
+		document.getElementById("next").disabled = s1.step === MAX_STEP;
+	}
+
+	document.getElementById("prev").addEventListener("click", function () { s1.step = Math.max(0, s1.step - 1); draw1(); });
+	document.getElementById("next").addEventListener("click", function () { s1.step = Math.min(MAX_STEP, s1.step + 1); draw1(); });
+	document.getElementById("reset").addEventListener("click", function () { s1.step = 0; draw1(); });
+
+	/* =========================================================================
+	 * Simulator 2 — marker store, multi-source and handoff
+	 * ========================================================================= */
+	var COMMITS = {
+		A: { prev: "main", files: ["x.txt"] },
+		A2: { prev: "A", files: ["x.txt"] },
+		H: { prev: "A2", files: ["x.txt"] },
+		B: { prev: "main", files: ["y.txt"] },
+		B2: { prev: "B", files: ["y.txt"] }
+	};
+	var STEPS = [
+		{ source: "s1", tip: "A", text: "s1 publishes A. No ancestor marker, so base = fork point; writes slj/f/review/s1 = A." },
+		{ source: "s2", tip: "B", text: "s2 is independent. The s1 marker is not an ancestor of B, so base = fork point; writes slj/f/review/s2 = B." },
+		{ source: "s1", tip: "A2", text: "s1 continues. Its own marker A is an ancestor, so base = A and only A2 is replayed; the s1 marker moves to A2." },
+		{ source: "s2", tip: "B2", text: "s2 continues. Its own marker B is an ancestor, so base = B and only B2 is replayed." },
+		{ source: "sNew", tip: "H", text: "handoff: a new session key. It finds s1's A2 by ancestry, so base = A2 and only H is replayed; it writes slj/f/review/sNew = H and leaves s1's marker behind." }
+	];
+
+	var s2state = { step: 0, useMarkers: true, markers: {}, reviewHead: "main", folds: [] };
+
+	function isAncestor(a, b) {
+		var cur = b;
+		while (cur) {
+			if (cur === a) return true;
+			cur = COMMITS[cur] ? COMMITS[cur].prev : null;
+		}
+		return false;
+	}
+
+	function ancestorsOf(tip) {
+		var out = [], cur = tip;
+		while (cur && cur !== "main") { out.push(cur); cur = COMMITS[cur] ? COMMITS[cur].prev : null; }
+		return out;
+	}
+
+	function bestBase(tip) {
+		var best = null;
+		Object.keys(s2state.markers).forEach(function (name) {
+			var t = s2state.markers[name];
+			if (!isAncestor(t, tip)) return;
+			if (best === null || isAncestor(best.tip, t)) best = { name: name, tip: t };
+		});
+		return best;
+	}
+
+	function runStep() {
+		if (s2state.step >= STEPS.length) return;
+		var st = STEPS[s2state.step];
+		var found = s2state.useMarkers ? bestBase(st.tip) : null;
+		var base = found ? found.tip : null;
+		var range = [];
+		var cur = st.tip;
+		while (cur && cur !== base && cur !== "main") { range.push(cur); cur = COMMITS[cur] ? COMMITS[cur].prev : null; }
+		var files = [];
+		range.forEach(function (c) { COMMITS[c].files.forEach(function (f) { if (files.indexOf(f) < 0) files.push(f); }); });
+		var id = "F" + (s2state.folds.length + 1);
+		s2state.folds.push({ id: id, parent: s2state.reviewHead, base: base, baseName: found ? found.name : null, markerName: st.source, range: range.slice().reverse(), files: files, source: st.source, tip: st.tip });
+		s2state.reviewHead = id;
+		if (s2state.useMarkers) s2state.markers[st.source] = st.tip;
+		s2state.step++;
+		draw2();
+	}
+
+	function reset2() { s2state = { step: 0, useMarkers: s2state.useMarkers, markers: {}, reviewHead: "main", folds: [] }; draw2(); }
+
+	function chip(id, lane, cls) {
+		return "<span class='cnode " + lane + (cls ? " " + cls : "") + "'>" + id + "</span>";
+	}
+
+	function draw2() {
+		var lanes = document.getElementById("mkLanes");
+		var html = "";
+		html += "<div class='lane-row'><span class='lane-name'>s1</span>" + chip("A", "session") + "<span class='arrow'>→</span>" + chip("A2", "session") + "</div>";
+		html += "<div class='lane-row'><span class='lane-name'>sNew</span>" + chip("H", "session") + "<span class='kv'> (continues A2)</span></div>";
+		html += "<div class='lane-row'><span class='lane-name'>s2</span>" + chip("B", "session") + "<span class='arrow'>→</span>" + chip("B2", "session") + "</div>";
+		html += "<div class='lane-row'><span class='lane-name'>main</span>" + chip("main", "main") + "</div>";
+		var chain = "main";
+		s2state.folds.forEach(function (f) {
+			chain += "<span class='arrow'> → </span>" + chip(f.id, "review", f === s2state.folds[s2state.folds.length - 1] ? "" : "");
+			chain += "<span class='kv'> " + f.files.join(",") + " </span>";
+		});
+		html += "<div class='lane-row'><span class='lane-name'>review</span>" + chain + "</div>";
+		lanes.innerHTML = html;
+
+		// Marker table.
+		var labels = Object.keys(s2state.markers);
+		var mhtml = "<table><thead><tr><th>marker</th><th>records</th><th></th></tr></thead><tbody>";
+		if (labels.length === 0) mhtml += "<tr><td colspan='3' class='kv'>store empty</td></tr>";
+		var last = s2state.folds[s2state.folds.length - 1];
+		labels.forEach(function (name) {
+			var rec = s2state.markers[name];
+			var isBase = last && last.baseName === name;
+			mhtml += "<tr><td><code>slj/f/review/" + name + "</code></td><td><code>" + rec + "</code></td><td>" + (isBase ? "<span class='pill base'>chosen as base</span>" : "") + "</td></tr>";
+		});
+		mhtml += "</tbody></table>";
+		document.getElementById("mkMarkers").innerHTML = (s2state.useMarkers ? mhtml : "<p class='kv'>markers disabled (--no-marker): base is always the fork point.</p>");
+
+		// Log.
+		var entries = s2state.folds.map(function (f) {
+			var chosen = f.base === null
+				? "<span class='pill crit'>no ancestor marker</span> base = fork point"
+				: "<span class='pill base'>base = " + f.base + "</span>";
+			return "<span class='entry'><strong>" + f.id + "</strong> from <code>" + f.source + "</code>@" + f.tip + " · " + chosen + " · writes <code>slj/f/review/" + f.markerName + "</code> · range <code>" + f.range.join(",") + "</code> · files <code>" + f.files.join(", ") + "</code></span>";
+		});
+		document.getElementById("mkLog").innerHTML = entries.join("") || "<span class='kv'>press “Fold next” to begin.</span>";
+
+		document.getElementById("mkNext").disabled = s2state.step >= STEPS.length;
+		document.getElementById("mkProgress").textContent = s2state.step + " / " + STEPS.length + " folds";
+	}
+
+	function draw2Toggle() {
+		var host = document.getElementById("mkToggle");
+		host.innerHTML = "";
+		[["on", "markers on"], ["off", "markers off (--no-marker)"]].forEach(function (pair) {
+			var b = document.createElement("button");
+			b.type = "button"; b.textContent = pair[1];
+			b.setAttribute("aria-pressed", String((pair[0] === "on") === s2state.useMarkers));
+			b.addEventListener("click", function () { s2state.useMarkers = pair[0] === "on"; reset2(); draw2Toggle(); });
+			host.appendChild(b);
+		});
+	}
+
+	document.getElementById("mkNext").addEventListener("click", runStep);
+	document.getElementById("mkReset").addEventListener("click", reset2);
+
+	/* =========================================================================
+	 * Simulator 3 — the cost: fork vs handoff under suffix reuse
+	 * ========================================================================= */
+	var COST_COMMITS = {
+		A: { prev: "main", x: "one" },
+		A2: { prev: "A", x: "three" },
+		B: { prev: "A", x: "two" }
+	};
+	var COST_STEPS = [
+		{ source: "s1", tip: "A", text: "s1 publishes A. No ancestor marker, so base = fork point." },
+		{ source: "s2", tip: "B", text: "s2 forked from A. A is an ancestor of B, so the lookup finds A's marker." },
+		{ source: "s1", tip: "A2", text: "s1 continues with A2, a sibling of B." }
+	];
+	var cost = { step: 0, mode: "source", markers: {}, reviewX: "base", folds: [] };
+
+	function costIsAncestor(a, b) {
+		var c = b;
+		while (c) { if (c === a) return true; c = COST_COMMITS[c] ? COST_COMMITS[c].prev : null; }
+		return false;
+	}
+
+	function costBest(tip) {
+		var best = null;
+		Object.keys(cost.markers).forEach(function (n) {
+			var t = cost.markers[n];
+			if (!costIsAncestor(t, tip)) return;
+			if (best === null || costIsAncestor(best.tip, t)) best = { name: n, tip: t };
+		});
+		return best;
+	}
+
+	function costRun() {
+		if (cost.step >= COST_STEPS.length) return;
+		var st = COST_STEPS[cost.step];
+		var found = costBest(st.tip);
+		var base = found ? found.tip : null;
+		var name = cost.mode === "reuse" ? (found ? found.name : st.tip) : st.source;
+		var range = [], c = st.tip;
+		while (c && c !== base && c !== "main") { range.push(c); c = COST_COMMITS[c] ? COST_COMMITS[c].prev : null; }
+		var conflict = base === null && range.indexOf("A") >= 0 && cost.reviewX !== "base" && cost.reviewX !== "one";
+		if (!conflict) cost.reviewX = COST_COMMITS[st.tip].x;
+		cost.markers[name] = st.tip;
+		cost.folds.push({ id: "F" + (cost.folds.length + 1), source: st.source, tip: st.tip, base: base, name: name, range: range.slice().reverse(), conflict: conflict });
+		cost.step++;
+		costDraw();
+	}
+
+	function costReset() { cost = { step: 0, mode: cost.mode, markers: {}, reviewX: "base", folds: [] }; costDraw(); }
+
+	function costDraw() {
+		var lanes = document.getElementById("costLanes");
+		var html = "";
+		html += "<div class='lane-row'><span class='lane-name'>s1</span>" + chip("A", "session") + "<span class='arrow'>→</span>" + chip("A2", "session") + "</div>";
+		html += "<div class='lane-row'><span class='lane-name'>s2</span>" + chip("B", "session") + "<span class='kv'> (forked from A)</span></div>";
+		html += "<div class='lane-row'><span class='lane-name'>main</span>" + chip("main", "main") + "</div>";
+		var chain = "main";
+		cost.folds.forEach(function (f) {
+			chain += "<span class='arrow'> → </span>" + chip(f.id, "review") + "<span class='kv'> " + (f.conflict ? "x.txt conflict" : "x=" + COST_COMMITS[f.tip].x) + " </span>";
+		});
+		html += "<div class='lane-row'><span class='lane-name'>review</span>" + chain + "</div>";
+		lanes.innerHTML = html;
+
+		var names = Object.keys(cost.markers);
+		var last = cost.folds[cost.folds.length - 1];
+		var m = "<table><thead><tr><th>marker</th><th>records</th><th></th></tr></thead><tbody>";
+		if (names.length === 0) m += "<tr><td colspan='3' class='kv'>store empty</td></tr>";
+		names.forEach(function (n) {
+			m += "<tr><td><code>slj/f/review/" + n + "</code></td><td><code>" + cost.markers[n] + "</code></td><td>" + (last && last.name === n && last.base !== null ? "<span class='pill base'>chosen as base</span>" : "") + "</td></tr>";
+		});
+		m += "</tbody></table>";
+		document.getElementById("costMarkers").innerHTML = m;
+
+		var log = cost.folds.map(function (f, i) {
+			var chosen = f.base === null ? "<span class='pill crit'>no ancestor marker</span> base = fork point" : "<span class='pill base'>base = " + f.base + "</span>";
+			var outcome = f.conflict ? " <span class='pill crit'>conflict x.txt</span>" : " <span class='pill ok'>clean</span>";
+			return "<span class='entry'><strong>" + f.id + "</strong> " + COST_STEPS[i].text + " · " + chosen + " · name <code>" + f.name + "</code> · range <code>" + f.range.join(",") + "</code>" + outcome + "</span>";
+		});
+		document.getElementById("costLog").innerHTML = log.join("") || "<span class='kv'>press “Fold next” to begin.</span>";
+		document.getElementById("costNext").disabled = cost.step >= COST_STEPS.length;
+		document.getElementById("costProgress").textContent = cost.step + " / " + COST_STEPS.length + " folds";
+	}
+
+	function costToggleDraw() {
+		var host = document.getElementById("costToggle");
+		host.innerHTML = "";
+		[["source", "per-source suffix (chosen)"], ["reuse", "reuse suffix (rejected)"]].forEach(function (p) {
+			var b = document.createElement("button");
+			b.type = "button"; b.textContent = p[1];
+			b.setAttribute("aria-pressed", String(cost.mode === p[0]));
+			b.addEventListener("click", function () { cost.mode = p[0]; costReset(); costToggleDraw(); });
+			host.appendChild(b);
+		});
+	}
+
+	document.getElementById("costNext").addEventListener("click", costRun);
+	document.getElementById("costReset").addEventListener("click", costReset);
+
+	draw1();
+	draw2Toggle();
+	draw2();
+	costToggleDraw();
+	costDraw();
+})();
+</script>
+</body>
+</html>

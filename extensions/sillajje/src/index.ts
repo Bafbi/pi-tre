@@ -1928,14 +1928,14 @@ export default function (pi: ExtensionAPI) {
 		const rev = typeof values.rev === "string" ? values.rev : undefined;
 		const named =
 			typeof values.named === "string" ? values.named : undefined;
-		const update =
-			typeof values.update === "string" ? values.update : undefined;
 		const exclude = Array.isArray(values.exclude)
 			? values.exclude
 			: undefined;
-		const land = values.land === true;
+		const update =
+			typeof values.update === "string" ? values.update : undefined;
 		const push = values.push === true;
 		const archive = values.archive === true;
+		const noMarker = values.noMarker === true;
 
 		const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
 		if (!repoRoot) {
@@ -1952,9 +1952,10 @@ export default function (pi: ExtensionAPI) {
 			session,
 			rev,
 			onto,
-			update,
 			named,
 			exclude,
+			update,
+			noMarker,
 		});
 		await withProgress(ctx, async (progress) => {
 			const fold = createFold(buildPorts(ctx, repoRoot, progress));
@@ -1962,12 +1963,12 @@ export default function (pi: ExtensionAPI) {
 				session,
 				rev,
 				onto,
-				update,
 				named,
 				exclude,
-				land,
+				update,
 				push,
 				archive,
+				noMarker,
 				current: {
 					sessionKey: state.getSessionKey(),
 					wsPath: state.getWorkspacePath(),
@@ -1975,12 +1976,13 @@ export default function (pi: ExtensionAPI) {
 				cwd: repoRoot,
 			});
 
-			const targetLabel = update ?? onto ?? "the target";
+			const targetLabel = onto ?? "the target";
 			if (result.ok) {
 				debug.event("fold_done", {
 					rev: result.rev,
 					ref: result.ref,
 					bookmark: result.bookmark,
+					marker: result.marker,
 					pushed: result.pushed,
 				});
 				// Archiving the current session is an adapter-side state change:
