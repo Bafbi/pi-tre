@@ -247,7 +247,7 @@ describe("parseCommandArgs", () => {
 });
 
 describe("FOLD_ARGS", () => {
-	it("accepts a repeatable --exclude beside a target and a mode", () => {
+	it("accepts a repeatable --exclude beside a target", () => {
 		expect(
 			parseCommandArgs(
 				"-r feat -o main --exclude .scratch/ --exclude tools/",

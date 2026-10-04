@@ -1,0 +1,497 @@
+<!-- Interactive feature report for sillajje fold (per-source markers). -->
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Fold — one command, appendable review branches</title>
+	<style>
+		:root {
+			--bg: #ffffff; --fg: #1c1e21; --muted: #5c6570; --line: #e2e6ea;
+			--panel: #f7f8fa; --code-bg: #f2f4f7; --accent: #2f6feb;
+			--ok: #1a7f4b; --ok-bg: #e8f5ee; --warn: #9a6700; --warn-bg: #fff6df;
+			--crit: #b42318; --crit-bg: #fdecea; --session: #7b5cff; --review: #1a7f4b;
+			--main: #5c6570; --src2: #b8860b;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a; --fg: #e6e9ed; --muted: #9aa4af; --line: #2a2f36;
+				--panel: #1b1f24; --code-bg: #1f242a; --accent: #6ea8fe;
+				--ok: #65d19a; --ok-bg: #16291f; --warn: #e2b34a; --warn-bg: #2a2416;
+				--crit: #ff8a80; --crit-bg: #2a1817; --session: #b9a6ff; --review: #65d19a;
+				--main: #9aa4af; --src2: #e2b34a;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+		main { max-width: 62rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip { font-size: .78rem; color: var(--muted); border: 1px solid var(--line); background: var(--panel); padding: .2rem .6rem; border-radius: 999px; }
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .88em; background: var(--code-bg); border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em; }
+		pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5; }
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout { border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel); }
+		.callout p:first-child { margin-top: 0; } .callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: .75rem 1rem; font-size: .92rem; }
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print { :root { --bg:#fff; --fg:#000; --panel:#fff; --code-bg:#f5f5f5; } nav.toc { display:none; } main { max-width:none; padding:0; } .sim { break-inside: avoid; } }
+
+		.sim { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 1rem 1.1rem 1.25rem; margin: 1.25rem 0; }
+		.sim-controls { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; }
+		.sim-controls label { display: flex; flex-direction: column; gap: .2rem; font-size: .8rem; color: var(--muted); }
+		.sim-controls select, .sim-controls input[type="text"] { font: inherit; font-size: .88rem; padding: .3rem .45rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+		.sim-controls input[type="text"] { width: 9rem; }
+		.sim-controls .check { flex-direction: row; align-items: center; gap: .3rem; }
+		button { font: inherit; font-size: .88rem; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: .35rem .75rem; border-radius: 8px; }
+		button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+		button:disabled { opacity: .45; cursor: default; }
+		.cmd { font-family: ui-monospace, monospace; font-size: .85rem; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .5rem .7rem; margin: .8rem 0; overflow-x: auto; white-space: nowrap; }
+		.board { display: grid; gap: .5rem; margin: .5rem 0; }
+		.lane-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin: .25rem 0; }
+		.lane-name { width: 5.6rem; text-align: right; color: var(--muted); font-family: ui-monospace, monospace; font-size: .8rem; flex: 0 0 auto; }
+		.node { font-family: ui-monospace, monospace; font-size: .82rem; border: 2px solid var(--line); background: var(--bg); border-radius: 999px; padding: .12rem .58rem; }
+		.node.session { border-color: var(--session); }
+		.node.s2 { border-color: var(--src2); }
+		.node.main { border-color: var(--main); }
+		.node.review { border-color: var(--review); }
+		.node.base { border-color: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
+		.node.new { border-color: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+		.node.conflict { border-color: var(--crit); box-shadow: 0 0 0 3px var(--crit-bg); }
+		.node.edit { border-style: dashed; }
+		.arrow { color: var(--muted); }
+		.files { color: var(--muted); font-size: .78rem; font-family: ui-monospace, monospace; }
+		table.markers { font-size: .85rem; }
+		table.markers td, table.markers th { padding: .35rem .55rem; }
+		.pill { display: inline-block; font-size: .75rem; padding: .05rem .45rem; border-radius: 999px; border: 1px solid var(--line); }
+		.pill.ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok); }
+		.pill.crit { color: var(--crit); background: var(--crit-bg); border-color: var(--crit); }
+		.pill.base { color: var(--warn); background: var(--warn-bg); border-color: var(--warn); }
+		#log .entry { display: block; padding: .35rem 0; border-top: 1px dashed var(--line); font-size: .88rem; }
+		#log .entry code { font-size: .95em; }
+		.encoding { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+		.encoding input { font: inherit; font-family: ui-monospace, monospace; padding: .3rem .5rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+		.out { font-family: ui-monospace, monospace; font-size: .9rem; }
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Fold — one command, appendable review branches</h1>
+		<p class="sub">`fold` publishes a source delta as one clean change, records a per-source marker, and bases the next fold on it. No `--update` mode; `-o &lt;rev&gt;` plus `--land` covers publishing, appending, and landing.</p>
+		<div class="meta">
+			<span class="chip">sillajje / fold</span>
+			<span class="chip">jj 0.44</span>
+			<span class="chip">ADR 0006</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#cmd">Command</a>
+		<a href="#model">Model</a>
+		<a href="#sandbox">Sandbox</a>
+		<a href="#flows">Flows</a>
+		<a href="#encode">Encoding</a>
+		<a href="#flags">Flags</a>
+		<a href="#evidence">Evidence</a>
+	</nav>
+
+	<section id="cmd">
+		<h2>Command</h2>
+		<pre><code>fold (-s &lt;id|@&gt; | -r &lt;rev&gt;) -o &lt;rev&gt;
+     [--named [&lt;branch&gt;]] [--land] [--push] [--archive]
+     [--exclude &lt;path&gt;] [--no-marker]</code></pre>
+		<p>Every fold records a Folded source marker and bases its delta on the tip-most recorded tip that is an ancestor of the source. A missing marker is a normal first fold: it bases on the fork point.</p>
+		<table>
+			<tr><th>Flag</th><th>Effect</th></tr>
+			<tr><td><code>-o &lt;rev&gt;</code></td><td>The target the folded change is placed under.</td></tr>
+			<tr><td><code>--named [&lt;branch&gt;]</code></td><td>Name the folded change with a review bookmark. Empty names it <code>fold-&lt;change id&gt;</code>. It also keys the marker.</td></tr>
+			<tr><td><code>--land</code></td><td>Advance the target's single local bookmark to the folded change. This is how a review branch grows.</td></tr>
+			<tr><td><code>--push</code></td><td>Push the landed bookmark to its tracking remotes (requires <code>--land</code>).</td></tr>
+			<tr><td><code>--exclude &lt;path&gt;</code></td><td>Leave paths out of the published change (repeatable). The source keeps them.</td></tr>
+			<tr><td><code>--no-marker</code></td><td>Ignore the store and record none: re-aggregate from the fork point.</td></tr>
+		</table>
+	</section>
+
+	<section id="model">
+		<h2>Model</h2>
+		<p>A fold reads and writes one bookmark per source:</p>
+		<pre><code>slj/f/&lt;dest&gt;/&lt;source&gt;   = the source tip last published to &lt;dest&gt;</code></pre>
+		<ul>
+			<li><code>&lt;dest&gt;</code> — the <code>--named</code> branch, or the target's single local bookmark.</li>
+			<li><code>&lt;source&gt;</code> — the session key, or the source bookmark (else the tip's change id) for a rev.</li>
+			<li><code>&lt;dest&gt;</code> is escaped to one path segment, so <code>review</code> never reads markers written for <code>review/extra</code>.</li>
+		</ul>
+		<div class="callout info">
+			<p>The lookup does not read the marker's name. It takes the tip-most marker whose recorded tip is an ancestor of the source, so a handoff, a rename, or a rewrite still finds its predecessor.</p>
+		</div>
+	</section>
+
+	<section id="sandbox">
+		<h2>Sandbox</h2>
+		<p>Pick a source tip and a target, then fold. The source rows and the marker table update live. The base is chosen exactly as the implementation chooses it.</p>
+		<div class="sim">
+			<div class="sim-controls">
+				<label>source<select id="srcSel"></select></label>
+				<label>target (-o)<select id="destSel"></select></label>
+				<label>--named<input type="text" id="named" placeholder="(none)"></label>
+				<label>--exclude<input type="text" id="exclude" placeholder=".scratch/"></label>
+				<label class="check"><input type="checkbox" id="land"> --land</label>
+				<label class="check"><input type="checkbox" id="noMarker"> --no-marker</label>
+				<button id="foldBtn" class="primary">Fold</button>
+				<button id="editBtn">Reviewer edits x</button>
+				<button id="conflictBtn">Conflict demo</button>
+				<button id="workflowBtn">Load workflow</button>
+				<button id="resetBtn">Reset</button>
+			</div>
+			<div class="cmd" id="cmdLine">ready</div>
+			<div class="board" id="board"></div>
+			<h3>Marker store</h3>
+			<div id="markerPanel"></div>
+			<div id="log"></div>
+		</div>
+		<p class="files">Commit contents: <code>x.txt</code>, <code>y.txt</code>, <code>.scratch/t.md</code>. <code>session</code> = <code>A → A2 → H</code> (H is a handoff). <code>s2</code> = <code>B → B2</code>, independent. <code>main</code> starts at trunk. Press <em>Load workflow</em> for the canonical sequence.</p>
+	</section>
+
+	<section id="flows">
+		<h2>Flows</h2>
+		<div class="grid">
+			<div class="card">
+				<h3>Publish</h3>
+				<p><code>fold -s @ -o main --named review</code></p>
+				<p>No marker yet → base fork point. The folded change is a child of <code>main</code>; <code>review</code> points at it; the marker records the session tip.</p>
+			</div>
+			<div class="card">
+				<h3>Append</h3>
+				<p><code>fold -s @ -o review --land</code></p>
+				<p>The marker gives the last published tip, so only the new work is replayed. <code>--land</code> moves <code>review</code>.</p>
+			</div>
+			<div class="card">
+				<h3>Hand off</h3>
+				<p><code>fold -s sNew -o review --land</code></p>
+				<p>A new session key has no marker, but the predecessor's tip is an ancestor, so the lookup finds it. Only the new work is replayed.</p>
+			</div>
+			<div class="card">
+				<h3>Concurrent sources</h3>
+				<p><code>fold -s s2 -o review --land</code></p>
+				<p>Markers are per source, so <code>s2</code> never reads <code>s1</code>'s cursor and every source appends only its own work.</p>
+			</div>
+			<div class="card">
+				<h3>Land</h3>
+				<p><code>fold -s @ -o main --land</code></p>
+				<p>Targets <code>main</code> directly. With no marker for that destination, it re-aggregates the session's net delta and advances <code>main</code>.</p>
+			</div>
+			<div class="card">
+				<h3>Fresh aggregate</h3>
+				<p><code>fold -s @ -o review --land --no-marker</code></p>
+				<p>Ignores the store and re-publishes the whole source range from the fork point. The escape hatch.</p>
+			</div>
+		</div>
+	</section>
+
+	<section id="encode">
+		<h2>Destination encoding</h2>
+		<p>The marker's destination is escaped to one path segment, so a nested destination cannot leak into its parent's lookup.</p>
+		<div class="encoding">
+			<label>dest <input type="text" id="encIn" value="review/extra"></label>
+			<span class="out" id="encOut"></span>
+		</div>
+		<p class="files">Escapes: <code>%</code> → <code>%25</code>, <code>/</code> → <code>%2F</code>. A fold for <code>review</code> matches <code>slj/f/review/</code>, which does not match <code>slj/f/review%2Fextra/…</code>.</p>
+	</section>
+
+	<section id="flags">
+		<h2>Evidence</h2>
+		<p>The behaviour above is covered by the suite:</p>
+		<table>
+			<tr><th>Test</th><th>What it locks</th></tr>
+			<tr><td><code>appends onto the branch from a session handed off with new -s</code></td><td>handoff finds the predecessor's marker by ancestry</td></tr>
+			<tr><td><code>appends across a renamed source because the lookup is by ancestry</code></td><td>rename does not lose the cursor</td></tr>
+			<tr><td><code>a second plain fold appends only the new work via the marker</code></td><td>plain <code>-o</code> is incremental</td></tr>
+			<tr><td><code>--no-marker ignores the Folded source marker and re-aggregates from the fork point</code></td><td>the bypass</td></tr>
+			<tr><td><code>does not read a marker written for a nested destination</code></td><td>destination encoding</td></tr>
+			<tr><td><code>ignores sillajje's own bookmarks when resolving --land</code></td><td>markers never block landing</td></tr>
+			<tr><td><code>pushes before archiving the session workspace</code></td><td>push ordering with <code>--archive</code></td></tr>
+			<tr><td><code>leaves excluded paths out of the folded change while the source keeps them</code></td><td><code>--exclude</code></td></tr>
+		</table>
+		<p class="files">Source: <code>packages/sillajje-core/src/fold.ts</code>, <code>extensions/sillajje/docs/adr/0006-fold-publishes-a-source-range.md</code>, <code>extensions/sillajje/CONTEXT.md</code>. Core check 248 tests, extension check 285 tests.</p>
+	</section>
+
+	<footer>Generated by the agent. The sandbox mirrors the implementation's base selection, marker naming, conflict rule, and <code>--land</code>/<code>--exclude</code>/<code>--no-marker</code> handling.</footer>
+</main>
+
+<script>
+(function () {
+	"use strict";
+
+	/* ---------------- content model ---------------- */
+	var C0 = { "x.txt": "base", "y.txt": "base", "upstream.txt": "up" };
+	function full(over) { var o = {}; for (var k in C0) o[k] = C0[k]; for (var j in over) o[j] = over[j]; return o; }
+	var BASE = {
+		M0: { parents: [], content: full({}), lane: "main", label: "trunk" },
+		A: { parents: ["M0"], content: full({ "x.txt": "one", ".scratch/t.md": "ticket" }), lane: "session", label: "A" },
+		A2: { parents: ["A"], content: full({ "x.txt": "two", ".scratch/t.md": "ticket" }), lane: "session", label: "A2" },
+		H: { parents: ["A2"], content: full({ "x.txt": "three", ".scratch/t.md": "ticket" }), lane: "session", label: "H" },
+		B: { parents: ["M0"], content: full({ "y.txt": "one" }), lane: "s2", label: "B" },
+		B2: { parents: ["B"], content: full({ "y.txt": "two" }), lane: "s2", label: "B2" }
+	};
+	var SOURCES = [
+		{ tip: "A", name: "s1" },
+		{ tip: "A2", name: "s1" },
+		{ tip: "H", name: "sNew" },
+		{ tip: "B", name: "s2" },
+		{ tip: "B2", name: "s2" }
+	];
+	var WORKFLOW = [
+		{ tip: "A", name: "s1", dest: "main", named: "review" },
+		{ tip: "A2", name: "s1", dest: "review", land: true },
+		{ tip: "H", name: "sNew", dest: "review", land: true },
+		{ tip: "B", name: "s2", dest: "review", land: true },
+		{ tip: "B2", name: "s2", dest: "review", land: true },
+		{ tip: "H", name: "sNew", dest: "main", land: true }
+	];
+
+	/* ---------------- state ---------------- */
+	var state = null;
+	function resetState() {
+		var commits = {};
+		for (var k in BASE) commits[k] = { id: k, parents: BASE[k].parents.slice(), content: BASE[k].content, lane: BASE[k].lane, label: BASE[k].label };
+		state = { commits: commits, bookmarks: { main: "M0" }, markers: {}, folds: [], nextF: 1, log: [], lastBase: null, lastBaseName: null };
+	}
+	resetState();
+
+	/* ---------------- helpers ---------------- */
+	function ancestors(id) { var out = [], c = id; while (c) { out.push(c); c = state.commits[c].parents[0]; } return out; }
+	function isAncestor(a, b) { if (a === b) return true; var c = b; while (c) { if (c === a) return true; c = state.commits[c].parents[0]; } return false; }
+	function forkPoint(a, b) { var set = {}; ancestors(a).forEach(function (x) { set[x] = true; }); var c = b; while (c) { if (set[c]) return c; c = state.commits[c].parents[0]; } return null; }
+	function encodeDest(d) { return d.replace(/%/g, "%25").replace(/\//g, "%2F"); }
+	function changedPaths(from, to) {
+		var out = {}, keys = {};
+		Object.keys(from).forEach(function (k) { keys[k] = true; });
+		Object.keys(to).forEach(function (k) { keys[k] = true; });
+		Object.keys(keys).forEach(function (k) { var a = from[k] === undefined ? null : from[k], b = to[k] === undefined ? null : to[k]; if (a !== b) out[k] = b; });
+		return out;
+	}
+	function excluded(path, pattern) {
+		if (!pattern) return false;
+		if (pattern.indexOf("*") < 0) return path === pattern || path.indexOf(pattern) === 0;
+		var re = new RegExp("^" + pattern.split("*").map(function (s) { return s.replace(/[.+?^${}()|[\]\\]/g, "\\$&"); }).join(".*") + "$");
+		return re.test(path);
+	}
+	function tipMost(candidates) {
+		var best = null;
+		candidates.forEach(function (c) { if (best === null || isAncestor(best, c)) best = c; });
+		return best;
+	}
+
+	/* ---------------- fold ---------------- */
+	function fold(opts) {
+		var src = state.commits[opts.tip], target = state.bookmarks[opts.dest];
+		if (!target) return { error: "target '" + opts.dest + "' is not a bookmark — fold with --named first" };
+		target = state.commits[target];
+
+		var destName = opts.named ? opts.named : opts.dest;
+		var prefix = "slj/f/" + encodeDest(destName) + "/";
+		var candidates = [];
+		var baseName = null;
+		Object.keys(state.markers).forEach(function (name) {
+			if (name.indexOf(prefix) !== 0) return;
+			var tip = state.markers[name];
+			if (isAncestor(tip, opts.tip)) { candidates.push(tip); if (baseName === null || isAncestor(baseName.tip, tip)) baseName = { name: name, tip: tip }; }
+		});
+		// --no-marker ignores the store entirely.
+		if (opts.noMarker) { candidates = []; baseName = null; }
+		var base = tipMost(candidates);
+		if (!base) base = forkPoint(opts.tip, target.id);
+		if (!base) return { error: "no common ancestor" };
+		var baseLabel = state.commits[base].label;
+		var delta = changedPaths(state.commits[base].content, state.commits[opts.tip].content);
+		var files = Object.keys(delta);
+		var skipped = [];
+		if (opts.exclude) { files = files.filter(function (f) { if (excluded(f, opts.exclude)) { skipped.push(f); return false; } return true; }); }
+		if (files.length === 0) return { noChanges: true, base: baseLabel, ref: base + ".." + opts.tip };
+
+		// 3-way conflict: base b, ours = tip, theirs = target.
+		var conflicts = files.filter(function (f) {
+			var b = state.commits[base].content[f];
+			var t = state.commits[opts.tip].content[f];
+			var T = target.content[f];
+			return b !== undefined && t !== undefined && T !== undefined && t !== b && T !== b && t !== T;
+		});
+
+		var content = full({});
+		for (var f2 in target.content) content[f2] = target.content[f2];
+		files.forEach(function (f) { content[f] = (state.commits[opts.tip].content[f] === undefined ? null : state.commits[opts.tip].content[f]); });
+
+		var id = "F" + state.nextF++;
+		state.commits[id] = { id: id, parents: [target.id], content: content, lane: opts.dest, label: id };
+		if (opts.named) state.bookmarks[opts.named] = id;
+		if (opts.land) state.bookmarks[opts.dest] = id;
+		var markerName = null;
+		if (!opts.noMarker) { markerName = "slj/f/" + encodeDest(destName) + "/" + opts.name; state.markers[markerName] = opts.tip; }
+
+		var entry = { cmd: cmdString(opts), id: id, dest: opts.dest, base: baseLabel, baseMarker: baseName ? baseName.name : null, range: base + ".." + opts.tip, files: files, skipped: skipped, conflicts: conflicts, source: opts.name, tip: opts.tip };
+		state.folds.push(entry);
+		state.log.push(entry);
+		state.lastBase = base; state.lastBaseName = baseName ? baseName.name : null;
+		return entry;
+	}
+	function cmdString(o) {
+		var s = "fold -s " + o.name + " -o " + o.dest;
+		if (o.named) s += " --named " + o.named;
+		if (o.land) s += " --land";
+		if (o.noMarker) s += " --no-marker";
+		if (o.exclude) s += " --exclude " + o.exclude;
+		return s;
+	}
+
+	/* ---------------- rendering ---------------- */
+	function chip(text, cls) { return "<span class='node " + cls + "'>" + text + "</span>"; }
+	function render() {
+		var board = document.getElementById("board");
+		var rows = "";
+		rows += "<div class='lane-row'><span class='lane-name'>session</span>" + chip("A", "session") + "<span class='arrow'>→</span>" + chip("A2", "session") + "<span class='arrow'>→</span>" + chip("H", "session") + "<span class='files'>handoff</span></div>";
+		rows += "<div class='lane-row'><span class='lane-name'>s2</span>" + chip("B", "s2") + "<span class='arrow'>→</span>" + chip("B2", "s2") + "<span class='files'>independent</span></div>";
+		rows += "<div class='lane-row'><span class='lane-name'>folded</span>" + chip("M0", "main");
+		state.folds.forEach(function (f, i) {
+			if (state.reviewEditIndex === i) rows += "<span class='arrow'>→</span>" + chip(state.reviewEdit, "review edit");
+			var cls = (f.conflicts.length ? "conflict" : "review") + (f.id === state.lastFoldId ? " new" : "");
+			rows += "<span class='arrow'>→</span>" + chip(f.id + (f.conflicts.length ? " ⚠" : ""), cls);
+		});
+		if (state.reviewEdit && (state.reviewEditIndex === undefined || state.reviewEditIndex >= state.folds.length)) rows += "<span class='arrow'>→</span>" + chip(state.reviewEdit, "review edit");
+		rows += "</div>";
+		rows += "<div class='lane-row'><span class='lane-name'>bookmarks</span>";
+		var bm = Object.keys(state.bookmarks).sort();
+		if (bm.length === 0) rows += "<span class='files'>none</span>";
+		bm.forEach(function (name) {
+			rows += "<span class='files'>" + name + "</span> " + chip(state.commits[state.bookmarks[name]].label, state.commits[state.bookmarks[name]].lane) + "  ";
+		});
+		rows += "</div>";
+		board.innerHTML = rows;
+
+		// markers
+		var names = Object.keys(state.markers).sort();
+		var m = "<table class='markers'><thead><tr><th>marker</th><th>records</th><th></th></tr></thead><tbody>";
+		if (names.length === 0) m += "<tr><td colspan='3' class='files'>store empty</td></tr>";
+		names.forEach(function (n) {
+			var tip = state.markers[n];
+			var isBase = state.lastBaseName === n;
+			m += "<tr><td><code>" + n + "</code></td><td>" + chip(state.commits[tip].label, state.commits[tip].lane) + "</td><td>" + (isBase ? "<span class='pill base'>chosen base</span>" : "") + "</td></tr>";
+		});
+		m += "</tbody></table>";
+		document.getElementById("markerPanel").innerHTML = m;
+
+		// log
+		var log = state.log.map(function (e) {
+			var outcome = e.conflicts.length ? "<span class='pill crit'>conflict " + e.conflicts.join(", ") + "</span>" : "<span class='pill ok'>clean</span>";
+			var marker = e.baseMarker ? "<code>" + e.baseMarker + "</code>" : "fork point";
+			var skipped = e.skipped.length ? " · skipped <code>" + e.skipped.join(", ") + "</code>" : "";
+			return "<span class='entry'><code>" + e.cmd + "</code> → <strong>" + e.id + "</strong> · base " + marker + " · range <code>" + e.range + "</code> · files <code>" + e.files.join(", ") + "</code>" + skipped + " " + outcome + "</span>";
+		});
+		document.getElementById("log").innerHTML = log.join("") || "<span class='files'>fold something to begin.</span>";
+	}
+
+	function setCmd(text) { document.getElementById("cmdLine").textContent = text; }
+
+	/* ---------------- controls ---------------- */
+	function fillSelects() {
+		var ss = document.getElementById("srcSel");
+		ss.innerHTML = SOURCES.map(function (s, i) { return "<option value='" + i + "'>" + s.name + " @ " + s.tip + "</option>"; }).join("");
+		ss.value = "0";
+		var ds = document.getElementById("destSel");
+		ds.innerHTML = ["main", "review"].map(function (d) { return "<option>" + d + "</option>"; }).join("");
+	}
+	function readOpts() {
+		var s = SOURCES[Number(document.getElementById("srcSel").value) || 0];
+		return {
+			tip: s.tip, name: s.name,
+			dest: document.getElementById("destSel").value,
+			named: document.getElementById("named").value.trim() || undefined,
+			exclude: document.getElementById("exclude").value.trim() || undefined,
+			land: document.getElementById("land").checked,
+			noMarker: document.getElementById("noMarker").checked
+		};
+	}
+	function doFold() {
+		var o = readOpts();
+		setCmd(cmdString(o));
+		var r = fold(o);
+		state.lastFoldId = r && r.id ? r.id : null;
+		if (r && r.error) setCmd("error: " + r.error);
+		else if (r && r.noChanges) setCmd(cmdString(o) + "  →  no-changes (nothing new to publish)");
+		render();
+	}
+	function loadWorkflow() {
+		resetState();
+		WORKFLOW.forEach(function (step, i) {
+			var r = fold({ tip: step.tip, name: step.name, dest: step.dest, named: step.named, land: step.land, noMarker: false, exclude: undefined });
+			state.lastFoldId = r && r.id ? r.id : null;
+			if (i === WORKFLOW.length - 1) setCmd("workflow loaded — " + state.folds.length + " folds, " + Object.keys(state.markers).length + " markers");
+		});
+		render();
+	}
+	function reviewerEdit() {
+		if (!state.bookmarks.review) { setCmd("no review branch yet — fold with --named review first"); return; }
+		var head = state.commits[state.bookmarks.review];
+		var content = full({});
+		for (var k in head.content) content[k] = head.content[k];
+		content["x.txt"] = "reviewed";
+		var id = "R" + (state.reviewEdit ? state.reviewEdit.slice(1) : "");
+		state.commits[id] = { id: id, parents: [head.id], content: content, lane: "review", label: "R" };
+		state.bookmarks.review = id;
+		state.reviewEdit = id;
+		state.reviewEditIndex = state.folds.length;
+		setCmd("reviewer edited x.txt on review (R), advanced the review bookmark");
+		render();
+	}
+
+	function conflictDemo() {
+		resetState();
+		fold({ tip: "A", name: "s1", dest: "main", named: "review", land: false, noMarker: false });
+		reviewerEdit();
+		var r = fold({ tip: "A2", name: "s1", dest: "review", land: true, noMarker: false });
+		state.lastFoldId = r && r.id ? r.id : null;
+		setCmd("conflict demo — s1 appends x (one→two) onto the reviewer's x=reviewed");
+		render();
+	}
+
+	document.getElementById("foldBtn").addEventListener("click", doFold);
+	document.getElementById("workflowBtn").addEventListener("click", loadWorkflow);
+	document.getElementById("resetBtn").addEventListener("click", function () { resetState(); state.lastFoldId = null; setCmd("ready"); render(); });
+	document.getElementById("editBtn").addEventListener("click", reviewerEdit);
+	document.getElementById("conflictBtn").addEventListener("click", conflictDemo);
+
+	// encoding widget
+	function renderEncoding() {
+		var v = document.getElementById("encIn").value;
+		document.getElementById("encOut").innerHTML = "marker prefix <code>slj/f/" + encodeDest(v) + "/</code>";
+	}
+	document.getElementById("encIn").addEventListener("input", renderEncoding);
+
+	fillSelects();
+	renderEncoding();
+	loadWorkflow();
+})();
+</script>
+</body>
+</html>

@@ -110,6 +110,7 @@ function makeJj(opts?: {
 	const log = vi.fn(async (revset: string) => {
 		if (opts?.logEmptyFor?.includes(revset)) return [];
 		if (revset === "feat" || revset === "@") return [TIP];
+		if (revset === TIP.commitId) return [TIP];
 		if (revset === "main") return [MAIN];
 		if (revset === MAIN.commitId) return [MAIN];
 		if (revset === PREV.commitId) return [PREV];
@@ -227,24 +228,27 @@ function fold(opts?: {
 	return { action, fakes, statuses, archive };
 }
 
-/** Assert that `--update` ignores a marker and folds from the fork point. */
-async function expectUpdateFallsBack(
+/** The revset the recipe duplicated; the base it chose. */
+function duplicatedRevset(fakes: Fakes): string {
+	const call = fakes.apply.mock.calls.find(
+		(c) => (c[0] as { kind: string }).kind === "duplicate",
+	)?.[0] as { revset: string } | undefined;
+	if (call === undefined) throw new Error("no duplicate mutation");
+	return call.revset;
+}
+
+/** Assert the fold based its delta on the fork point, ignoring any marker. */
+async function expectForkPointBase(
 	bookmarks: Bookmark[],
 	opts?: { logEmptyFor?: string[] },
 ): Promise<void> {
 	const fakes = makeJj({ bookmarks, ...opts });
-	const { action, statuses } = fold({ jj: fakes });
+	const { action } = fold({ jj: fakes });
 
-	const result = await action({ rev: "feat", update: "main" });
+	const result = await action({ rev: "feat", onto: "main" });
 
 	expect(result.ok).toBe(true);
-	const duplicate = fakes.apply.mock.calls.find(
-		(c) => (c[0] as { kind: string }).kind === "duplicate",
-	)?.[0] as { revset: string };
-	expect(duplicate.revset).toBe("base-c..tip-c");
-	expect(statuses).toContainEqual(
-		expect.objectContaining({ code: "fold_update_fallback" }),
-	);
+	expect(duplicatedRevset(fakes)).toBe("base-c..tip-c");
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +266,7 @@ describe("createFold", () => {
 			subject: "test subject",
 			rev: "folded",
 			ref: "base..tip",
+			marker: "slj/f/main/tip",
 			pushed: [],
 		});
 
@@ -292,6 +297,18 @@ describe("createFold", () => {
 		expect(statuses).toEqual([
 			{ kind: "phase", code: "folding", target: "main" },
 		]);
+	});
+
+	it("records a Folded source marker named after the target and the source", async () => {
+		const { action, fakes } = fold();
+
+		await action({ rev: "feat", onto: "main" });
+
+		expect(fakes.apply).toHaveBeenCalledWith({
+			kind: "bookmarkSet",
+			name: "slj/f/main/tip",
+			rev: "tip",
+		});
 	});
 
 	it("leaves excluded paths out of the squash, the diff, and the copies", async () => {
@@ -418,27 +435,23 @@ describe("createFold", () => {
 		expect(fakes.transaction).not.toHaveBeenCalled();
 	});
 
-	it("excludes paths in --update mode too", async () => {
+	it("bases on an ancestor marker and records the new source tip", async () => {
 		const fakes = makeJj({
-			bookmarks: [{ name: "sillajje/folded/main", target: ["prev-c"] }],
+			bookmarks: [
+				{ name: "feat", target: ["tip-c"] },
+				{ name: "slj/f/main/feat", target: ["prev-c"] },
+			],
 		});
 		const { action } = fold({ jj: fakes });
 
-		const result = await action({
-			rev: "feat",
-			update: "main",
-			exclude: [".scratch/"],
-		});
+		const result = await action({ rev: "feat", onto: "main" });
 
 		expect(result.ok).toBe(true);
-		if (result.ok) expect(result.bookmark).toBe("main");
-		const squash = fakes.apply.mock.calls.find(
-			(c) => (c[0] as { kind: string }).kind === "squash",
-		)?.[0] as { filesets?: readonly string[] };
-		expect(squash.filesets).toEqual(['~(prefix-glob:".scratch/")']);
+		expect(duplicatedRevset(fakes)).toBe("prev-c..tip-c");
+		// The source's own marker is moved to the new tip.
 		expect(fakes.apply).toHaveBeenCalledWith({
 			kind: "bookmarkSet",
-			name: "sillajje/folded/main",
+			name: "slj/f/main/feat",
 			rev: "tip",
 		});
 	});
@@ -475,7 +488,7 @@ describe("createFold", () => {
 		expect(squash.filesets).toEqual(['~(prefix-glob:".scratch/")']);
 	});
 
-	it("keys the marker by the target's local bookmark, not the source's", async () => {
+	it("keys the marker by the destination and the source", async () => {
 		const fakes = makeJj({
 			bookmarks: [
 				{ name: "feature", target: ["tip-c"] },
@@ -489,7 +502,7 @@ describe("createFold", () => {
 		const set = fakes.apply.mock.calls
 			.map((c) => c[0] as { kind: string; name?: string })
 			.find((mutation) => mutation.kind === "bookmarkSet");
-		expect(set?.name).toBe("sillajje/folded/main");
+		expect(set?.name).toBe("slj/f/main/feature");
 	});
 
 	it("slugs the target rev when no bookmark points at it", async () => {
@@ -501,7 +514,7 @@ describe("createFold", () => {
 		const set = fakes.apply.mock.calls
 			.map((c) => c[0] as { kind: string; name?: string })
 			.find((mutation) => mutation.kind === "bookmarkSet");
-		expect(set?.name).toBe("sillajje/folded/main");
+		expect(set?.name).toBe("slj/f/main/tip");
 	});
 
 	it("rolls back and reports a conflict with its files", async () => {
@@ -566,75 +579,57 @@ describe("createFold", () => {
 		expect(fakes.transaction).not.toHaveBeenCalled();
 	});
 
-	it("uses the Folded source marker as the base and advances the review bookmark with --update", async () => {
-		const fakes = makeJj({
-			bookmarks: [{ name: "sillajje/folded/main", target: ["prev-c"] }],
-		});
-		const { action } = fold({ jj: fakes });
-
-		const result = await action({ rev: "feat", update: "main" });
-
-		expect(result.ok).toBe(true);
-		if (result.ok) expect(result.bookmark).toBe("main");
-		const duplicate = fakes.apply.mock.calls.find(
-			(c) => (c[0] as { kind: string }).kind === "duplicate",
-		)?.[0] as { revset: string };
-		expect(duplicate.revset).toBe("prev-c..tip-c");
-		// The review bookmark advances, and the source tip is recorded.
-		expect(fakes.apply).toHaveBeenCalledWith({
-			kind: "bookmarkSet",
-			name: "main",
-			rev: "folded",
-		});
-		expect(fakes.apply).toHaveBeenCalledWith({
-			kind: "bookmarkSet",
-			name: "sillajje/folded/main",
-			rev: "tip",
-		});
-	});
-
-	it("ignores a Folded source marker whose tip is not an ancestor of the source", async () => {
-		await expectUpdateFallsBack([
-			{ name: "sillajje/folded/main", target: ["main-c"] },
+	it("ignores a marker whose tip is not an ancestor of the source", async () => {
+		await expectForkPointBase([
+			{ name: "slj/f/main/other", target: ["main-c"] },
 		]);
 	});
 
-	it("does not read a legacy two-part marker for --update", async () => {
-		await expectUpdateFallsBack([
+	it("does not read a legacy two-part marker", async () => {
+		await expectForkPointBase([
 			{ name: "sillajje/folded/feat/main", target: ["prev-c"] },
 		]);
 	});
 
-	it("ignores a conflicted Folded source marker and falls back", async () => {
-		await expectUpdateFallsBack([
-			{ name: "sillajje/folded/main", target: ["prev-c", "tip-c"] },
+	it("ignores a conflicted marker", async () => {
+		await expectForkPointBase([
+			{ name: "slj/f/main/feat", target: ["prev-c", "tip-c"] },
 		]);
 	});
 
-	it("falls back when the Folded source marker resolves to no commit", async () => {
-		await expectUpdateFallsBack(
-			[{ name: "sillajje/folded/main", target: ["ghost-c"] }],
-			{ logEmptyFor: ["ghost-c"] },
+	it("ignores a marker that resolves to no commit", async () => {
+		await expectForkPointBase(
+			[{ name: "slj/f/main/feat", target: ["ghost-c"] }],
+			{
+				logEmptyFor: ["ghost-c"],
+			},
 		);
 	});
 
-	it("ignores the Folded source marker without --update", async () => {
+	it("folds from the fork point with no marker", async () => {
+		await expectForkPointBase([]);
+	});
+
+	it("--no-marker ignores an ancestor marker and records none", async () => {
 		const fakes = makeJj({
-			bookmarks: [{ name: "sillajje/folded/main", target: ["prev-c"] }],
+			bookmarks: [{ name: "slj/f/main/feat", target: ["prev-c"] }],
 		});
 		const { action } = fold({ jj: fakes });
 
-		const result = await action({ rev: "feat", onto: "main" });
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			noMarker: true,
+		});
 
 		expect(result.ok).toBe(true);
-		const duplicate = fakes.apply.mock.calls.find(
-			(c) => (c[0] as { kind: string }).kind === "duplicate",
-		)?.[0] as { revset: string };
-		expect(duplicate.revset).toBe("base-c..tip-c");
-	});
-
-	it("--update falls back to the fork point with no marker", async () => {
-		await expectUpdateFallsBack([]);
+		if (result.ok) expect(result.marker).toBeUndefined();
+		expect(duplicatedRevset(fakes)).toBe("base-c..tip-c");
+		expect(
+			fakes.apply.mock.calls.some(
+				(c) => (c[0] as { kind: string }).kind === "bookmarkSet",
+			),
+		).toBe(false);
 	});
 
 	it("--named sets a review bookmark and keys the marker by it", async () => {
@@ -656,9 +651,47 @@ describe("createFold", () => {
 		});
 		expect(fakes.apply).toHaveBeenCalledWith({
 			kind: "bookmarkSet",
-			name: "sillajje/folded/review/feat",
+			name: "slj/f/review%2Ffeat/tip",
 			rev: "tip",
 		});
+	});
+
+	it("encodes a nested destination into one marker segment", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			named: "review/extra",
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.marker).toBe("slj/f/review%2Fextra/tip");
+		expect(fakes.apply).toHaveBeenCalledWith({
+			kind: "bookmarkSet",
+			name: "slj/f/review%2Fextra/tip",
+			rev: "tip",
+		});
+	});
+
+	it("does not read a marker written for a nested destination", async () => {
+		const fakes = makeJj({
+			bookmarks: [
+				{ name: "slj/f/review%2Fextra/feat", target: ["prev-c"] },
+			],
+		});
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			named: "review",
+		});
+
+		expect(result.ok).toBe(true);
+		// `review` must not match the marker written for `review/extra`.
+		expect(duplicatedRevset(fakes)).toBe("base-c..tip-c");
 	});
 
 	it("--named with an empty value auto-names fold-<change id>", async () => {
@@ -676,20 +709,16 @@ describe("createFold", () => {
 		});
 	});
 
-	it("rejects --update combined with -o", async () => {
+	it("requires -o", async () => {
 		const fakes = makeJj();
 		const { action } = fold({ jj: fakes });
 
-		const result = await action({
-			rev: "feat",
-			onto: "main",
-			update: "main",
-		});
+		const result = await action({ rev: "feat" });
 
 		expect(result).toEqual({
 			ok: false,
 			reason: "usage",
-			message: expect.stringContaining("--update"),
+			message: expect.stringContaining("-o"),
 		});
 		expect(fakes.transaction).not.toHaveBeenCalled();
 	});
@@ -710,7 +739,7 @@ describe("createFold", () => {
 		});
 	});
 
-	it("--push pushes the updated bookmark to every tracking remote", async () => {
+	it("--push pushes the landed bookmark to every tracking remote", async () => {
 		const fakes = makeJj({
 			bookmarks: [
 				{ name: "main", target: ["main-c"] },
@@ -723,7 +752,8 @@ describe("createFold", () => {
 
 		const result = await action({
 			rev: "feat",
-			update: "main",
+			onto: "main",
+			land: true,
 			push: true,
 		});
 
@@ -754,7 +784,8 @@ describe("createFold", () => {
 
 		const result = await action({
 			rev: "feat",
-			update: "main",
+			onto: "main",
+			land: true,
 			push: true,
 		});
 
@@ -765,36 +796,20 @@ describe("createFold", () => {
 		if (result.ok) expect(result.pushed).toEqual(["main"]);
 	});
 
-	it("--push with --land pushes the landed bookmark", async () => {
-		const fakes = makeJj({
-			bookmarks: [{ name: "main", target: ["main-c"] }],
-		});
-		const { action } = fold({ jj: fakes });
-
-		const result = await action({
-			rev: "feat",
-			onto: "main",
-			land: true,
-			push: true,
-		});
-
-		expect(result.ok).toBe(true);
-		expect(fakes.gitPush).toHaveBeenCalledWith(
-			{ bookmark: "main" },
-			{ cwd: "." },
-		);
-	});
-
 	it("a failed push warns and leaves the fold successful", async () => {
 		const fakes = makeJj({
-			bookmarks: [{ name: "main", remote: "origin", target: ["main-c"] }],
+			bookmarks: [
+				{ name: "main", target: ["main-c"] },
+				{ name: "main", remote: "origin", target: ["main-c"] },
+			],
 		});
 		fakes.gitPush.mockRejectedValueOnce(new Error("network down"));
 		const { action, statuses } = fold({ jj: fakes });
 
 		const result = await action({
 			rev: "feat",
-			update: "main",
+			onto: "main",
+			land: true,
 			push: true,
 		});
 
@@ -805,7 +820,7 @@ describe("createFold", () => {
 		);
 	});
 
-	it("rejects --push without --update or --land", async () => {
+	it("rejects --push without --land", async () => {
 		const fakes = makeJj();
 		const { action } = fold({ jj: fakes });
 
@@ -840,6 +855,26 @@ describe("createFold", () => {
 			message: expect.stringContaining("exactly one local bookmark"),
 		});
 		expect(fakes.transaction).not.toHaveBeenCalled();
+	});
+
+	it("ignores sillajje's own bookmarks when resolving --land", async () => {
+		const fakes = makeJj({
+			bookmarks: [
+				{ name: "main", target: ["main-c"] },
+				{ name: "slj/f/main/tip", target: ["main-c"] },
+				{ name: "sillajje/owner/s1", target: ["main-c"] },
+			],
+		});
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({ rev: "feat", onto: "main", land: true });
+
+		expect(result.ok).toBe(true);
+		expect(fakes.apply).toHaveBeenCalledWith({
+			kind: "bookmarkSet",
+			name: "main",
+			rev: "folded",
+		});
 	});
 
 	it("archives a session source with --archive", async () => {
