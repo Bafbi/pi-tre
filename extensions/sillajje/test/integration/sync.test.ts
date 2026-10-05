@@ -1,6 +1,5 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { beforeEach, expect, it } from "vitest";
 import {
 	captureUi,
@@ -12,6 +11,7 @@ import {
 	sessionBookmark,
 	sessionKeyId,
 	tempDirs,
+	wsPath,
 } from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -38,13 +38,6 @@ function getSessionId(
 	const id = runner.createContext().sessionManager.getSessionId();
 	if (!id) throw new Error("sessionId should be defined after session_start");
 	return id;
-}
-
-/** Resolve the default workspace path for a given session and repo root. */
-function wsPath(repoRoot: string, sessionId: string): string {
-	const parts = repoRoot.split("/");
-	const repoSlug = parts[parts.length - 1];
-	return `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
 }
 
 async function setupJjRepo(cwd: string): Promise<void> {

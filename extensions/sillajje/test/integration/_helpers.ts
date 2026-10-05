@@ -2,7 +2,7 @@ import { execSync, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Message } from "@earendil-works/pi-ai";
 import {
@@ -14,11 +14,27 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { RunSubagent } from "@pi-tre/sillajje-core";
 import type { ExecFn } from "@pi-tre/sillajje-jj";
-import { defaultOwner } from "@pi-tre/sillajje-workspace";
+import { defaultOwner, repoSlug } from "@pi-tre/sillajje-workspace";
 import { afterEach, describe, expect } from "vitest";
 import { setTestPorts } from "../../src/index.js";
 
 export const tempDirs: string[] = [];
+
+/**
+ * Harness-owned workspace root. Test sessions write here instead of the
+ * configured default, so teardown sweeps a tree no real repo uses. Each temp
+ * dir gets its own slug under it, so parallel test files never clobber each
+ * other.
+ */
+export const TEST_WORKSPACES_ROOT = join(
+	homedir(),
+	".pi",
+	"sillajje",
+	"testdir-temp",
+);
+
+// Route every loaded adapter's workspaces under the harness-owned root.
+setTestPorts({ workspacesRoot: TEST_WORKSPACES_ROOT });
 
 /**
  * The full SessionManager behind each runner, so tests can write to the
@@ -27,7 +43,8 @@ export const tempDirs: string[] = [];
 const sessionManagers = new WeakMap<ExtensionRunner, SessionManager>();
 
 afterEach(async () => {
-	// Reset the test seams so they never leak into later tests.
+	// Reset the per-test seams. `workspacesRoot` is set once at module load
+	// and stays for the whole file.
 	setTestPorts({
 		run: undefined,
 		exec: undefined,
@@ -35,6 +52,13 @@ afterEach(async () => {
 	});
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
+		// A session workspace lands at `<TEST_WORKSPACES_ROOT>/<temp-basename>`,
+		// outside the temp dir. The temp repo's own `.jj` goes with `dir`; the
+		// workspace directory would not, so sweep its slug too.
+		await rm(join(TEST_WORKSPACES_ROOT, basename(dir)), {
+			recursive: true,
+			force: true,
+		});
 	}
 });
 
@@ -260,10 +284,9 @@ export function getSessionId(runner: ExtensionRunner): string {
 	return id;
 }
 
-/** Default workspace path for a given session (config workspacesRoot default). */
+/** Default workspace path for a given session (harness-owned root). */
 export function wsPath(repoRoot: string, sessionId: string): string {
-	const repoSlug = repoRoot.split("/").pop();
-	return `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
+	return `${TEST_WORKSPACES_ROOT}/${repoSlug(repoRoot)}/${sessionId}`;
 }
 
 /** The qualified session key: `<user>/<host>/<id>`. */

@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { expect, it } from "vitest";
 import {
@@ -10,6 +10,7 @@ import {
 	runSillajje,
 	sessionBookmark,
 	tempDirs,
+	wsPath,
 } from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -23,12 +24,6 @@ function getSessionId(
 	const id = runner.createContext().sessionManager.getSessionId();
 	if (!id) throw new Error("sessionId should be defined after session_start");
 	return id;
-}
-
-/** Resolve the default workspace path for a given session and repo root. */
-function wsPath(repoRoot: string, sessionId: string): string {
-	const repoSlug = repoRoot.split("/").pop()!;
-	return `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
 }
 
 function assistantMsg(text: string) {

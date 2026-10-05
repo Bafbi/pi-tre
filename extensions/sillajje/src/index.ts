@@ -134,13 +134,15 @@ let activeConfig: ReturnType<typeof loadSillajjeConfig> | undefined;
  * one `globalThis` object through `setTestPorts`; the loaded adapter reads
  * them. `run` replaces the sub-generator backend; `exec` wraps every jj call
  * so a test can inject a failure at one command. `progressDelayMs` shortens
- * the Progress draw delay so a test does not wait on a timer. No second seam
- * exists.
+ * the Progress draw delay so a test does not wait on a timer.
+ * `workspacesRoot` overrides the configured workspace root so test sessions
+ * write into a harness-owned tree. No second seam exists.
  */
 interface TestPortOverrides {
 	run?: RunSubagent;
 	exec?: ExecFn;
 	progressDelayMs?: number;
+	workspacesRoot?: string;
 }
 
 /** The shared override object, created on first access. */
@@ -230,7 +232,9 @@ export default function (pi: ExtensionAPI) {
 		createWorkspaces(jj, {
 			repoRoot,
 			workspacesRoot:
-				activeConfig?.workspacesRoot ?? `${homedir()}/.pi/sillajje`,
+				testPorts().workspacesRoot ??
+				activeConfig?.workspacesRoot ??
+				`${homedir()}/.pi/sillajje`,
 			owner,
 		});
 
