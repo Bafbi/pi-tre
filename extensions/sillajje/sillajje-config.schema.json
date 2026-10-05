@@ -221,6 +221,41 @@
 				"timeoutMs": {
 					"default": 30000,
 					"type": "integer"
+				},
+				"diff": {
+					"default": {},
+					"additionalProperties": false,
+					"type": "object",
+					"properties": {
+						"maxTokens": {
+							"default": 12000,
+							"type": "integer"
+						},
+						"maxLinesPerFile": {
+							"default": 400,
+							"type": "integer"
+						},
+						"omit": {
+							"default": [
+								"**/*.lock",
+								"**/*-lock.json",
+								"**/*-lock.yaml",
+								"**/*.lockb",
+								"**/go.sum",
+								"**/*.min.js",
+								"**/*.min.css",
+								"**/*.map",
+								"**/*.generated.*",
+								"**/*.pb.go",
+								"**/vendor/**",
+								"**/third_party/**"
+							],
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						}
+					}
 				}
 			}
 		},

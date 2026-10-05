@@ -8,6 +8,7 @@
  */
 
 import { emitStatus } from "../action.js";
+import { collectDiff } from "../diff.js";
 import {
 	buildCommitBody,
 	buildLoop,
@@ -64,7 +65,14 @@ export async function stampInteractionPath(
 	// degrades to an empty diff — it must not fail the stamp.
 	let diff = "";
 	try {
-		diff = await jj.diff("@", { cwd: wsPath });
+		const collected = await collectDiff(
+			jj,
+			{ rev: "@" },
+			cfg.diff,
+			wsPath,
+			deps.onStatus,
+		);
+		diff = collected.text;
 	} catch {
 		// Non-fatal: the sub-generator still gets transcript + prior descriptions.
 	}

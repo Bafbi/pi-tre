@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Diff size in the sillajje sub-generator</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Diff size in the sillajje sub-generator</h1>
+		<p class="sub">The full diff goes into every prompt, with no size cap. The fix is a per-file budget that keeps paths and drops content.</p>
+		<div class="meta">
+			<span class="chip">2026-10-04</span>
+			<span class="chip">scope: sillajje-core, sillajje-jj, sillajje adapter</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#current">Current pipeline</a>
+		<a href="#bites">Why it bites</a>
+		<a href="#options">Improvement options</a>
+		<a href="#shape">Recommended shape</a>
+		<a href="#open">Open questions</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>Three code paths fetch a diff, and all three fetch the whole thing. None of them cap it. The diff is then interpolated into the prompt verbatim, and the subagent port carries no token or context limit either. So a big file does not degrade gracefully: it makes the prompt big, the provider call fails, the retry wrapper burns its attempts, and the stamp falls back to a weak subject or an empty trace.</p>
+		<p>The improvement you describe — keep the file name and the change stat, drop the content — is a per-file budget applied before prompt assembly. It belongs in <code>sillajje-core</code> as a pure function, fed by the existing diff string or by new per-file jj reads.</p>
+	</section>
+
+	<section id="current">
+		<h2>Current pipeline</h2>
+		<h3>The three diff fetches</h3>
+		<table>
+			<thead>
+				<tr><th>Path</th><th>Fetch</th><th>File</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Interaction stamp (session, with transcript)</td>
+					<td><code>jj.diff("@")</code> → one string; a failed fetch degrades to empty, never fails the stamp</td>
+					<td><code>packages/sillajje-core/src/stamp/interaction.ts:67</code></td>
+				</tr>
+				<tr>
+					<td>Diff-only stamp (manual session, rev stamp)</td>
+					<td><code>jj.diff(rev)</code> → one string; empty means <code>no-changes</code></td>
+					<td><code>packages/sillajje-core/src/stamp/diff-only.ts:50</code></td>
+				</tr>
+				<tr>
+					<td>Fold</td>
+					<td><code>jj.diffRange(base, tip, { filesets })</code> → one string</td>
+					<td><code>packages/sillajje-core/src/fold.ts:660</code></td>
+				</tr>
+			</tbody>
+		</table>
+		<p>The jj boundary returns stdout as-is. <code>Jj.diff</code> in <code>packages/sillajje-jj/src/jj.ts:439</code> calls <code>queryString(diffArgv(revset))</code>, and <code>diffArgv</code> is just <code>["diff", "-r", revset]</code>. There is no <code>--stat</code>, no name-only variant, and no byte cap anywhere in <code>packages/sillajje-jj/src/exec.ts</code>. Fold already uses <code>filesets</code> for its <code>--exclude</code> paths; <code>Jj.diff</code> does not accept <code>filesets</code>, only <code>diffRange</code> does.</p>
+
+		<h3>Prompt assembly</h3>
+		<p><code>SubGeneratorContext</code> carries three strings: <code>transcript</code>, <code>diff</code>, <code>previousDescriptions</code> (<code>packages/sillajje-core/src/sub-generator.ts:26</code>). <code>renderTemplate</code> (<code>sub-generator.ts:192</code>) substitutes the whole <code>{{diff}}</code> into every template: the header template, the three trace templates, and the manual header template. Nothing slices, truncates, or counts the injected text.</p>
+		<p>For the interaction path, <code>buildTranscript</code> (<code>interaction.ts:31</code>) joins the full user prompt, the tool-name list, and the last assistant response. That is also uncapped.</p>
+
+		<h3>The port and the config</h3>
+		<p><code>RunSubagent</code> takes <code>: prompt</code>, <code>: model</code>, and <code>: timeoutMs</code> (<code>packages/sillajje-core/src/action.ts:44</code>). There is no <code>maxTokens</code>. The adapter passes the prompt straight to <code>runSubagent</code> (<code>extensions/sillajje/src/sub-generator.ts</code>). A grep of <code>packages/pi-subagent/src</code> finds no context-window, token, or truncation handling.</p>
+		<p>The config schema exposes only <code>subGenerator.retry.maxAttempts</code> and <code>subGenerator.timeoutMs</code> (<code>packages/sillajje-core/src/config.ts:161</code>, <code>:169</code>). There is no diff budget knob.</p>
+	</section>
+
+	<section id="bites">
+		<h2>Why it bites</h2>
+		<div class="callout crit">
+			<p>A diff that overflows the model's context does not produce a "file changed" line. It makes the call fail, and <code>runWithRetry</code> (<code>sub-generator.ts:224</code>) retries <code>maxAttempts</code> times — three by default — before the fallback fires. The user pays three failed calls and gets <code>deriveSubject(prompt)</code> for the header, an empty trace, or <code>chore: manual checkpoint</code> for a manual header.</p>
+		</div>
+		<p>Three more costs, in order of how often they matter:</p>
+		<ul>
+			<li><strong>Wasted signal.</strong> The trace templates say the narrative must be "grounded in the transcript, not in the file diff" (<code>sub-generator.ts:135</code>, <code>:157</code>, <code>:179</code>). For an interaction stamp the diff is auxiliary, so a full diff can spend most of the prompt on text the trace is told to ignore.</li>
+			<li><strong>The diff is the only signal in three paths.</strong> A rev stamp, a manual session stamp, and a fold have no transcript. Their header and summary still come from the diff, so a hard budget must not blank the diff entirely there.</li>
+			<li><strong>Memory, not just context.</strong> Fetching the whole diff materializes it as a JS string before any cap runs. A generated file or a lockfile with a million lines is a real memory event even if the prompt is later trimmed.</li>
+		</ul>
+		<p>Note where the user's 200k figure sits. That is a prompt ceiling, not a diff budget. The diff should get a fraction of it, because the transcript, the header template, and the model's own output need room.</p>
+	</section>
+
+	<section id="options">
+		<h2>Improvement options</h2>
+		<div class="grid">
+			<div class="card">
+				<h3>A. Condense the diff string</h3>
+				<p>A pure function in <code>sillajje-core</code>: split the jj diff into per-file sections on the jj header lines (<code>Modified regular file &lt;path&gt;:</code>, <code>Added …</code>, <code>Deleted …</code>, <code>Renamed …</code>), keep small sections, and replace a large section with its header plus <code>diff omitted (N lines)</code>. Enforce a global budget; once spent, list the rest path-only.</p>
+				<p>Hermetic and unit-testable against captured diff text. Does not stop the big string from being materialized first.</p>
+			</div>
+			<div class="card">
+				<h3>B. Fetch per-file from jj</h3>
+				<p>Never build the big string. Read <code>jj diff --stat -r &lt;rev&gt;</code> for the file list with add/delete counts, then fetch each small file with <code>jj diff -r &lt;rev&gt; &lt;fileset&gt;</code> while the budget lasts. Emit omitted files as <code>&lt;status&gt; &lt;path&gt; (+a/-b) — content omitted</code>.</p>
+				<p>Bounded memory and a hard cap. Costs more jj invocations and needs new boundary methods, because <code>Jj.diff</code> does not take <code>filesets</code> today.</p>
+			</div>
+			<div class="card">
+				<h3>C. Ignore generated paths</h3>
+				<p>A configurable skip list, like fold's <code>--exclude</code>: lockfiles, <code>dist/**</code>, <code>*.min.js</code>, snapshots. Omit them regardless of size. Cheapest win for the common big-file case.</p>
+			</div>
+			<div class="card">
+				<h3>D. Budget transcript too</h3>
+				<p>A single assistant response can be as large as a diff. Cap the transcript with the same budget machinery, and for an interaction stamp drop diff content before dropping transcript, since the trace is transcript-grounded.</p>
+			</div>
+		</div>
+		<p>Option A is the smallest change and fits the existing tests. Option B is the correct long-term boundary and subsumes A's memory concern. C is orthogonal and should ship with either. D closes the second unbounded input.</p>
+	</section>
+
+	<section id="shape">
+		<h2>Recommended shape</h2>
+		<p>Add a <code>condenseDiff</code> module to <code>sillajje-core</code> with a pure, unit-tested core, and give it two config knobs under <code>subGenerator</code>:</p>
+		<pre><code>subGenerator: {
+  diff: {
+    maxBytes: 200_000,      // whole condensed diff budget
+    maxFileBytes: 20_000,   // per-file content budget
+    omit: ["pnpm-lock.yaml", "*.lock", "*.min.js", "dist/**", "*.snap"],
+  },
+}</code></pre>
+		<p>The condensed diff keeps the jj header line for every file, so the header generator can still infer a scope from the paths. Content survives only for files under <code>maxFileBytes</code> and only while <code>maxBytes</code> allows.</p>
+		<pre><code>Modified regular file src/auth.ts:
+@@ -1,4 +1,6 @@
+ ...full content, small file...
+
+Modified regular file src/generated/schema.ts (+1834/-902):
+[content omitted: 2736 lines]
+
+Added regular file pnpm-lock.yaml (+0/-0):
+[content omitted: ignored path]</code></pre>
+		<p>Then:</p>
+		<ul>
+			<li>Call <code>condenseDiff</code> at each fetch site — <code>interaction.ts:67</code>, <code>diff-only.ts:50</code>, <code>fold.ts:660</code> — so all three paths and the manual header path share one budget.</li>
+			<li>Keep the <code>{{diff}}</code> substitution unchanged. Condensing is an input transform, not a prompt change.</li>
+			<li>Emit one status when content was dropped, for example <code>info</code> code <code>diff-condensed</code> with the count of omitted files. Omitting silently would make a weak stamp look like a model failure.</li>
+			<li>Track budget in bytes or estimated tokens (<code>chars / 4</code>), never in lines alone: a line of minified JS is not a line of source.</li>
+			<li>Do the memory-safe version (option B) when convenient: expose <code>diffStat</code> and let <code>Jj.diff</code> accept <code>filesets</code>, so the big file is never read.</li>
+		</ul>
+	</section>
+
+	<section id="open">
+		<h2>Open questions</h2>
+		<ul>
+			<li><strong>Budget unit.</strong> Is the 200k a prompt ceiling you want enforced with a token estimate, or is the diff budget a separate smaller number? A token estimate is fuzzy without a tokenizer; bytes are exact and hermetic.</li>
+			<li><strong>Where the cap lives.</strong> Option A is a pure function in the core and needs no boundary change. Option B is the right boundary but adds <code>diffStat</code> and a <code>filesets</code> option on <code>Jj.diff</code>. Which do you want first?</li>
+			<li><strong>Granularity.</strong> Per-file, or per-hunk? Keeping the first hunk of every large file preserves a hint of what changed; it also makes the output shape less predictable.</li>
+			<li><strong>Default ignore list.</strong> Do lockfiles and generated output get a shipped default, or does the user opt in? A shipped default changes existing stamps.</li>
+			<li><strong>Fallback shape.</strong> When even the condensed diff overflows, should the header generator run with paths only, or should the stamp skip the subagent and use <code>deriveSubject</code> up front instead of after three failed calls?</li>
+		</ul>
+	</section>
+
+	<footer>Generated by the agent. Sources: <code>packages/sillajje-core/src/{sub-generator,stamp/interaction,stamp/diff-only,fold,config}.ts</code>, <code>packages/sillajje-jj/src/{jj,argv,exec}.ts</code>, <code>extensions/sillajje/src/sub-generator.ts</code>. No jj command is needed to reproduce; every claim is a read of these files.</footer>
+</main>
+</body>
+</html>

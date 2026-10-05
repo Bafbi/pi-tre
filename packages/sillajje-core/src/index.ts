@@ -46,10 +46,23 @@ export {
 } from "./args.js";
 export { assembleDescription, type Section } from "./body.js";
 export {
+	DEFAULT_DIFF_MAX_LINES_PER_FILE,
+	DEFAULT_DIFF_MAX_TOKENS,
+	DEFAULT_DIFF_OMIT,
+	type DiffBudget,
 	defaultSillajjeConfig,
 	type SillajjeConfig,
 	SillajjeConfigSchema,
 } from "./config.js";
+export {
+	type CollectedDiff,
+	collectDiff,
+	emitDiffCondensed,
+	estimateTokens,
+	matchesOmit,
+	type OmitReason,
+	type OmittedFile,
+} from "./diff.js";
 export {
 	createFold,
 	FOLD_ARGS,

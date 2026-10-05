@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { Check, Clean, Default } from "@sinclair/typebox/value";
 import { describe, expect, it } from "vitest";
 import {
+	DEFAULT_DIFF_OMIT,
 	defaultSillajjeConfig,
 	type SillajjeConfig,
 	SillajjeConfigSchema,
@@ -43,6 +44,9 @@ describe("SillajjeConfigSchema", () => {
 		expect(config.actions?.fold?.summary?.detail).toBe("high");
 		expect(config.subGenerator?.retry?.maxAttempts).toBe(3);
 		expect(config.subGenerator?.timeoutMs).toBe(30_000);
+		expect(config.subGenerator?.diff?.maxTokens).toBe(12_000);
+		expect(config.subGenerator?.diff?.maxLinesPerFile).toBe(400);
+		expect(config.subGenerator?.diff?.omit).toEqual([...DEFAULT_DIFF_OMIT]);
 	});
 
 	it("keeps a provided value and fills the rest", () => {

@@ -5,6 +5,8 @@ import {
 	conflictsArgv,
 	diffArgv,
 	diffRangeArgv,
+	diffStatArgv,
+	diffSummaryArgv,
 	gitPushArgv,
 	logArgv,
 	mutationArgv,
@@ -135,6 +137,44 @@ describe("read argv", () => {
 
 	it("reads a diff for a revset", () => {
 		expect(diffArgv("@")).toEqual(["diff", "-r", "@"]);
+	});
+
+	it("restricts a diff to filesets", () => {
+		expect(diffArgv("@", ['~(prefix-glob:".scratch/")'])).toEqual([
+			"diff",
+			"-r",
+			"@",
+			'~(prefix-glob:".scratch/")',
+		]);
+	});
+
+	it("reads a diff summary for a rev or a range", () => {
+		expect(diffSummaryArgv({ rev: "@" })).toEqual([
+			"diff",
+			"--summary",
+			"-r",
+			"@",
+		]);
+		expect(
+			diffSummaryArgv({ from: "a", to: "b", filesets: ["x"] }),
+		).toEqual(["diff", "--summary", "--from", "a", "--to", "b", "x"]);
+	});
+
+	it("reads diff stats for a rev or a range", () => {
+		expect(diffStatArgv({ rev: "abc" })).toEqual([
+			"diff",
+			"--stat",
+			"-r",
+			"abc",
+		]);
+		expect(diffStatArgv({ from: "a", to: "b" })).toEqual([
+			"diff",
+			"--stat",
+			"--from",
+			"a",
+			"--to",
+			"b",
+		]);
 	});
 
 	it("reads a tree diff between two revisions", () => {

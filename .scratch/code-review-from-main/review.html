@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Code review: diff budget, from main</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Code review: diff budget, from main</h1>
+		<p class="sub">One defect reaches both axes: the whole-diff fast path skips the token ceiling, so the budget does not bound what it claims to bound.</p>
+		<div class="meta">
+			<span class="chip">2026-10-05</span>
+			<span class="chip">scope: sillajje-core, sillajje-jj, sillajje adapter</span>
+			<span class="chip">fixed point: main</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#standards">Standards</a>
+		<a href="#spec">Spec</a>
+		<a href="#verification">Verification</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>Diff under review: <code>heads(::@ &amp; ::main)..@</code>, three commits, 25 files, ~1,246 insertions. The spec is <code>.scratch/sillajje-diff-budget/diff-budgeting.html</code>, with the accepted decision in <code>packages/sillajje-core/docs/adr/0003-diff-budget.md</code>.</p>
+		<p>Both axes point at the same line from different directions. Spec says "track budget in bytes or estimated tokens, never in lines alone"; Standards says the glossary term "Diff budget" promises a whole-diff token ceiling. <code>collectDiff</code> returns the whole diff unmeasured on the line-gate fast path, so neither promise holds.</p>
+	</section>
+
+	<section id="standards">
+		<h2>Standards</h2>
+		<p>Sources: root <code>AGENTS.md</code>, <code>docs/agents/domain.md</code>, the per-package <code>CONTEXT.md</code> glossaries, the ADR format, plus the smell baseline. Tooling enforces the rest (see Verification).</p>
+
+		<div class="callout warn">
+			<h3>1. Documentation states a guarantee the code breaks (documented standard)</h3>
+			<p><code>packages/sillajje-core/CONTEXT.md</code> defines <em>Diff budget</em> as "a per-file line gate and a whole-diff estimated-token ceiling." ADR 0003 line 19 repeats that the estimate "bounds a prompt." On the fast path (<code>diff.ts:146-148</code>) the whole diff is returned with no token measurement, so a diff under the line gate can exceed the stated ceiling by orders of magnitude. The glossary is the project's own contract; it currently overstates the code.</p>
+		</div>
+
+		<div class="callout">
+			<h3>2. Duplicated Code (judgement)</h3>
+			<p>The same three-step shape repeats at three call sites: collect, assign <code>diff</code>, emit.</p>
+			<pre><code>const collected = await collectDiff(jj, spec, cfg.diff, cwd);
+diff = collected.text;
+emitDiffCondensed(onStatus, collected.omitted);</code></pre>
+			<p>Seen at <code>stamp/interaction.ts:67</code>, <code>stamp/diff-only.ts:50</code>, and <code>fold.ts:663</code>. A wrapper in <code>diff.ts</code> that emits and returns the text would leave one shape. Judgement call: the three sites differ in error policy, so the wrapper can't swallow the try/catch, only the emit step.</p>
+		</div>
+
+		<div class="callout">
+			<h3>3. Mysterious Name (judgement, minor)</h3>
+			<p><code>gate(file, budget, spent)</code> returns an <code>OmitReason</code> for skipping a file; the name says nothing about omission. <code>omitReason</code> names what it returns. Same for the local <code>reason</code>.</p>
+		</div>
+
+		<div class="callout">
+			<h3>4. New test-naming convention (judgement, minor)</h3>
+			<p><code>packages/sillajje-jj/test/diff-real.test.ts</code> is the only <code>*-real.test.ts</code> in the tree. The sibling real-jj tests are <code>mutations.test.ts</code>, <code>transaction.test.ts</code>, <code>versions.test.ts</code>. The <code>-real</code> suffix introduces a convention the repo does not use. Not a hard violation; the file's content follows the real-jj harness pattern correctly.</p>
+		</div>
+
+		<div class="callout">
+			<h3>5. Speculative export (judgement, weak)</h3>
+			<p><code>DiffOptions</code> went from internal to exported and re-exported from <code>sillajje-jj/src/index.ts</code>. No consumer in this diff imports it; core imports <code>DiffSpec</code>. It is harmless (public-signature completeness), but nothing asked for it.</p>
+		</div>
+	</section>
+
+	<section id="spec">
+		<h2>Spec</h2>
+		<p>Spec: <code>.scratch/sillajje-diff-budget/diff-budgeting.html</code> ("Recommended shape" and "Open questions"). ADR 0003 is the accepted decision record and deliberately deviates on some points; those are noted as deviations, not defects.</p>
+
+		<div class="callout crit">
+			<h3>1. Token ceiling bypassed on the fast path (requirement implemented wrong)</h3>
+			<p>Spec: "<em>Track budget in bytes or estimated tokens (chars / 4), never in lines alone: a line of minified JS is not a line of source.</em>"</p>
+			<p><code>diff.ts:146</code> returns <code>fetchText(...)</code> whenever <code>totals.added + totals.removed &lt;= budget.maxLinesPerFile</code>, with no <code>estimateTokens</code> check and an empty <code>omitted</code> array. A 2&nbsp;MB single-line bundle is 1–2 changed lines, so it is inlined whole. This is the exact failure mode the spec's "Why it bites" section names. The fast path needs to measure its own text and fall through to the per-file walk when it exceeds <code>maxTokens</code>.</p>
+		</div>
+
+		<div class="callout warn">
+			<h3>2. Configurable skip list missing (requirement missing)</h3>
+			<p>Spec: Option C, "a configurable skip list … Omit them regardless of size," and "<em>C is orthogonal and should ship with either.</em>" The recommended shape names <code>omit: ["pnpm-lock.yaml", …]</code>. The shipped schema exposes only <code>maxTokens</code> and <code>maxLinesPerFile</code> (<code>config.ts:188-198</code>, schema JSON). ADR 0003 rejects a shipped <em>default</em> list "for now," which is a fair call, but the spec asked for a <em>knob</em>, and no knob exists.</p>
+		</div>
+
+		<div class="callout info">
+			<h3>3. <code>diff-condensed</code> status lacks the count (partial)</h3>
+			<p>Spec: "Emit one status when content was dropped, for example <code>info</code> code <code>diff-condensed</code> <em>with the count of omitted files</em>." <code>emitDiffCondensed</code> prints up to five paths plus <code>+N more</code>; there is no numeric total when there are five or fewer. Add the count.</p>
+		</div>
+
+		<div class="callout info">
+			<h3>4. Budget defaults differ (documented deviation, not a defect)</h3>
+			<p>Spec proposed <code>maxBytes: 200_000</code> and <code>maxFileBytes: 20_000</code>; the ship uses <code>maxTokens: 12_000</code> and <code>maxLinesPerFile: 400</code>. The spec left the unit and the number as open questions and ADR 0003 resolves them, so record only.</p>
+		</div>
+
+		<div class="callout">
+			<h3>5. Transcript budget not done (open question)</h3>
+			<p>Spec Option D caps the transcript too. ADR 0003 states "the transcript is not budgeted yet." Open question, not a requirement.</p>
+		</div>
+
+		<div class="callout ok">
+			<h3>Implemented as asked</h3>
+			<ul>
+				<li>Option B boundary: <code>Jj.diffStat</code>, <code>Jj.diffFiles</code>, and <code>filesets</code> on <code>Jj.diff</code>; the big file is never read on the per-file path.</li>
+				<li>Per-file line gate drops content before fetch, keeping path and change count in the marker.</li>
+				<li>All three fetch sites share one budget; <code>{{diff}}</code> substitution untouched.</li>
+				<li>New <code>sillajje-core</code> module with unit tests, plus a real-jj pairing test.</li>
+			</ul>
+		</div>
+
+		<div class="callout info">
+			<h3>Test-coverage gap (spec-adjacent)</h3>
+			<p><code>diff-real.test.ts</code> covers add, modify, and remove. The binary and zero-delta rows that <code>decodeDiffStatCounts</code> special-cases are only unit-tested with hand-written fixtures. I reproduced empty-file and pure-rename rows against jj 0.44 and the <code>--summary</code>/<code>--stat</code> arrays paired, so the pairing holds; the real-jj test just does not pin it.</p>
+		</div>
+	</section>
+
+	<section id="verification">
+		<h2>Verification</h2>
+		<p>Run inside the review workspace, jj 0.44.0:</p>
+		<table>
+			<thead><tr><th>Check</th><th>Result</th></tr></thead>
+			<tbody>
+				<tr><td><code>pnpm exec biome check</code> (touched trees)</td><td>pass, 112 files</td></tr>
+				<tr><td><code>tsc --noEmit</code> (4 touched packages)</td><td>pass</td></tr>
+				<tr><td><code>tsc --noUncheckedIndexedAccess --exactOptionalPropertyTypes</code></td><td>pass</td></tr>
+				<tr><td><code>scripts/run-vitest.sh packages/sillajje-jj</code></td><td>70 passed</td></tr>
+				<tr><td><code>scripts/run-vitest.sh packages/sillajje-core</code></td><td>263 passed</td></tr>
+				<tr><td><code>pnpm run boundaries</code>, <code>config-roots</code></td><td>pass</td></tr>
+				<tr><td><code>pnpm run knip</code></td><td>fails on <code>TEST_WORKSPACES_ROOT</code> in <code>extensions/sillajje/test/integration/_helpers.ts</code> — pre-existing, file untouched by this diff</td></tr>
+			</tbody>
+		</table>
+		<footer>Fixed point <code>main</code> (2929f698); diff <code>heads(::@ &amp; ::main)..@</code>. The two axes ran in one context because this session exposes no sub-agent spawn tool; they are reported separately regardless.</footer>
+	</section>
+</main>
+</body>
+</html>

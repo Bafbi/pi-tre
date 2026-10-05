@@ -149,10 +149,12 @@ function makeJj(opts?: {
 		},
 	);
 	const diffRange = vi.fn(async () => "diff --git a/f b/f\n+added");
+	const diffFiles = vi.fn(async () => []);
 	const jj = {
 		log,
 		diff: vi.fn(async () => "diff --git a/f b/f\n+added"),
 		diffRange,
+		diffFiles,
 		bookmarks,
 		gitPush,
 		transaction,

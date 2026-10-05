@@ -436,13 +436,30 @@ describe("stampSession (interaction context)", () => {
 
 		const calls = mockCalls(exec);
 
-		// First: diff fetch
+		// First: the per-file manifest that decides the diff budget
 		expect(calls[0]![0]).toBe("jj");
-		expect(calls[0]![1]).toEqual(["diff", "-r", "@", "--color=never"]);
+		expect(calls[0]![1]).toEqual([
+			"diff",
+			"--summary",
+			"-r",
+			"@",
+			"--color=never",
+		]);
+		expect(calls[1]![1]).toEqual([
+			"diff",
+			"--stat",
+			"-r",
+			"@",
+			"--color=never",
+		]);
 
-		// Second: prior descriptions fetch
-		expect(calls[1]![0]).toBe("jj");
-		expect(calls[1]![1][0]).toBe("log");
+		// Second: the whole diff (under the budget)
+		expect(calls[2]![0]).toBe("jj");
+		expect(calls[2]![1]).toEqual(["diff", "-r", "@", "--color=never"]);
+
+		// Third: prior descriptions fetch
+		expect(calls[3]![0]).toBe("jj");
+		expect(calls[3]![1][0]).toBe("log");
 
 		// The transactional seal follows, chained on captured op ids.
 		const descCall = calls.find(
@@ -944,6 +961,60 @@ describe("stampSession (manual context)", () => {
 		expect(descBody).toBeUndefined();
 	});
 
+	it("condenses a diff over the budget and reports diff-condensed", async () => {
+		const exec = mockExec({
+			"jj diff -r @ small.ts": {
+				code: 0,
+				stdout: "Modified regular file small.ts:\n@@ -1 +1 @@\n-a\n+b\n",
+				stderr: "",
+			},
+			"jj diff --summary -r @": {
+				code: 0,
+				stdout: "M small.ts\nM big.ts\n",
+				stderr: "",
+			},
+			"jj diff --stat -r @": {
+				code: 0,
+				stdout: [
+					"small.ts | 2 ++",
+					`big.ts | 900 ${"+".repeat(20)}`,
+					"2 files changed, 902 insertions(+), 0 deletions(-)",
+				].join("\n"),
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			jj: createJj(exec),
+			run: spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result.ok).toBe(true);
+		// The condensed diff reaches the manual header sub-generator.
+		const prompt = spawn.mock.calls[0]?.[0]?.prompt as string;
+		expect(prompt).toContain("small.ts");
+		expect(prompt).toContain(
+			"Modified big.ts (900 lines changed): diff content omitted (too large)",
+		);
+		// No whole `jj diff` read happened: the big file was never fetched.
+		expect(
+			mockCalls(exec).some(
+				(call) => call[1]?.[0] === "diff" && call[1].includes("big.ts"),
+			),
+		).toBe(false);
+		expect(
+			statuses.some(
+				(event) =>
+					event.kind === "info" && event.code === "diff-condensed",
+			),
+		).toBe(true);
+	});
+
 	// -------------------------------------------------------------------
 	// Happy path: full seal at rev "@"
 	// -------------------------------------------------------------------
@@ -1209,14 +1280,28 @@ describe("stampRev", () => {
 
 		const calls = mockCalls(exec);
 
-		// Three jj calls: the diff fetch, the describe, and the operation read
-		// that returns the describe's MutationResult. No seal — no update-stale,
-		// no bookmark set, no jj new.
-		expect(calls).toHaveLength(3);
+		// Five jj calls: the `--summary` read, the `--stat` read, the whole diff,
+		// the describe, and the operation read that returns the describe's
+		// MutationResult. No seal — no update-stale, no bookmark set, no jj new.
+		expect(calls).toHaveLength(5);
 		expect(calls[0]![0]).toBe("jj");
-		expect(calls[0]![1]).toEqual(["diff", "-r", "abc123", "--color=never"]);
+		expect(calls[0]![1]).toEqual([
+			"diff",
+			"--summary",
+			"-r",
+			"abc123",
+			"--color=never",
+		]);
+		expect(calls[1]![1]).toEqual([
+			"diff",
+			"--stat",
+			"-r",
+			"abc123",
+			"--color=never",
+		]);
+		expect(calls[2]![1]).toEqual(["diff", "-r", "abc123", "--color=never"]);
 
-		const descCall = calls[1];
+		const descCall = calls[3];
 		expect(descCall![0]).toBe("jj");
 		expect(descCall![1][0]).toBe("describe");
 		expect(descCall![1].slice(1, 4)).toEqual(["-r", "abc123", "-m"]);

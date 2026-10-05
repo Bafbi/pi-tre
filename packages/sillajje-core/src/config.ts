@@ -166,11 +166,69 @@ const SubGeneratorRetrySchema = Type.Object(
 	{ default: {} },
 );
 
+/** Default estimated-token ceiling for inlined diff content. */
+export const DEFAULT_DIFF_MAX_TOKENS = 12_000;
+
+/** Default per-file line gate for inlined diff content. */
+export const DEFAULT_DIFF_MAX_LINES_PER_FILE = 400;
+
+/**
+ * Default paths whose content never reaches a prompt: machine-generated
+ * manifests, minified output, source maps, and vendored code. The file's name
+ * and change count stay, so a dependency bump still yields a subject. Clear
+ * the list with `subGenerator.diff.omit: []`.
+ */
+export const DEFAULT_DIFF_OMIT: readonly string[] = [
+	"**/*.lock",
+	"**/*-lock.json",
+	"**/*-lock.yaml",
+	"**/*.lockb",
+	"**/go.sum",
+	"**/*.min.js",
+	"**/*.min.css",
+	"**/*.map",
+	"**/*.generated.*",
+	"**/*.pb.go",
+	"**/vendor/**",
+	"**/third_party/**",
+];
+
+/**
+ * The sub-generator's diff budget: how much diff content reaches a prompt.
+ * The budget counts estimated tokens, not bytes, so a hostile estimate is a
+ * safe over-approximation of the model's cost.
+ */
+export interface DiffBudget {
+	/** Estimated-token ceiling for all inlined diff content. */
+	maxTokens: number;
+	/** Per-file line gate; a file over it keeps its name, not its content. */
+	maxLinesPerFile: number;
+	/** Path globs whose content is always dropped, keeping name and count. */
+	omit: readonly string[];
+}
+
+/** `subGenerator.diff` — the diff budget. */
+const SubGeneratorDiffSchema = Type.Object(
+	{
+		maxTokens: Type.Optional(
+			Type.Integer({ default: DEFAULT_DIFF_MAX_TOKENS }),
+		),
+		maxLinesPerFile: Type.Optional(
+			Type.Integer({ default: DEFAULT_DIFF_MAX_LINES_PER_FILE }),
+		),
+		omit: Type.Optional(
+			Type.Array(Type.String(), { default: [...DEFAULT_DIFF_OMIT] }),
+		),
+	},
+	{ default: {}, additionalProperties: false },
+);
+
 /** `subGenerator` — sub-generator behaviour control. */
 const SubGeneratorSchema = Type.Object(
 	{
 		retry: Type.Optional(SubGeneratorRetrySchema),
 		timeoutMs: Type.Optional(Type.Integer({ default: 30_000 })),
+		diff: Type.Optional(SubGeneratorDiffSchema),
 	},
 	{ default: {} },
 );
@@ -266,6 +324,7 @@ export interface SubGeneratorDefaults {
 	model: string;
 	maxAttempts: number;
 	timeoutMs: number;
+	diff: DiffBudget;
 }
 
 /** Extract the global sub-generator settings from a fully-populated config. */
@@ -276,5 +335,13 @@ export function subGeneratorDefaults(
 		model: cfg.subGeneratorModel ?? "openai/gpt-4o-mini",
 		maxAttempts: cfg.subGenerator?.retry?.maxAttempts ?? 3,
 		timeoutMs: cfg.subGenerator?.timeoutMs ?? 30_000,
+		diff: {
+			maxTokens:
+				cfg.subGenerator?.diff?.maxTokens ?? DEFAULT_DIFF_MAX_TOKENS,
+			maxLinesPerFile:
+				cfg.subGenerator?.diff?.maxLinesPerFile ??
+				DEFAULT_DIFF_MAX_LINES_PER_FILE,
+			omit: cfg.subGenerator?.diff?.omit ?? [...DEFAULT_DIFF_OMIT],
+		},
 	};
 }

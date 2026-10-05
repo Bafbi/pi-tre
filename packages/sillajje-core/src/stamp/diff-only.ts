@@ -9,6 +9,7 @@
  */
 
 import { emitStatus } from "../action.js";
+import { collectDiff } from "../diff.js";
 import { buildCommitBody, buildMeta, type StampSource } from "../metadata.js";
 import { generateManualHeader } from "../sub-generator.js";
 import { queryFailureDetail } from "./internal.js";
@@ -47,7 +48,14 @@ export async function buildDiffOnlyBody(
 
 	let diff: string;
 	try {
-		diff = await deps.jj.diff(rev, { cwd: jjDir });
+		const collected = await collectDiff(
+			deps.jj,
+			{ rev },
+			cfg.diff,
+			jjDir,
+			deps.onStatus,
+		);
+		diff = collected.text;
 	} catch (err) {
 		// An unresolvable or immutable rev is jj's call to explain —
 		// relay its stderr rather than reading the failure as empty.

@@ -44,10 +44,12 @@ import {
 } from "./action.js";
 import type { CommandHelp, CommandSpec, SessionFailure } from "./args.js";
 import {
+	type DiffBudget,
 	type NarrativeDetail,
 	type SillajjeConfig,
 	subGeneratorDefaults,
 } from "./config.js";
+import { collectDiff } from "./diff.js";
 import {
 	buildFoldBody,
 	FOLD_BODY_SECTIONS,
@@ -127,6 +129,8 @@ export interface FoldConfig {
 	model: string;
 	maxAttempts: number;
 	timeoutMs: number;
+	/** The diff budget every collected diff is measured against. */
+	diff: DiffBudget;
 }
 
 /** A recipe-detected conflict. Thrown so the transaction rolls back. */
@@ -657,10 +661,18 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		// sub-generator spends a call.
 		let diff = "";
 		try {
-			diff = await jj.diffRange(base.commitId, tip.commitId, {
-				cwd: sourceCwd,
-				...(fileset === undefined ? {} : { filesets: [fileset] }),
-			});
+			const collected = await collectDiff(
+				jj,
+				{
+					from: base.commitId,
+					to: tip.commitId,
+					...(fileset === undefined ? {} : { filesets: [fileset] }),
+				},
+				cfg.diff,
+				sourceCwd,
+				onStatus,
+			);
+			diff = collected.text;
 		} catch (err) {
 			return fail(`fold diff generation failed: ${String(err)}`);
 		}
