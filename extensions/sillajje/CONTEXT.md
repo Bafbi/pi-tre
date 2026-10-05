@@ -28,7 +28,7 @@ The source tip last published by a Fold, recorded in the Folded source marker. F
 _Avoid_: Fold base, checkpoint
 
 **Folded source marker**:
-The `slj/f/<dest>/<source>` bookmark that records a Folded source. `<dest>` is the fold name (`--named`) or the bookmark `--update` advances; with neither, the fold records no marker, and the two flags are mutually exclusive. `<source>` is the session key for a session source, or the source bookmark (else the tip's change id) for a rev source. `<dest>` is escaped to one path segment (`%`/`/`), so a destination cannot read a nested destination's markers. One marker per source, so concurrent sources never share a cursor. The lookup is by ancestry, not by name, so a handoff or a renamed source still finds its predecessor's marker. Markers written under `sillajje/folded/` are never read.
+The `slj/f/<dest>/<source>` bookmark that records a Folded source. `<dest>` is the fold name (`--named`) or the bookmark `--update` advances; with neither, the fold records no marker, and the two flags are mutually exclusive. `<source>` is the session key for a session source, or the source bookmark (else the tip's change id) for a rev source. `<dest>` is escaped to one path segment with `_` as the escape (`_` doubles, other characters outside `[A-Za-z0-9._-]` become `_<hex>_`; percent-encoding is illegal in jj bookmark names), so a destination cannot read a nested destination's markers. One marker per source, so concurrent sources never share a cursor. The lookup is by ancestry, not by name, so a handoff or a renamed source still finds its predecessor's marker. Markers written under `sillajje/folded/` are never read.
 _Avoid_: Fold base, checkpoint, recorded marker
 
 **Excluded paths**:
