@@ -1,9 +1,14 @@
 import { execSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { createRunner, describeJj, makeRunnerCwd } from "./_helpers.js";
+import {
+	createRunner,
+	describeJj,
+	getSessionId,
+	makeRunnerCwd,
+	wsPath,
+} from "./_helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,12 +55,8 @@ describeJj("sillajje post-init commands", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 
 		// The workspace directory should contain the marker file.
-		const ctx = runner.createContext();
-		const sessionId = ctx.sessionManager.getSessionId();
-		expect(sessionId).toBeDefined();
-		const repoSlug = cwd.split("/").pop()!;
-		const wsPath = `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
-		expect(existsSync(join(wsPath, ".sillajje-post-init-marker"))).toBe(
+		const workspace = wsPath(cwd, getSessionId(runner));
+		expect(existsSync(join(workspace, ".sillajje-post-init-marker"))).toBe(
 			true,
 		);
 
@@ -101,13 +102,10 @@ describeJj("sillajje post-init commands", () => {
 
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const ctx = runner.createContext();
-		const sessionId = ctx.sessionManager.getSessionId();
-		const repoSlug = cwd.split("/").pop()!;
-		const wsPath = `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
+		const workspace = wsPath(cwd, getSessionId(runner));
 
 		const output = execSync("cat .sillajje-order", {
-			cwd: wsPath,
+			cwd: workspace,
 			encoding: "utf-8",
 		});
 		expect(output.trim()).toBe("first\nsecond");
@@ -146,14 +144,11 @@ describeJj("sillajje post-init commands", () => {
 
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const ctx = runner.createContext();
-		const sessionId = ctx.sessionManager.getSessionId();
-		const repoSlug = cwd.split("/").pop()!;
-		const wsPath = `${homedir()}/.pi/sillajje/${repoSlug}/${sessionId}`;
+		const workspace = wsPath(cwd, getSessionId(runner));
 
 		// Both markers should exist (commands 1 and 3 ran despite command 2 failure).
-		expect(existsSync(join(wsPath, ".sillajje-marker-a"))).toBe(true);
-		expect(existsSync(join(wsPath, ".sillajje-marker-c"))).toBe(true);
+		expect(existsSync(join(workspace, ".sillajje-marker-a"))).toBe(true);
+		expect(existsSync(join(workspace, ".sillajje-marker-c"))).toBe(true);
 
 		// Session is still active — workspace ready notification fired.
 		expect(notify).toHaveBeenCalledWith(
