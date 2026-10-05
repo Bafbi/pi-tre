@@ -316,11 +316,28 @@ const FOLDED_MARKER_NAMESPACE = "slj/f";
 
 /**
  * Encode a destination so it occupies one marker path segment. A destination
- * and a source may both contain `/`, so without this a fold for `review` would
- * read the markers written for `review/extra`.
+ * may contain `/`, so without this a fold for `review` would read the markers
+ * written for `review/extra`.
+ *
+ * The marker is itself a jj bookmark name, and jj rejects `%` in bookmark
+ * names, so this cannot be percent-encoding. `_` is the escape: `_` doubles,
+ * and any character outside `[A-Za-z0-9._-]` becomes `_<code point>_` in hex.
+ * The output is injective and contains no `/`, so a prefix match selects
+ * exactly one destination's markers.
+ *
+ * The caller must pass an already-legal jj bookmark name. That is what makes
+ * leaving `.` and `-` literal safe: a raw `.` or `-` here could otherwise land
+ * in an illegal position. Every character this function replaces becomes an
+ * identifier part (`_<hex>_`), so a surviving separator keeps identifier
+ * characters on both sides.
  */
 function encodeMarkerDest(dest: string): string {
-	return dest.replace(/%/g, "%25").replace(/\//g, "%2F");
+	return dest
+		.replace(/_/g, "__")
+		.replace(
+			/[^A-Za-z0-9._-]/gu,
+			(ch) => `_${(ch.codePointAt(0) ?? 0).toString(16)}_`,
+		);
 }
 
 /** The marker prefix that selects every source for a destination. */

@@ -459,6 +459,56 @@ describeJj("sillajje fold", () => {
 		expect(changeId(cwd, "slj/f/review/feat")).toBe(changeId(cwd, "feat"));
 	}, 30_000);
 
+	it("writes a jj-legal marker for a nested destination", async () => {
+		const cwd = initRepo();
+		const base = seedUpstreamMain(cwd);
+
+		jj(["new", base, "-m", "D"], cwd);
+		writeFileSync(join(cwd, "d.txt"), "d\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		// `review/feat` contains `/`, which is legal in a bookmark name but
+		// blurs the marker's destination boundary: a fold for `review` would read
+		// the markers written for `review/extra`. The encoder escapes `/` to one
+		// segment, and the marker ends up a bookmark name jj accepts.
+		await runSillajje(runner, "fold -r feat -o main --named review/feat");
+
+		expect(changeId(cwd, "review/feat")).toBeDefined();
+		expect(changeId(cwd, "slj/f/review_2f_feat/feat")).toBe(
+			changeId(cwd, "feat"),
+		);
+	}, 30_000);
+
+	it("writes a jj-legal marker for destinations jj cannot carry literally", async () => {
+		const cwd = initRepo();
+		const base = seedUpstreamMain(cwd);
+
+		jj(["new", base, "-m", "D"], cwd);
+		writeFileSync(join(cwd, "d.txt"), "d\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		// `*` is legal in a jj bookmark but not in a git ref, so the marker must
+		// escape it. `𝕏` is an astral letter: one code point, and the escaped
+		// marker must still be a bookmark jj accepts.
+		const cases = [
+			{ dest: "review*feat", marker: "slj/f/review_2a_feat/feat" },
+			{ dest: "𝕏-release", marker: "slj/f/_1d54f_-release/feat" },
+		];
+		for (const { dest, marker } of cases) {
+			await runSillajje(runner, `fold -r feat -o main --named ${dest}`);
+			expect(changeId(cwd, dest)).toBeDefined();
+			expect(changeId(cwd, marker)).toBe(changeId(cwd, "feat"));
+		}
+	}, 30_000);
+
 	it("appends across a renamed source because the lookup is by ancestry", async () => {
 		const cwd = initRepo();
 		const base = seedUpstreamMain(cwd);

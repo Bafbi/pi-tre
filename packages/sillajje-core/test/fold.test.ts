@@ -667,7 +667,7 @@ describe("createFold", () => {
 		});
 		expect(fakes.apply).toHaveBeenCalledWith({
 			kind: "bookmarkSet",
-			name: "slj/f/review%2Ffeat/tip",
+			name: "slj/f/review_2f_feat/tip",
 			rev: "tip",
 		});
 	});
@@ -683,18 +683,50 @@ describe("createFold", () => {
 		});
 
 		expect(result.ok).toBe(true);
-		if (result.ok) expect(result.marker).toBe("slj/f/review%2Fextra/tip");
+		if (result.ok) expect(result.marker).toBe("slj/f/review_2f_extra/tip");
 		expect(fakes.apply).toHaveBeenCalledWith({
 			kind: "bookmarkSet",
-			name: "slj/f/review%2Fextra/tip",
+			name: "slj/f/review_2f_extra/tip",
 			rev: "tip",
 		});
+	});
+
+	it("keeps a destination containing the escape character distinct", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			named: "review_2f_extra",
+		});
+
+		// `_` doubles, so `review/extra` and `review_2f_extra` must not collide.
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.marker).toBe("slj/f/review__2f__extra/tip");
+		}
+	});
+
+	it("encodes an astral character as one code point", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			named: "\u{1D54F}-release",
+		});
+
+		// One escape for U+1D54F, not two surrogate halves.
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.marker).toBe("slj/f/_1d54f_-release/tip");
 	});
 
 	it("does not read a marker written for a nested destination", async () => {
 		const fakes = makeJj({
 			bookmarks: [
-				{ name: "slj/f/review%2Fextra/feat", target: ["prev-c"] },
+				{ name: "slj/f/review_2f_extra/feat", target: ["prev-c"] },
 			],
 		});
 		const { action } = fold({ jj: fakes });
