@@ -106,6 +106,34 @@ interface DiffOptions extends ExecOptions {
 	filesets?: readonly string[];
 }
 
+/**
+ * Which tree a diff reads: one revision against its parent, or the delta of
+ * two arbitrary trees. The range form tolerates gaps a merge creates.
+ */
+export type DiffSpec =
+	| { rev: string }
+	| { from: string; to: string; filesets?: readonly string[] };
+
+/** A changed path's status. jj's sigil letters map one-to-one. */
+export type DiffStatus =
+	| "added"
+	| "modified"
+	| "removed"
+	| "renamed"
+	| "copied";
+
+/** One changed path, with the line-change count `jj diff --stat` reports. */
+export interface DiffFile {
+	/**
+	 * The target path, usable as an exact fileset. A rename's display form is
+	 * `{old => new}`; this is `new`.
+	 */
+	path: string;
+	status: DiffStatus;
+	/** Added plus removed lines; `0` for a binary file. */
+	changes: number;
+}
+
 // ---------------------------------------------------------------------------
 // The facade
 // ---------------------------------------------------------------------------
@@ -118,9 +146,11 @@ export type Tx = Pick<Jj, "apply"> & {
 
 export interface Jj {
 	log(revset: string, options?: ExecOptions): Promise<Commit[]>;
-	diff(revset: string, options?: ExecOptions): Promise<string>;
+	diff(revset: string, options?: DiffOptions): Promise<string>;
 	/** Tree diff between two revisions. Tolerates gaps a merge creates. */
 	diffRange(from: string, to: string, options?: DiffOptions): Promise<string>;
+	/** Per-file status and line counts. Two reads, zipped by order. */
+	diffFiles(spec: DiffSpec, options?: ExecOptions): Promise<DiffFile[]>;
 	conflicts(revset?: string, options?: ExecOptions): Promise<string[]>;
 	bookmarks(options?: ExecOptions): Promise<Bookmark[]>;
 	workspaces(options?: ExecOptions): Promise<Workspace[]>;

@@ -27,3 +27,7 @@ _Avoid_: Commit, publish, apply
 **Abandon**:
 Removing the Deferred operations a failed Transaction minted, returning the repository to its pre-Transaction state. It is not the `abandon` Mutation, which removes commits.
 _Avoid_: Rollback, revert, undo
+
+**Diff manifest**:
+The per-file read of a tree diff: one entry per changed path, each with its status and its added-plus-removed line count. The entry's path is the *target* path, so a rename arrives as its new path, never jj's `{old => new}` display form.
+_Avoid_: Diff stat (that is the count read the manifest pairs with), File list (a manifest also carries status and count)

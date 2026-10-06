@@ -3,7 +3,7 @@
  * the process invocations stay in one module and are asserted by unit tests.
  */
 
-import type { Mutation } from "./types.js";
+import type { DiffSpec, Mutation } from "./types.js";
 
 /** Global flag added to every call: a user's color config cannot poison output. */
 export const COLOR_FLAG = "--color=never";
@@ -73,8 +73,37 @@ export function logArgv(revset: string): string[] {
 	return ["log", "-r", revset, "--no-graph", "-T", JSON_LINE_TEMPLATE];
 }
 
-export function diffArgv(revset: string): string[] {
-	return ["diff", "-r", revset];
+export function diffArgv(
+	revset: string,
+	filesets?: readonly string[],
+): string[] {
+	return ["diff", "-r", revset, ...(filesets ?? [])];
+}
+
+/**
+ * The path read: one JSON-escaped target path and one status char per changed
+ * path, tab-separated. `json(path)` escapes any newline or tab a path holds,
+ * and `path` is the target path, so a rename's `{old => new}` display form
+ * never reaches a fileset.
+ */
+export const DIFF_MANIFEST_TEMPLATE =
+	'json(path) ++ "\\t" ++ status_char ++ "\\n"';
+
+/** The `-T` read: one JSON path + status char line per changed path. */
+export function diffManifestArgv(spec: DiffSpec): string[] {
+	return ["diff", "-T", DIFF_MANIFEST_TEMPLATE, ...diffSpecArgv(spec)];
+}
+
+/** The `--stat` read: one per-file count line plus a totals line. */
+export function diffStatArgv(spec: DiffSpec): string[] {
+	return ["diff", "--stat", ...diffSpecArgv(spec)];
+}
+
+/** The rev-or-range selector every diff read shares. */
+function diffSpecArgv(spec: DiffSpec): string[] {
+	return "rev" in spec
+		? ["-r", spec.rev]
+		: ["--from", spec.from, "--to", spec.to, ...(spec.filesets ?? [])];
 }
 
 /**

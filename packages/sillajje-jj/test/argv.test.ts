@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
 	conflictsArgv,
+	DIFF_MANIFEST_TEMPLATE,
 	diffArgv,
+	diffManifestArgv,
 	diffRangeArgv,
+	diffStatArgv,
 	gitPushArgv,
 	logArgv,
 	mutationArgv,
@@ -135,6 +138,54 @@ describe("read argv", () => {
 
 	it("reads a diff for a revset", () => {
 		expect(diffArgv("@")).toEqual(["diff", "-r", "@"]);
+	});
+
+	it("restricts a diff to filesets", () => {
+		expect(diffArgv("@", ['~(prefix-glob:".scratch/")'])).toEqual([
+			"diff",
+			"-r",
+			"@",
+			'~(prefix-glob:".scratch/")',
+		]);
+	});
+
+	it("reads a diff manifest for a rev or a range", () => {
+		expect(diffManifestArgv({ rev: "@" })).toEqual([
+			"diff",
+			"-T",
+			DIFF_MANIFEST_TEMPLATE,
+			"-r",
+			"@",
+		]);
+		expect(
+			diffManifestArgv({ from: "a", to: "b", filesets: ["x"] }),
+		).toEqual([
+			"diff",
+			"-T",
+			DIFF_MANIFEST_TEMPLATE,
+			"--from",
+			"a",
+			"--to",
+			"b",
+			"x",
+		]);
+	});
+
+	it("reads diff stats for a rev or a range", () => {
+		expect(diffStatArgv({ rev: "abc" })).toEqual([
+			"diff",
+			"--stat",
+			"-r",
+			"abc",
+		]);
+		expect(diffStatArgv({ from: "a", to: "b" })).toEqual([
+			"diff",
+			"--stat",
+			"--from",
+			"a",
+			"--to",
+			"b",
+		]);
 	});
 
 	it("reads a tree diff between two revisions", () => {

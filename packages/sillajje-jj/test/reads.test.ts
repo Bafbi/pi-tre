@@ -84,6 +84,87 @@ describe("Jj.diff", () => {
 		await expect(jj.diff("@")).resolves.toBe("--- a\n+++ b\n");
 		expect(calls[0]!.args).toEqual(["diff", "-r", "@", "--color=never"]);
 	});
+
+	it("appends filesets to the diff argv", async () => {
+		const { exec, calls } = recordingExec(() => ok(""));
+		const jj = createJj(exec);
+
+		await jj.diff("@", { filesets: ["src/a.ts"] });
+		expect(calls[0]!.args).toEqual([
+			"diff",
+			"-r",
+			"@",
+			"src/a.ts",
+			"--color=never",
+		]);
+	});
+});
+
+describe("Jj.diffFiles", () => {
+	const MANIFEST = ['"foo.txt"\tM', '"bar.txt"\tA', '"b"\tR'].join("\n");
+	const STAT = [
+		"foo.txt  | 2 ++",
+		"bar.txt  | 3 +++",
+		"{a => b} | 0",
+		"3 files changed, 5 insertions(+), 0 deletions(-)",
+	].join("\n");
+
+	function both(manifest = MANIFEST, stat = STAT) {
+		return recordingExec((args) =>
+			ok(args.includes("-T") ? manifest : stat),
+		);
+	}
+
+	it("zips manifest target paths and status with stat counts by order", async () => {
+		const { exec, calls } = both();
+		const jj = createJj(exec);
+
+		await expect(jj.diffFiles({ rev: "@" })).resolves.toEqual([
+			{ path: "foo.txt", status: "modified", changes: 2 },
+			{ path: "bar.txt", status: "added", changes: 3 },
+			{ path: "b", status: "renamed", changes: 0 },
+		]);
+		expect(calls.map((call) => call.args[1])).toEqual(["-T", "--stat"]);
+	});
+
+	it("throws a decode failure when the two reads disagree", async () => {
+		const { exec } = both(MANIFEST, "bar.txt | 1 +");
+		const jj = createJj(exec);
+
+		const error = await jj.diffFiles({ rev: "@" }).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(JjError);
+		expect((error as JjError).failure).toMatchObject({ kind: "decode" });
+	});
+
+	it("rejects a manifest line without a tab", async () => {
+		const { exec } = both("X foo.txt", "foo.txt | 1 +");
+		const jj = createJj(exec);
+
+		const error = await jj.diffFiles({ rev: "@" }).catch((e: unknown) => e);
+		expect((error as JjError).failure).toMatchObject({
+			kind: "decode",
+			what: "diff -T",
+		});
+	});
+
+	it("reads a path that holds a separator or a newline", async () => {
+		const { exec } = both(
+			'"report | first\\nsecond.txt"\tM',
+			[
+				"report | first... | 2 ++",
+				"1 file changed, 2 insertions(+), 0 deletions(-)",
+			].join("\n"),
+		);
+		const jj = createJj(exec);
+
+		await expect(jj.diffFiles({ rev: "@" })).resolves.toEqual([
+			{
+				path: "report | first\nsecond.txt",
+				status: "modified",
+				changes: 2,
+			},
+		]);
+	});
 });
 
 describe("Jj.diffRange", () => {

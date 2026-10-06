@@ -228,6 +228,9 @@ describe("loadSillajjeConfig", () => {
 
 		expect(config.subGenerator?.retry?.maxAttempts).toBe(3);
 		expect(config.subGenerator?.timeoutMs).toBe(30_000);
+		expect(config.subGenerator?.diff?.maxTokens).toBe(12_000);
+		expect(config.subGenerator?.diff?.maxLinesPerFile).toBe(400);
+		expect(config.subGenerator?.diff?.omit).toContain("**/*.lock");
 	});
 
 	it("partial subGenerator fills the missing fields with defaults", () => {
@@ -238,6 +241,8 @@ describe("loadSillajjeConfig", () => {
 
 		expect(config.subGenerator?.timeoutMs).toBe(10_000);
 		expect(config.subGenerator?.retry?.maxAttempts).toBe(3);
+		expect(config.subGenerator?.diff?.maxTokens).toBe(12_000);
+		expect(config.subGenerator?.diff?.omit).toContain("**/*.lock");
 	});
 
 	// -------------------------------------------------------------------

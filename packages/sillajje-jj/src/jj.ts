@@ -13,7 +13,9 @@ import {
 	commitsAtOpArgv,
 	conflictsArgv,
 	diffArgv,
+	diffManifestArgv,
 	diffRangeArgv,
+	diffStatArgv,
 	gitPushArgv,
 	headOperationArgv,
 	logArgv,
@@ -23,11 +25,17 @@ import {
 	versionArgv,
 	workspacesArgv,
 } from "./argv.js";
-import { decodeBookmarks, decodeCommits, decodeWorkspaces } from "./decode.js";
+import {
+	decodeBookmarks,
+	decodeCommits,
+	decodeDiffFiles,
+	decodeWorkspaces,
+} from "./decode.js";
 import { JjError } from "./errors.js";
 import type { ExecFn, ExecOptions, ExecResult } from "./exec.js";
 import type {
 	Commit,
+	DiffSpec,
 	Jj,
 	JjFailure,
 	Mutation,
@@ -433,12 +441,26 @@ export function createJj(exec: ExecFn, defaults: ExecOptions = {}): Jj {
 		await queryString(["workspace", "update-stale"], options);
 	}
 
+	/**
+	 * The per-file manifest: `-T` for the target path and status, `--stat` for
+	 * counts, zipped by order. Two concurrent reads.
+	 */
+	async function diffFiles(spec: DiffSpec, options?: ExecOptions) {
+		const [manifest, stat] = await Promise.all([
+			queryString(diffManifestArgv(spec), options),
+			queryString(diffStatArgv(spec), options),
+		]);
+		return decodeDiffFiles(manifest, stat);
+	}
+
 	return {
 		log: async (revset, options) =>
 			decodeCommits(await queryString(logArgv(revset), options)),
-		diff: (revset, options) => queryString(diffArgv(revset), options),
+		diff: (revset, options) =>
+			queryString(diffArgv(revset, options?.filesets), options),
 		diffRange: (from, to, options) =>
 			queryString(diffRangeArgv(from, to, options?.filesets), options),
+		diffFiles,
 		conflicts: async (revset, options) => {
 			const output = await queryString(conflictsArgv(revset), options);
 			return output

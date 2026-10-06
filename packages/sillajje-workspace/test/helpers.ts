@@ -52,6 +52,7 @@ export function fakeJj(overrides: Partial<FakeJjState> = {}): {
 		},
 		diff: async () => "",
 		diffRange: async () => "",
+		diffFiles: async () => [],
 		version: async () => ({
 			major: 0,
 			minor: 44,

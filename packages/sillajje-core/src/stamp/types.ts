@@ -17,7 +17,7 @@ import type {
 	StatusEvent,
 } from "../action.js";
 import type { SessionFailure } from "../args.js";
-import type { NarrativeDetail } from "../config.js";
+import type { DiffBudget, NarrativeDetail } from "../config.js";
 import type {
 	InteractionRange,
 	LoopField,
@@ -103,6 +103,8 @@ export interface StampConfig {
 	maxAttempts: number;
 	timeoutMs: number;
 	model: string;
+	/** The diff budget every collected diff is measured against. */
+	diff: DiffBudget;
 }
 
 /** The ports a stamp path binds, with the extracted config. */

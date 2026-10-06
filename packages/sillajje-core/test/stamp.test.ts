@@ -164,6 +164,40 @@ function mockSpawn(): ReturnType<typeof vi.fn> {
 	});
 }
 
+/**
+ * Overrides for a diff with one changed file: the `-T` manifest, the `--stat`
+ * count, and the file's per-file section. The collector never reads a whole
+ * diff, so each of the three reads needs its own answer.
+ */
+function oneFileDiff(
+	rev: string,
+	path: string,
+	content: string,
+	changes = 1,
+): Record<string, ExecResult> {
+	return {
+		"jj diff -T": {
+			code: 0,
+			stdout: `${JSON.stringify(path)}\tM\n`,
+			stderr: "",
+		},
+		"jj diff --stat -r": {
+			code: 0,
+			stdout: [
+				`${path} | ${changes} +`,
+				`1 file changed, ${changes} insertions(+), 0 deletions(-)`,
+				"",
+			].join("\n"),
+			stderr: "",
+		},
+		[`jj diff -r ${rev} file:"${path}"`]: {
+			code: 0,
+			stdout: content,
+			stderr: "",
+		},
+	};
+}
+
 /** Collect all status emissions from an onStatus sink. */
 function collectingSink(): {
 	sink: (event: StatusEvent) => void;
@@ -436,13 +470,21 @@ describe("stampSession (interaction context)", () => {
 
 		const calls = mockCalls(exec);
 
-		// First: diff fetch
+		// First: the per-file manifest that decides the diff budget
 		expect(calls[0]![0]).toBe("jj");
-		expect(calls[0]![1]).toEqual(["diff", "-r", "@", "--color=never"]);
+		expect(calls[0]![1].slice(0, 2)).toEqual(["diff", "-T"]);
+		expect(calls[0]![1].slice(3)).toEqual(["-r", "@", "--color=never"]);
+		expect(calls[1]![1]).toEqual([
+			"diff",
+			"--stat",
+			"-r",
+			"@",
+			"--color=never",
+		]);
 
 		// Second: prior descriptions fetch
-		expect(calls[1]![0]).toBe("jj");
-		expect(calls[1]![1][0]).toBe("log");
+		expect(calls[2]![0]).toBe("jj");
+		expect(calls[2]![1][0]).toBe("log");
 
 		// The transactional seal follows, chained on captured op ids.
 		const descCall = calls.find(
@@ -924,9 +966,7 @@ describe("stampSession (manual context)", () => {
 	// -------------------------------------------------------------------
 
 	it("returns no-changes when diff is empty", async () => {
-		const exec = mockExec({
-			"jj diff -r @": { code: 0, stdout: "", stderr: "" },
-		});
+		const exec = mockExec();
 		const spawn = mockSpawn();
 		const { sink } = collectingSink();
 
@@ -944,17 +984,67 @@ describe("stampSession (manual context)", () => {
 		expect(descBody).toBeUndefined();
 	});
 
+	it("condenses a diff over the budget and reports diff-condensed", async () => {
+		const exec = mockExec({
+			'jj diff -r @ file:"small.ts"': {
+				code: 0,
+				stdout: "Modified regular file small.ts:\n@@ -1 +1 @@\n-a\n+b\n",
+				stderr: "",
+			},
+			"jj diff -T": {
+				code: 0,
+				stdout: ['"small.ts"\tM', '"big.ts"\tM'].join("\n"),
+				stderr: "",
+			},
+			"jj diff --stat -r @": {
+				code: 0,
+				stdout: [
+					"small.ts | 2 ++",
+					`big.ts | 900 ${"+".repeat(20)}`,
+					"2 files changed, 902 insertions(+), 0 deletions(-)",
+				].join("\n"),
+				stderr: "",
+			},
+		});
+		const spawn = mockSpawn();
+		const { sink, statuses } = collectingSink();
+
+		const result = await stampSession(diffInput(), {
+			jj: createJj(exec),
+			run: spawn,
+			config: defaultConfig(),
+			env: TEST_ENV,
+			onStatus: sink,
+		});
+
+		expect(result.ok).toBe(true);
+		// The condensed diff reaches the manual header sub-generator.
+		const prompt = spawn.mock.calls[0]?.[0]?.prompt as string;
+		expect(prompt).toContain("small.ts");
+		expect(prompt).toContain(
+			"Modified big.ts (900 lines changed): diff content omitted (too large)",
+		);
+		// No whole `jj diff` read happened: the big file was never fetched.
+		expect(
+			mockCalls(exec).some(
+				(call) => call[1]?.[0] === "diff" && call[1].includes("big.ts"),
+			),
+		).toBe(false);
+		expect(
+			statuses.some(
+				(event) =>
+					event.kind === "info" && event.code === "diff-condensed",
+			),
+		).toBe(true);
+	});
+
 	// -------------------------------------------------------------------
 	// Happy path: full seal at rev "@"
 	// -------------------------------------------------------------------
 
 	it("seals the working copy with diff-based header and Meta line", async () => {
 		const exec = mockExec({
-			"jj diff -r @": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("@", "file", diffContent),
 		});
 		const spawn = mockSpawn();
 		const { sink, statuses } = collectingSink();
@@ -1017,11 +1107,7 @@ describe("stampSession (manual context)", () => {
 
 	it("falls back to conventional-commit default when sub-generator fails", async () => {
 		const exec = mockExec({
-			"jj diff -r @": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("@", "file", diffContent),
 		});
 		const spawn = vi.fn().mockRejectedValue(new Error("unavailable"));
 		const { sink, statuses } = collectingSink();
@@ -1056,7 +1142,7 @@ describe("stampSession (manual context)", () => {
 
 	it("relays a failed jj diff as diff_fetch_failed", async () => {
 		const exec = mockExec({
-			"jj diff -r @": { code: 1, stdout: "", stderr: "diff error" },
+			"jj diff -T": { code: 1, stdout: "", stderr: "diff error" },
 		});
 		const spawn = mockSpawn();
 		const { sink, statuses } = collectingSink();
@@ -1107,11 +1193,7 @@ describe("stampSession (manual context)", () => {
 
 	it("returns ok: false when jj update-stale fails during diff stamp", async () => {
 		const exec = mockExec({
-			"jj diff -r @": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("@", "file", diffContent),
 			"jj workspace update-stale": {
 				code: 1,
 				stdout: "",
@@ -1139,11 +1221,7 @@ describe("stampSession (manual context)", () => {
 
 	it("returns ok: false when jj describe fails during diff stamp", async () => {
 		const exec = mockExec({
-			"jj diff -r @": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("@", "file", diffContent),
 			"jj describe": {
 				code: 1,
 				stdout: "",
@@ -1183,11 +1261,7 @@ describe("stampRev", () => {
 
 	it("describes the target rev with a generated header and provenance", async () => {
 		const exec = mockExec({
-			"jj diff -r abc123": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("abc123", "file", diffContent),
 		});
 		const spawn = mockSpawn();
 		const { sink, statuses } = collectingSink();
@@ -1209,14 +1283,33 @@ describe("stampRev", () => {
 
 		const calls = mockCalls(exec);
 
-		// Three jj calls: the diff fetch, the describe, and the operation read
-		// that returns the describe's MutationResult. No seal — no update-stale,
-		// no bookmark set, no jj new.
-		expect(calls).toHaveLength(3);
+		// Five jj calls: the `-T` read, the `--stat` read, the file's section,
+		// the describe, and the operation read that returns the describe's
+		// MutationResult. No seal — no update-stale, no bookmark set, no jj new.
+		expect(calls).toHaveLength(5);
 		expect(calls[0]![0]).toBe("jj");
-		expect(calls[0]![1]).toEqual(["diff", "-r", "abc123", "--color=never"]);
+		expect(calls[0]![1].slice(0, 2)).toEqual(["diff", "-T"]);
+		expect(calls[0]![1].slice(3)).toEqual([
+			"-r",
+			"abc123",
+			"--color=never",
+		]);
+		expect(calls[1]![1]).toEqual([
+			"diff",
+			"--stat",
+			"-r",
+			"abc123",
+			"--color=never",
+		]);
+		expect(calls[2]![1]).toEqual([
+			"diff",
+			"-r",
+			"abc123",
+			'file:"file"',
+			"--color=never",
+		]);
 
-		const descCall = calls[1];
+		const descCall = calls[3];
 		expect(descCall![0]).toBe("jj");
 		expect(descCall![1][0]).toBe("describe");
 		expect(descCall![1].slice(1, 4)).toEqual(["-r", "abc123", "-m"]);
@@ -1249,11 +1342,7 @@ describe("stampRev", () => {
 
 	it("accepts -r @ and stays describe-only", async () => {
 		const exec = mockExec({
-			"jj diff -r @": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("@", "file", diffContent),
 		});
 		const spawn = mockSpawn();
 		const { sink } = collectingSink();
@@ -1286,11 +1375,7 @@ describe("stampRev", () => {
 
 	it("renders the provenance block from the call and deps.env", async () => {
 		const exec = mockExec({
-			"jj diff -r abc123": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("abc123", "file", diffContent),
 		});
 		const spawn = mockSpawn();
 		const { sink } = collectingSink();
@@ -1315,11 +1400,7 @@ describe("stampRev", () => {
 
 	it("records the header fallback in the provenance block", async () => {
 		const exec = mockExec({
-			"jj diff -r abc123": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("abc123", "file", diffContent),
 		});
 		const spawn = vi.fn().mockRejectedValue(new Error("unavailable"));
 		const { sink, statuses } = collectingSink();
@@ -1346,11 +1427,7 @@ describe("stampRev", () => {
 
 	it("omits the Meta section when it is not in the body", async () => {
 		const exec = mockExec({
-			"jj diff -r abc123": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("abc123", "file", diffContent),
 		});
 		const spawn = mockSpawn();
 		const { sink } = collectingSink();
@@ -1379,9 +1456,7 @@ describe("stampRev", () => {
 	// -------------------------------------------------------------------
 
 	it("returns no-changes on an empty diff before any mutation", async () => {
-		const exec = mockExec({
-			"jj diff -r abc123": { code: 0, stdout: "", stderr: "" },
-		});
+		const exec = mockExec();
 		const spawn = mockSpawn();
 		const { sink } = collectingSink();
 
@@ -1403,7 +1478,7 @@ describe("stampRev", () => {
 
 	it("relays jj's stderr when the rev does not resolve", async () => {
 		const exec = mockExec({
-			"jj diff -r nosuchrev": {
+			"jj diff -T": {
 				code: 1,
 				stdout: "",
 				stderr: 'Error: Revision "nosuchrev" doesn\'t exist',
@@ -1458,11 +1533,7 @@ describe("stampRev", () => {
 
 	it("relays jj's stderr and returns failed when describe fails", async () => {
 		const exec = mockExec({
-			"jj diff -r abc123": {
-				code: 0,
-				stdout: diffContent,
-				stderr: "",
-			},
+			...oneFileDiff("abc123", "file", diffContent),
 			"jj describe": {
 				code: 1,
 				stdout: "",
@@ -1592,7 +1663,7 @@ describe("seal transaction", () => {
 	/** The seal tests' mock: non-empty working-copy diff, deferred ops mint ids. */
 	function sealExec(overrides?: Record<string, ExecResult | Error>): ExecFn {
 		return mockExec({
-			"jj diff -r @": { code: 0, stdout: diffContent, stderr: "" },
+			...oneFileDiff("@", "file", diffContent),
 			...overrides,
 		});
 	}
@@ -2060,7 +2131,21 @@ describe("seal transaction", () => {
 					cmd,
 					...args.filter((a) => a !== "--color=never"),
 				].join(" ");
-				if (key === "jj diff -r @") {
+				if (key.startsWith("jj diff -T")) {
+					return Promise.resolve({
+						code: 0,
+						stdout: '"file"\tM\n',
+						stderr: "",
+					});
+				}
+				if (key.startsWith("jj diff --stat -r")) {
+					return Promise.resolve({
+						code: 0,
+						stdout: "file | 1 +\n1 file changed, 1 insertion(+), 0 deletions(-)\n",
+						stderr: "",
+					});
+				}
+				if (key === 'jj diff -r @ file:"file"') {
 					return Promise.resolve({
 						code: 0,
 						stdout: "diff --git a/file b/file\n+added line\n",

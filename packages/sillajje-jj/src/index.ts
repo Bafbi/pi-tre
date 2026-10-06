@@ -12,6 +12,9 @@ export { createJj } from "./jj.js";
 export type {
 	Bookmark,
 	Commit,
+	DiffFile,
+	DiffSpec,
+	DiffStatus,
 	Jj,
 	JjFailure,
 	Mutation,
