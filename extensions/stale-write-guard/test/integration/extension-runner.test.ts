@@ -311,7 +311,7 @@ describe("stale-write-guard extension", () => {
 
 		// Mirrors pi's _expandSkillCommand block format.
 		const prompt = `<skill name="my-skill" location="${skillPath}">\nReferences are relative to ${skillDir}.\n\n${body}\n</skill>\n\nUser: go`;
-		await runner.emitBeforeAgentStart(prompt, undefined, "system prompt", {
+		await runner.emitBeforeAgentStart(prompt, undefined, {
 			cwd,
 		});
 
@@ -342,7 +342,7 @@ describe("stale-write-guard extension", () => {
 		setMtimeMs(skillPath, 1_000_000);
 
 		const prompt = `<skill name="my-skill" location="${skillPath}">\nReferences are relative to ${skillDir}.\n\nold body\n</skill>`;
-		await runner.emitBeforeAgentStart(prompt, undefined, "system prompt", {
+		await runner.emitBeforeAgentStart(prompt, undefined, {
 			cwd,
 		});
 
@@ -375,17 +375,12 @@ describe("stale-write-guard extension", () => {
 		writeFileSync(agentsPath, "# Agents\n\nrepo rules\n", "utf8");
 		setMtimeMs(agentsPath, 1_000_000);
 
-		await runner.emitBeforeAgentStart(
-			"prompt",
-			undefined,
-			"system prompt",
-			{
-				cwd,
-				contextFiles: [
-					{ path: agentsPath, content: "# Agents\n\nrepo rules\n" },
-				],
-			},
-		);
+		await runner.emitBeforeAgentStart("prompt", undefined, {
+			cwd,
+			contextFiles: [
+				{ path: agentsPath, content: "# Agents\n\nrepo rules\n" },
+			],
+		});
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
@@ -408,17 +403,12 @@ describe("stale-write-guard extension", () => {
 		setMtimeMs(agentsPath, 1_000_000);
 
 		// The system prompt still holds the content loaded at session start.
-		await runner.emitBeforeAgentStart(
-			"prompt",
-			undefined,
-			"system prompt",
-			{
-				cwd,
-				contextFiles: [
-					{ path: agentsPath, content: "loaded at session start\n" },
-				],
-			},
-		);
+		await runner.emitBeforeAgentStart("prompt", undefined, {
+			cwd,
+			contextFiles: [
+				{ path: agentsPath, content: "loaded at session start\n" },
+			],
+		});
 
 		writeFileSync(agentsPath, "changed externally\n", "utf8");
 		setMtimeMs(agentsPath, 2_000_000);

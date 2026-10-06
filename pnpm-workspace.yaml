@@ -7,13 +7,19 @@ packages:
 # trustPolicy: never let an update downgrade a package to a less trusted version.
 # blockExoticSubdeps: reject transitive dependencies from non-registry sources.
 minimumReleaseAge: 10080
+# The pi packages are versioned together and upgraded deliberately as a set.
+# Exclude the whole @earendil-works release train (pi-*, chord) from the
+# maturity wait; everything else still waits.
+minimumReleaseAgeExclude:
+  - "@earendil-works/pi-*"
+  - "@earendil-works/chord"
 trustPolicy: no-downgrade
 blockExoticSubdeps: true
 
 catalogs:
   pi-dev:
-    "@earendil-works/pi-coding-agent": ^0.84.4
-    "@earendil-works/pi-ai": ^0.84.4
-    "@earendil-works/pi-agent-core": ^0.84.4
-    "@earendil-works/pi-tui": ^0.84.4
+    "@earendil-works/pi-coding-agent": ^1.0.4
+    "@earendil-works/pi-ai": ^1.0.4
+    "@earendil-works/pi-agent-core": ^1.0.4
+    "@earendil-works/pi-tui": ^1.0.4
     "@sinclair/typebox": ^0.34.52

@@ -177,12 +177,11 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		expect(before).not.toContain(sessionBookmark(sessionId));
 
 		// The first interaction creates the bookmark on the session working copy.
-		await runner.emitBeforeAgentStart(
-			"do something",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		await runner.emitBeforeAgentStart("do something", undefined, {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 
 		const after = execSync("jj bookmark list", {
 			cwd,
@@ -220,15 +219,20 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		const result = await runner.emitBeforeAgentStart(
 			"do something",
 			undefined,
-			basePrompt,
-			{ skills: [], contextFiles: [], cwd: "" },
+			{ customPrompt: basePrompt, skills: [], contextFiles: [], cwd: "" },
 		);
 
 		expect(result).toBeDefined();
-		expect(result?.systemPrompt).toBeDefined();
-		expect(result?.systemPrompt).toContain(basePrompt);
-		expect(result?.systemPrompt).toContain("## Sillajje Workspace");
-		expect(result?.systemPrompt).toContain(`${homedir()}/.pi/sillajje`);
+		expect(result?.systemPromptOptions.forceSystemPrompt).toBeDefined();
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			basePrompt,
+		);
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			"## Sillajje Workspace",
+		);
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			`${homedir()}/.pi/sillajje`,
+		);
 	});
 
 	it("status command reports workspace path after creation", async () => {
@@ -265,14 +269,21 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		const result = await runner.emitBeforeAgentStart(
 			"do something",
 			undefined,
-			"You are helpful.",
 			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
-		expect(result?.systemPrompt).toContain("clean checkout");
-		expect(result?.systemPrompt).toContain("node_modules");
-		expect(result?.systemPrompt).toContain("install");
-		expect(result?.systemPrompt).toContain("relative paths");
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			"clean checkout",
+		);
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			"node_modules",
+		);
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			"install",
+		);
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			"relative paths",
+		);
 	});
 
 	it("system prompt reserves VCS commands for the user by default", async () => {
@@ -290,14 +301,15 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		const result = await runner.emitBeforeAgentStart(
 			"do something",
 			undefined,
-			"You are helpful.",
 			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
-		expect(result?.systemPrompt).toContain(
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
 			"Ask the user before you run any",
 		);
-		expect(result?.systemPrompt).toContain("jj or git command");
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			"jj or git command",
+		);
 	});
 
 	it("vcsGuard false omits the VCS instruction from the system prompt", async () => {
@@ -322,11 +334,14 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		const result = await runner.emitBeforeAgentStart(
 			"do something",
 			undefined,
-			"You are helpful.",
 			{ skills: [], contextFiles: [], cwd: "" },
 		);
 
-		expect(result?.systemPrompt).toContain("## Sillajje Workspace");
-		expect(result?.systemPrompt).not.toContain("jj or git command");
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			"## Sillajje Workspace",
+		);
+		expect(result?.systemPromptOptions.forceSystemPrompt).not.toContain(
+			"jj or git command",
+		);
 	});
 });

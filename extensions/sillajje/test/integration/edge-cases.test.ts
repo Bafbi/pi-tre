@@ -105,10 +105,12 @@ describeJj("sillajje missing-workspace handling", () => {
 		const beforeAgent = await runner.emitBeforeAgentStart(
 			"do something",
 			undefined,
-			"You are helpful.",
 			{ skills: [], contextFiles: [], cwd: "" },
 		);
-		expect(beforeAgent).toBeUndefined();
+		expect(beforeAgent.messages).toEqual([]);
+		expect(
+			beforeAgent.systemPromptOptions.forceSystemPrompt,
+		).toBeUndefined();
 
 		// agent_end does not stamp — no bookmark is created.
 		await runner.emit({ type: "agent_start" });
@@ -147,12 +149,11 @@ describeJj("sillajje missing-workspace handling", () => {
 		process.env.PATH = `${fakeBin}${delimiter}${originalPath}`;
 		try {
 			await runner.emitInput("Do something", undefined, "interactive");
-			await runner.emitBeforeAgentStart(
-				"Do something",
-				undefined,
-				"You are helpful.",
-				{ skills: [], contextFiles: [], cwd: "" },
-			);
+			await runner.emitBeforeAgentStart("Do something", undefined, {
+				skills: [],
+				contextFiles: [],
+				cwd: "",
+			});
 			await runner.emit({ type: "agent_start" });
 			await runner.emit({
 				type: "agent_end",

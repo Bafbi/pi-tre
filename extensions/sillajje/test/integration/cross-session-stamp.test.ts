@@ -160,16 +160,11 @@ describeJj("sillajje cross-session stamp", () => {
 		// directory gone, bookmark survives).
 		writeFileSync(join(workspace, "wip.ts"), "// wip\n");
 		await runner.emitInput("work", undefined, "interactive");
-		await runner.emitBeforeAgentStart(
-			"work",
-			undefined,
-			"You are helpful.",
-			{
-				skills: [],
-				contextFiles: [],
-				cwd: "",
-			},
-		);
+		await runner.emitBeforeAgentStart("work", undefined, {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 		await runner.emit({ type: "agent_start" });
 		await runner.emit({
 			type: "agent_end",

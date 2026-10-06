@@ -127,18 +127,22 @@ export function captureExtension(
 	};
 }
 
-/** Minimal ExtensionContext covering what the extension actually reads. */
+/** Minimal ExtensionToolContext covering what the extension actually reads. */
 export function minimalContext(
 	cwd: string,
-): import("@earendil-works/pi-coding-agent").ExtensionContext {
+): import("@earendil-works/pi-coding-agent").ExtensionToolContext {
 	return {
 		cwd,
 		hasUI: false,
 		isProjectTrusted: () => true,
+		tools: [],
+		executeTool: async () => {
+			throw new Error("executeTool is not available in minimalContext");
+		},
 		sessionManager: {
 			getSessionFile: () => join(cwd, "session.jsonl"),
 			getBranch: () => [],
 			getEntries: () => [],
 		},
-	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
+	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionToolContext;
 }

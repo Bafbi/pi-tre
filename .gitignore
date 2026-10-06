@@ -19,3 +19,4 @@ node_modules/
 .env
 # local mise overrides
 mise.local.toml
+mise.local.lock

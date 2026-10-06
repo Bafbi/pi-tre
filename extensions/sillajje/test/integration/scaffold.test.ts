@@ -59,10 +59,10 @@ describe("sillajje scaffold", () => {
 		const result = await runner.emitBeforeAgentStart(
 			"do something",
 			undefined,
-			"You are a helpful assistant.",
 			{ skills: [], contextFiles: [], cwd: "" },
 		);
-		expect(result).toBeUndefined();
+		expect(result.messages).toEqual([]);
+		expect(result.systemPromptOptions.forceSystemPrompt).toBeUndefined();
 	});
 
 	it("tool_call and input handlers pass through when inactive", async () => {

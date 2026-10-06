@@ -175,14 +175,14 @@ describeJj("sillajje archive / unarchive", () => {
 		// Archive.
 		await runSillajje(runner, "archive");
 
-		// before_agent_start should return undefined (no-op).
+		// before_agent_start should not inject anything (no-op).
 		const result = await runner.emitBeforeAgentStart(
 			"do something",
 			undefined,
-			"You are helpful.",
 			{ skills: [], contextFiles: [], cwd: "" },
 		);
-		expect(result).toBeUndefined();
+		expect(result.messages).toEqual([]);
+		expect(result.systemPromptOptions.forceSystemPrompt).toBeUndefined();
 	});
 
 	it("status reports archived after archiving", async () => {
@@ -196,14 +196,14 @@ describeJj("sillajje archive / unarchive", () => {
 		// Archive.
 		await runSillajje(runner, "archive");
 
-		// After archive, before_agent_start no-ops for archived state.
+		// After archive, before_agent_start injects nothing for archived state.
 		const result = await runner.emitBeforeAgentStart(
 			"do something",
 			undefined,
-			"You are helpful.",
 			{ skills: [], contextFiles: [], cwd: "" },
 		);
-		expect(result).toBeUndefined();
+		expect(result.messages).toEqual([]);
+		expect(result.systemPromptOptions.forceSystemPrompt).toBeUndefined();
 	});
 
 	it("unarchive session: workspace is recreated", async () => {

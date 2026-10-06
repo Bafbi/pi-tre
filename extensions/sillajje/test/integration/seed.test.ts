@@ -442,16 +442,11 @@ describeJj("sillajje seed — archive and unarchive", () => {
 		const workspace = wsPath(cwd, getSessionId(runner));
 		// The session bookmark is created on the first agent start; unarchive
 		// rebuilds from it.
-		await runner.emitBeforeAgentStart(
-			"seed",
-			undefined,
-			"You are helpful.",
-			{
-				skills: [],
-				contextFiles: [],
-				cwd: "",
-			},
-		);
+		await runner.emitBeforeAgentStart("seed", undefined, {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 
 		await runSillajje(runner, "archive");
 		expect(existsSync(workspace)).toBe(false);
@@ -481,16 +476,11 @@ describeJj("sillajje seed — archive and unarchive", () => {
 		});
 		// The session bookmark is created on the first agent start; unarchive
 		// rebuilds from it.
-		await runner.emitBeforeAgentStart(
-			"seed",
-			undefined,
-			"You are helpful.",
-			{
-				skills: [],
-				contextFiles: [],
-				cwd: "",
-			},
-		);
+		await runner.emitBeforeAgentStart("seed", undefined, {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 
 		await runSillajje(runner, "archive");
 		writeFileSync(join(cwd, ".env"), "SECRET=2\n");
@@ -515,12 +505,11 @@ describeJj("sillajje seed — archive and unarchive", () => {
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const workspace = wsPath(cwd, getSessionId(runner));
-		await runner.emitBeforeAgentStart(
-			"seed",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		await runner.emitBeforeAgentStart("seed", undefined, {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 
 		await runSillajje(runner, "archive");
 		// The file appears in the checkout after the first copy.
@@ -539,12 +528,11 @@ describeJj("sillajje seed — archive and unarchive", () => {
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const workspace = wsPath(cwd, getSessionId(runner));
-		await runner.emitBeforeAgentStart(
-			"seed",
-			undefined,
-			"You are helpful.",
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		await runner.emitBeforeAgentStart("seed", undefined, {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 
 		await runSillajje(runner, "archive");
 		// The configured path appears in the checkout after creation.

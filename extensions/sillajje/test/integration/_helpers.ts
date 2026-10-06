@@ -26,12 +26,7 @@ export const tempDirs: string[] = [];
  * dir gets its own slug under it, so parallel test files never clobber each
  * other.
  */
-export const TEST_WORKSPACES_ROOT = join(
-	homedir(),
-	".pi",
-	"sillajje",
-	"testdir-temp",
-);
+const TEST_WORKSPACES_ROOT = join(homedir(), ".pi", "sillajje", "testdir-temp");
 
 // Route every loaded adapter's workspaces under the harness-owned root.
 setTestPorts({ workspacesRoot: TEST_WORKSPACES_ROOT });
