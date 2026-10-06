@@ -13,9 +13,9 @@ import {
 	commitsAtOpArgv,
 	conflictsArgv,
 	diffArgv,
+	diffManifestArgv,
 	diffRangeArgv,
 	diffStatArgv,
-	diffSummaryArgv,
 	gitPushArgv,
 	headOperationArgv,
 	logArgv,
@@ -442,15 +442,15 @@ export function createJj(exec: ExecFn, defaults: ExecOptions = {}): Jj {
 	}
 
 	/**
-	 * The per-file manifest: `--summary` for exact paths and status, `--stat`
-	 * for counts, zipped by order. Two concurrent reads.
+	 * The per-file manifest: `-T` for the target path and status, `--stat` for
+	 * counts, zipped by order. Two concurrent reads.
 	 */
 	async function diffFiles(spec: DiffSpec, options?: ExecOptions) {
-		const [summary, stat] = await Promise.all([
-			queryString(diffSummaryArgv(spec), options),
+		const [manifest, stat] = await Promise.all([
+			queryString(diffManifestArgv(spec), options),
 			queryString(diffStatArgv(spec), options),
 		]);
-		return decodeDiffFiles(summary, stat);
+		return decodeDiffFiles(manifest, stat);
 	}
 
 	return {

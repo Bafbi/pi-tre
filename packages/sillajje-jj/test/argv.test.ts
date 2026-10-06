@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
 	conflictsArgv,
+	DIFF_MANIFEST_TEMPLATE,
 	diffArgv,
+	diffManifestArgv,
 	diffRangeArgv,
 	diffStatArgv,
-	diffSummaryArgv,
 	gitPushArgv,
 	logArgv,
 	mutationArgv,
@@ -148,16 +149,26 @@ describe("read argv", () => {
 		]);
 	});
 
-	it("reads a diff summary for a rev or a range", () => {
-		expect(diffSummaryArgv({ rev: "@" })).toEqual([
+	it("reads a diff manifest for a rev or a range", () => {
+		expect(diffManifestArgv({ rev: "@" })).toEqual([
 			"diff",
-			"--summary",
+			"-T",
+			DIFF_MANIFEST_TEMPLATE,
 			"-r",
 			"@",
 		]);
 		expect(
-			diffSummaryArgv({ from: "a", to: "b", filesets: ["x"] }),
-		).toEqual(["diff", "--summary", "--from", "a", "--to", "b", "x"]);
+			diffManifestArgv({ from: "a", to: "b", filesets: ["x"] }),
+		).toEqual([
+			"diff",
+			"-T",
+			DIFF_MANIFEST_TEMPLATE,
+			"--from",
+			"a",
+			"--to",
+			"b",
+			"x",
+		]);
 	});
 
 	it("reads diff stats for a rev or a range", () => {

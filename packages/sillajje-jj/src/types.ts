@@ -124,6 +124,10 @@ export type DiffStatus =
 
 /** One changed path, with the line-change count `jj diff --stat` reports. */
 export interface DiffFile {
+	/**
+	 * The target path, usable as an exact fileset. A rename's display form is
+	 * `{old => new}`; this is `new`.
+	 */
 	path: string;
 	status: DiffStatus;
 	/** Added plus removed lines; `0` for a binary file. */

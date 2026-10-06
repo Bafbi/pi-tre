@@ -1,10 +1,10 @@
 /**
  * `Jj.diffFiles` against the installed jj.
  *
- * `diffFiles` pairs a `--summary` read with a `--stat` read by index. This test
- * pins that the two reads agree in the real process: same order, same count,
- * and exact (never elided) paths from `--summary`. It covers the rows the
- * decoder special-cases: an empty file and a binary file, both zero changes.
+ * `diffFiles` pairs a `-T` path/status read with a `--stat` count read by
+ * index. This test pins that the two reads agree in the real process: same
+ * order, same count, and target paths that survive a space, a newline, a
+ * binary file, and a rename.
  */
 
 import { rmSync, writeFileSync } from "node:fs";
@@ -57,5 +57,41 @@ describe("Jj.diffFiles against real jj", () => {
 			{ path: "c.txt", status: "added", changes: 0 },
 			{ path: "z.bin", status: "added", changes: 0 },
 		]);
+	});
+
+	it("selects one file by exact path, even with a space in the name", async () => {
+		const cwd = initRepo();
+		writeFileSync(join(cwd, "a b.txt"), "x\n");
+		writeFileSync(join(cwd, "c.txt"), "y\n");
+		const jj = createJj(realExec);
+
+		const text = await jj.diff("@", { cwd, filesets: ['file:"a b.txt"'] });
+
+		expect(text).toContain("a b.txt");
+		expect(text).not.toContain("c.txt");
+	});
+
+	it("keeps a path that holds a newline in one manifest record", async () => {
+		const cwd = initRepo();
+		writeFileSync(join(cwd, "first\nsecond.txt"), "x\n");
+		const jj = createJj(realExec);
+
+		const files = await jj.diffFiles({ rev: "@" }, { cwd });
+
+		expect(files).toEqual([
+			{ path: "first\nsecond.txt", status: "added", changes: 1 },
+		]);
+	});
+
+	it("reports a rename by its target path", async () => {
+		const cwd = initRepo();
+		rmSync(join(cwd, "a.txt"));
+		writeFileSync(join(cwd, "renamed.txt"), "hello\n");
+		const jj = createJj(realExec);
+
+		const files = await jj.diffFiles({ rev: "@" }, { cwd });
+
+		const renamed = files.find((file) => file.status === "renamed");
+		expect(renamed?.path).toBe("renamed.txt");
 	});
 });

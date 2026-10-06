@@ -106,8 +106,8 @@ export function decodeWorkspaces(
 	return workspaces;
 }
 
-/** The `jj diff --summary` sigil per status. */
-const SUMMARY_SIGILS: Record<string, DiffStatus> = {
+/** The `jj diff -T` status char per status. */
+const STATUS_CHARS: Record<string, DiffStatus> = {
 	A: "added",
 	M: "modified",
 	D: "removed",
@@ -116,23 +116,34 @@ const SUMMARY_SIGILS: Record<string, DiffStatus> = {
 };
 
 /**
- * Decode `jj diff --summary`: one `<sigil> <path>` line per changed path.
- * A rename or copy keeps jj's `{before => after}` path form as one path.
+ * Decode the `jj diff -T` manifest: one line per changed path, a JSON-escaped
+ * target path and a status char separated by a tab. JSON keeps the parse
+ * path-safe: a path may hold a newline or a tab, and it arrives escaped.
  */
-function decodeDiffSummary(
+function decodeDiffManifest(
 	output: string,
 ): { path: string; status: DiffStatus }[] {
 	const entries: { path: string; status: DiffStatus }[] = [];
 	for (const line of splitLines(output)) {
-		const status = SUMMARY_SIGILS[line.charAt(0)];
-		if (status === undefined || line.charAt(1) !== " ") {
+		const tab = line.indexOf("\t");
+		if (tab === -1) {
+			throw new JjError({ kind: "decode", what: "diff -T", raw: line });
+		}
+		const status = STATUS_CHARS[line.charAt(tab + 1)];
+		let path: unknown;
+		try {
+			path = JSON.parse(line.slice(0, tab));
+		} catch {
 			throw new JjError({
 				kind: "decode",
-				what: "diff --summary",
+				what: "diff -T path",
 				raw: line,
 			});
 		}
-		entries.push({ path: line.slice(2), status });
+		if (typeof path !== "string" || status === undefined) {
+			throw new JjError({ kind: "decode", what: "diff -T", raw: line });
+		}
+		entries.push({ path, status });
 	}
 	return entries;
 }
@@ -140,11 +151,14 @@ function decodeDiffSummary(
 /**
  * Decode the per-file counts from `jj diff --stat`, in file order. A binary
  * file or a zero-delta rename prints no integer, so its count is `0`.
+ *
+ * The separator is the *last* `" | "` on the line: jj prints the path
+ * verbatim, and a path may itself contain `" | "`.
  */
 function decodeDiffStatCounts(output: string): number[] {
 	const counts: number[] = [];
 	for (const line of splitLines(output)) {
-		const separator = line.indexOf(" | ");
+		const separator = line.lastIndexOf(" | ");
 		if (separator === -1) continue; // the totals line, or noise
 		const match = /^\s*(\d+)/.exec(line.slice(separator + 3));
 		counts.push(match ? Number(match[1]) : 0);
@@ -153,19 +167,19 @@ function decodeDiffStatCounts(output: string): number[] {
 }
 
 /**
- * Decode a per-file manifest from the `--summary` and `--stat` reads.
+ * Decode a per-file manifest from the `-T` and `--stat` reads.
  *
  * Both reads walk the same tree diff in the same order, so the arrays pair by
- * index. The paths come from `--summary` (never elided); the counts from
- * `--stat` (whose paths may be elided, so they are not read).
+ * index. The paths come from `-T` (the target path, JSON-escaped); the counts
+ * from `--stat` (whose paths may be elided, so they are not read).
  */
-export function decodeDiffFiles(summary: string, stat: string): DiffFile[] {
-	const entries = decodeDiffSummary(summary);
+export function decodeDiffFiles(manifest: string, stat: string): DiffFile[] {
+	const entries = decodeDiffManifest(manifest);
 	const counts = decodeDiffStatCounts(stat);
 	if (entries.length !== counts.length) {
 		throw new JjError({
 			kind: "decode",
-			what: "diff --summary/--stat length mismatch",
+			what: "diff -T/--stat length mismatch",
 			raw: `${entries.length} summary vs ${counts.length} stat`,
 		});
 	}

@@ -101,7 +101,7 @@ describe("Jj.diff", () => {
 });
 
 describe("Jj.diffFiles", () => {
-	const SUMMARY = ["M foo.txt", "A bar.txt", "R {a => b}"].join("\n");
+	const MANIFEST = ['"foo.txt"\tM', '"bar.txt"\tA', '"b"\tR'].join("\n");
 	const STAT = [
 		"foo.txt  | 2 ++",
 		"bar.txt  | 3 +++",
@@ -109,29 +109,26 @@ describe("Jj.diffFiles", () => {
 		"3 files changed, 5 insertions(+), 0 deletions(-)",
 	].join("\n");
 
-	function both(summary = SUMMARY, stat = STAT) {
+	function both(manifest = MANIFEST, stat = STAT) {
 		return recordingExec((args) =>
-			ok(args.includes("--summary") ? summary : stat),
+			ok(args.includes("-T") ? manifest : stat),
 		);
 	}
 
-	it("zips summary status and stat counts by order", async () => {
+	it("zips manifest target paths and status with stat counts by order", async () => {
 		const { exec, calls } = both();
 		const jj = createJj(exec);
 
 		await expect(jj.diffFiles({ rev: "@" })).resolves.toEqual([
 			{ path: "foo.txt", status: "modified", changes: 2 },
 			{ path: "bar.txt", status: "added", changes: 3 },
-			{ path: "{a => b}", status: "renamed", changes: 0 },
+			{ path: "b", status: "renamed", changes: 0 },
 		]);
-		expect(calls.map((call) => call.args[1])).toEqual([
-			"--summary",
-			"--stat",
-		]);
+		expect(calls.map((call) => call.args[1])).toEqual(["-T", "--stat"]);
 	});
 
 	it("throws a decode failure when the two reads disagree", async () => {
-		const { exec } = both(SUMMARY, "bar.txt | 1 +");
+		const { exec } = both(MANIFEST, "bar.txt | 1 +");
 		const jj = createJj(exec);
 
 		const error = await jj.diffFiles({ rev: "@" }).catch((e: unknown) => e);
@@ -139,15 +136,34 @@ describe("Jj.diffFiles", () => {
 		expect((error as JjError).failure).toMatchObject({ kind: "decode" });
 	});
 
-	it("rejects a summary line that is not a sigil", async () => {
+	it("rejects a manifest line without a tab", async () => {
 		const { exec } = both("X foo.txt", "foo.txt | 1 +");
 		const jj = createJj(exec);
 
 		const error = await jj.diffFiles({ rev: "@" }).catch((e: unknown) => e);
 		expect((error as JjError).failure).toMatchObject({
 			kind: "decode",
-			what: "diff --summary",
+			what: "diff -T",
 		});
+	});
+
+	it("reads a path that holds a separator or a newline", async () => {
+		const { exec } = both(
+			'"report | first\\nsecond.txt"\tM',
+			[
+				"report | first... | 2 ++",
+				"1 file changed, 2 insertions(+), 0 deletions(-)",
+			].join("\n"),
+		);
+		const jj = createJj(exec);
+
+		await expect(jj.diffFiles({ rev: "@" })).resolves.toEqual([
+			{
+				path: "report | first\nsecond.txt",
+				status: "modified",
+				changes: 2,
+			},
+		]);
 	});
 });
 

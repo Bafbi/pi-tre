@@ -48,14 +48,13 @@ export async function buildDiffOnlyBody(
 
 	let diff: string;
 	try {
-		const collected = await collectDiff(
+		diff = await collectDiff(
 			deps.jj,
 			{ rev },
 			cfg.diff,
 			jjDir,
 			deps.onStatus,
 		);
-		diff = collected.text;
 	} catch (err) {
 		// An unresolvable or immutable rev is jj's call to explain —
 		// relay its stderr rather than reading the failure as empty.

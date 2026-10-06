@@ -1,0 +1,2522 @@
+Added regular file .scratch/code-review-from-main/review.html:
+        1: <!doctype html>
+        2: <html lang="en">
+        3: <head>
+        4: 	<meta charset="utf-8">
+        5: 	<meta name="viewport" content="width=device-width, initial-scale=1">
+        6: 	<title>Code review: diff budget, from main</title>
+        7: 	<style>
+        8: 		:root {
+        9: 			--bg: #ffffff;
+       10: 			--fg: #1c1e21;
+       11: 			--muted: #5c6570;
+       12: 			--line: #e2e6ea;
+       13: 			--panel: #f7f8fa;
+       14: 			--code-bg: #f2f4f7;
+       15: 			--accent: #2f6feb;
+       16: 			--ok: #1a7f4b;
+       17: 			--ok-bg: #e8f5ee;
+       18: 			--warn: #9a6700;
+       19: 			--warn-bg: #fff6df;
+       20: 			--crit: #b42318;
+       21: 			--crit-bg: #fdecea;
+       22: 		}
+       23: 		@media (prefers-color-scheme: dark) {
+       24: 			:root {
+       25: 				--bg: #14171a;
+       26: 				--fg: #e6e9ed;
+       27: 				--muted: #9aa4af;
+       28: 				--line: #2a2f36;
+       29: 				--panel: #1b1f24;
+       30: 				--code-bg: #1f242a;
+       31: 				--accent: #6ea8fe;
+       32: 				--ok: #65d19a;
+       33: 				--ok-bg: #16291f;
+       34: 				--warn: #e2b34a;
+       35: 				--warn-bg: #2a2416;
+       36: 				--crit: #ff8a80;
+       37: 				--crit-bg: #2a1817;
+       38: 			}
+       39: 		}
+       40: 		* { box-sizing: border-box; }
+       41: 		html { scroll-behavior: smooth; }
+       42: 		body {
+       43: 			margin: 0;
+       44: 			background: var(--bg);
+       45: 			color: var(--fg);
+       46: 			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+       47: 		}
+       48: 		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+       49: 		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+       50: 		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+       51: 		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+       52: 		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+       53: 		.chip {
+       54: 			font-size: .78rem; color: var(--muted);
+       55: 			border: 1px solid var(--line); background: var(--panel);
+       56: 			padding: .2rem .6rem; border-radius: 999px;
+       57: 		}
+       58: 		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+       59: 		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+       60: 		p, li { max-width: 46rem; }
+       61: 		ul, ol { padding-left: 1.4rem; }
+       62: 		li { margin: .3rem 0; }
+       63: 		a { color: var(--accent); }
+       64: 		code {
+       65: 			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+       66: 			font-size: .88em; background: var(--code-bg);
+       67: 			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+       68: 		}
+       69: 		pre {
+       70: 			background: var(--code-bg); border: 1px solid var(--line);
+       71: 			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+       72: 		}
+       73: 		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+       74: 		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+       75: 		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+       76: 		th { color: var(--muted); font-weight: 600; }
+       77: 		.callout {
+       78: 			border: 1px solid var(--line); border-left-width: 4px;
+       79: 			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+       80: 		}
+       81: 		.callout p:first-child { margin-top: 0; }
+       82: 		.callout p:last-child { margin-bottom: 0; }
+       83: 		.callout.info { border-left-color: var(--accent); }
+       84: 		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+       85: 		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+       86: 		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+       87: 		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+       88: 		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+       89: 		.card h3 { margin-top: 0; }
+       90: 		nav.toc {
+       91: 			border: 1px solid var(--line); background: var(--panel);
+       92: 			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+       93: 		}
+       94: 		nav.toc a { margin-right: .9rem; text-decoration: none; }
+       95: 		nav.toc a:hover { text-decoration: underline; }
+       96: 		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+       97: 		@media print {
+       98: 			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+       99: 			nav.toc { display: none; }
+      100: 			main { max-width: none; padding: 0; }
+      101: 		}
+      102: 	</style>
+      103: </head>
+      104: <body>
+      105: <main>
+      106: 	<header>
+      107: 		<h1>Code review: diff budget, from main</h1>
+      108: 		<p class="sub">One defect reaches both axes: the whole-diff fast path skips the token ceiling, so the budget does not bound what it claims to bound.</p>
+      109: 		<div class="meta">
+      110: 			<span class="chip">2026-10-05</span>
+      111: 			<span class="chip">scope: sillajje-core, sillajje-jj, sillajje adapter</span>
+      112: 			<span class="chip">fixed point: main</span>
+      113: 		</div>
+      114: 	</header>
+      115: 
+      116: 	<nav class="toc">
+      117: 		<a href="#summary">Summary</a>
+      118: 		<a href="#standards">Standards</a>
+      119: 		<a href="#spec">Spec</a>
+      120: 		<a href="#verification">Verification</a>
+      121: 	</nav>
+      122: 
+      123: 	<section id="summary">
+      124: 		<h2>Summary</h2>
+      125: 		<p>Diff under review: <code>heads(::@ &amp; ::main)..@</code>, three commits, 25 files, ~1,246 insertions. The spec is <code>.scratch/sillajje-diff-budget/diff-budgeting.html</code>, with the accepted decision in <code>packages/sillajje-core/docs/adr/0003-diff-budget.md</code>.</p>
+      126: 		<p>Both axes point at the same line from different directions. Spec says "track budget in bytes or estimated tokens, never in lines alone"; Standards says the glossary term "Diff budget" promises a whole-diff token ceiling. <code>collectDiff</code> returns the whole diff unmeasured on the line-gate fast path, so neither promise holds.</p>
+      127: 	</section>
+      128: 
+      129: 	<section id="standards">
+      130: 		<h2>Standards</h2>
+      131: 		<p>Sources: root <code>AGENTS.md</code>, <code>docs/agents/domain.md</code>, the per-package <code>CONTEXT.md</code> glossaries, the ADR format, plus the smell baseline. Tooling enforces the rest (see Verification).</p>
+      132: 
+      133: 		<div class="callout warn">
+      134: 			<h3>1. Documentation states a guarantee the code breaks (documented standard)</h3>
+      135: 			<p><code>packages/sillajje-core/CONTEXT.md</code> defines <em>Diff budget</em> as "a per-file line gate and a whole-diff estimated-token ceiling." ADR 0003 line 19 repeats that the estimate "bounds a prompt." On the fast path (<code>diff.ts:146-148</code>) the whole diff is returned with no token measurement, so a diff under the line gate can exceed the stated ceiling by orders of magnitude. The glossary is the project's own contract; it currently overstates the code.</p>
+      136: 		</div>
+      137: 
+      138: 		<div class="callout">
+      139: 			<h3>2. Duplicated Code (judgement)</h3>
+      140: 			<p>The same three-step shape repeats at three call sites: collect, assign <code>diff</code>, emit.</p>
+      141: 			<pre><code>const collected = await collectDiff(jj, spec, cfg.diff, cwd);
+      142: diff = collected.text;
+      143: emitDiffCondensed(onStatus, collected.omitted);</code></pre>
+      144: 			<p>Seen at <code>stamp/interaction.ts:67</code>, <code>stamp/diff-only.ts:50</code>, and <code>fold.ts:663</code>. A wrapper in <code>diff.ts</code> that emits and returns the text would leave one shape. Judgement call: the three sites differ in error policy, so the wrapper can't swallow the try/catch, only the emit step.</p>
+      145: 		</div>
+      146: 
+      147: 		<div class="callout">
+      148: 			<h3>3. Mysterious Name (judgement, minor)</h3>
+      149: 			<p><code>gate(file, budget, spent)</code> returns an <code>OmitReason</code> for skipping a file; the name says nothing about omission. <code>omitReason</code> names what it returns. Same for the local <code>reason</code>.</p>
+      150: 		</div>
+      151: 
+      152: 		<div class="callout">
+      153: 			<h3>4. New test-naming convention (judgement, minor)</h3>
+      154: 			<p><code>packages/sillajje-jj/test/diff-real.test.ts</code> is the only <code>*-real.test.ts</code> in the tree. The sibling real-jj tests are <code>mutations.test.ts</code>, <code>transaction.test.ts</code>, <code>versions.test.ts</code>. The <code>-real</code> suffix introduces a convention the repo does not use. Not a hard violation; the file's content follows the real-jj harness pattern correctly.</p>
+      155: 		</div>
+      156: 
+      157: 		<div class="callout">
+      158: 			<h3>5. Speculative export (judgement, weak)</h3>
+      159: 			<p><code>DiffOptions</code> went from internal to exported and re-exported from <code>sillajje-jj/src/index.ts</code>. No consumer in this diff imports it; core imports <code>DiffSpec</code>. It is harmless (public-signature completeness), but nothing asked for it.</p>
+      160: 		</div>
+      161: 	</section>
+      162: 
+      163: 	<section id="spec">
+      164: 		<h2>Spec</h2>
+      165: 		<p>Spec: <code>.scratch/sillajje-diff-budget/diff-budgeting.html</code> ("Recommended shape" and "Open questions"). ADR 0003 is the accepted decision record and deliberately deviates on some points; those are noted as deviations, not defects.</p>
+      166: 
+      167: 		<div class="callout crit">
+      168: 			<h3>1. Token ceiling bypassed on the fast path (requirement implemented wrong)</h3>
+      169: 			<p>Spec: "<em>Track budget in bytes or estimated tokens (chars / 4), never in lines alone: a line of minified JS is not a line of source.</em>"</p>
+      170: 			<p><code>diff.ts:146</code> returns <code>fetchText(...)</code> whenever <code>totals.added + totals.removed &lt;= budget.maxLinesPerFile</code>, with no <code>estimateTokens</code> check and an empty <code>omitted</code> array. A 2&nbsp;MB single-line bundle is 1–2 changed lines, so it is inlined whole. This is the exact failure mode the spec's "Why it bites" section names. The fast path needs to measure its own text and fall through to the per-file walk when it exceeds <code>maxTokens</code>.</p>
+      171: 		</div>
+      172: 
+      173: 		<div class="callout warn">
+      174: 			<h3>2. Configurable skip list missing (requirement missing)</h3>
+      175: 			<p>Spec: Option C, "a configurable skip list … Omit them regardless of size," and "<em>C is orthogonal and should ship with either.</em>" The recommended shape names <code>omit: ["pnpm-lock.yaml", …]</code>. The shipped schema exposes only <code>maxTokens</code> and <code>maxLinesPerFile</code> (<code>config.ts:188-198</code>, schema JSON). ADR 0003 rejects a shipped <em>default</em> list "for now," which is a fair call, but the spec asked for a <em>knob</em>, and no knob exists.</p>
+      176: 		</div>
+      177: 
+      178: 		<div class="callout info">
+      179: 			<h3>3. <code>diff-condensed</code> status lacks the count (partial)</h3>
+      180: 			<p>Spec: "Emit one status when content was dropped, for example <code>info</code> code <code>diff-condensed</code> <em>with the count of omitted files</em>." <code>emitDiffCondensed</code> prints up to five paths plus <code>+N more</code>; there is no numeric total when there are five or fewer. Add the count.</p>
+      181: 		</div>
+      182: 
+      183: 		<div class="callout info">
+      184: 			<h3>4. Budget defaults differ (documented deviation, not a defect)</h3>
+      185: 			<p>Spec proposed <code>maxBytes: 200_000</code> and <code>maxFileBytes: 20_000</code>; the ship uses <code>maxTokens: 12_000</code> and <code>maxLinesPerFile: 400</code>. The spec left the unit and the number as open questions and ADR 0003 resolves them, so record only.</p>
+      186: 		</div>
+      187: 
+      188: 		<div class="callout">
+      189: 			<h3>5. Transcript budget not done (open question)</h3>
+      190: 			<p>Spec Option D caps the transcript too. ADR 0003 states "the transcript is not budgeted yet." Open question, not a requirement.</p>
+      191: 		</div>
+      192: 
+      193: 		<div class="callout ok">
+      194: 			<h3>Implemented as asked</h3>
+      195: 			<ul>
+      196: 				<li>Option B boundary: <code>Jj.diffStat</code>, <code>Jj.diffFiles</code>, and <code>filesets</code> on <code>Jj.diff</code>; the big file is never read on the per-file path.</li>
+      197: 				<li>Per-file line gate drops content before fetch, keeping path and change count in the marker.</li>
+      198: 				<li>All three fetch sites share one budget; <code>{{diff}}</code> substitution untouched.</li>
+      199: 				<li>New <code>sillajje-core</code> module with unit tests, plus a real-jj pairing test.</li>
+      200: 			</ul>
+      201: 		</div>
+      202: 
+      203: 		<div class="callout info">
+      204: 			<h3>Test-coverage gap (spec-adjacent)</h3>
+      205: 			<p><code>diff-real.test.ts</code> covers add, modify, and remove. The binary and zero-delta rows that <code>decodeDiffStatCounts</code> special-cases are only unit-tested with hand-written fixtures. I reproduced empty-file and pure-rename rows against jj 0.44 and the <code>--summary</code>/<code>--stat</code> arrays paired, so the pairing holds; the real-jj test just does not pin it.</p>
+      206: 		</div>
+      207: 	</section>
+      208: 
+      209: 	<section id="verification">
+      210: 		<h2>Verification</h2>
+      211: 		<p>Run inside the review workspace, jj 0.44.0:</p>
+      212: 		<table>
+      213: 			<thead><tr><th>Check</th><th>Result</th></tr></thead>
+      214: 			<tbody>
+      215: 				<tr><td><code>pnpm exec biome check</code> (touched trees)</td><td>pass, 112 files</td></tr>
+      216: 				<tr><td><code>tsc --noEmit</code> (4 touched packages)</td><td>pass</td></tr>
+      217: 				<tr><td><code>tsc --noUncheckedIndexedAccess --exactOptionalPropertyTypes</code></td><td>pass</td></tr>
+      218: 				<tr><td><code>scripts/run-vitest.sh packages/sillajje-jj</code></td><td>70 passed</td></tr>
+      219: 				<tr><td><code>scripts/run-vitest.sh packages/sillajje-core</code></td><td>263 passed</td></tr>
+      220: 				<tr><td><code>pnpm run boundaries</code>, <code>config-roots</code></td><td>pass</td></tr>
+      221: 				<tr><td><code>pnpm run knip</code></td><td>fails on <code>TEST_WORKSPACES_ROOT</code> in <code>extensions/sillajje/test/integration/_helpers.ts</code> — pre-existing, file untouched by this diff</td></tr>
+      222: 			</tbody>
+      223: 		</table>
+      224: 		<footer>Fixed point <code>main</code> (2929f698); diff <code>heads(::@ &amp; ::main)..@</code>. The two axes ran in one context because this session exposes no sub-agent spawn tool; they are reported separately regardless.</footer>
+      225: 	</section>
+      226: </main>
+      227: </body>
+      228: </html>
+Added regular file .scratch/sillajje-diff-budget/diff-budgeting.html:
+        1: <!doctype html>
+        2: <html lang="en">
+        3: <head>
+        4: 	<meta charset="utf-8">
+        5: 	<meta name="viewport" content="width=device-width, initial-scale=1">
+        6: 	<title>Diff size in the sillajje sub-generator</title>
+        7: 	<style>
+        8: 		:root {
+        9: 			--bg: #ffffff;
+       10: 			--fg: #1c1e21;
+       11: 			--muted: #5c6570;
+       12: 			--line: #e2e6ea;
+       13: 			--panel: #f7f8fa;
+       14: 			--code-bg: #f2f4f7;
+       15: 			--accent: #2f6feb;
+       16: 			--ok: #1a7f4b;
+       17: 			--ok-bg: #e8f5ee;
+       18: 			--warn: #9a6700;
+       19: 			--warn-bg: #fff6df;
+       20: 			--crit: #b42318;
+       21: 			--crit-bg: #fdecea;
+       22: 		}
+       23: 		@media (prefers-color-scheme: dark) {
+       24: 			:root {
+       25: 				--bg: #14171a;
+       26: 				--fg: #e6e9ed;
+       27: 				--muted: #9aa4af;
+       28: 				--line: #2a2f36;
+       29: 				--panel: #1b1f24;
+       30: 				--code-bg: #1f242a;
+       31: 				--accent: #6ea8fe;
+       32: 				--ok: #65d19a;
+       33: 				--ok-bg: #16291f;
+       34: 				--warn: #e2b34a;
+       35: 				--warn-bg: #2a2416;
+       36: 				--crit: #ff8a80;
+       37: 				--crit-bg: #2a1817;
+       38: 			}
+       39: 		}
+       40: 		* { box-sizing: border-box; }
+       41: 		html { scroll-behavior: smooth; }
+       42: 		body {
+       43: 			margin: 0;
+       44: 			background: var(--bg);
+       45: 			color: var(--fg);
+       46: 			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+       47: 		}
+       48: 		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+       49: 		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+       50: 		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+       51: 		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+       52: 		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+       53: 		.chip {
+       54: 			font-size: .78rem; color: var(--muted);
+       55: 			border: 1px solid var(--line); background: var(--panel);
+       56: 			padding: .2rem .6rem; border-radius: 999px;
+       57: 		}
+       58: 		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+       59: 		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+       60: 		p, li { max-width: 46rem; }
+       61: 		ul, ol { padding-left: 1.4rem; }
+       62: 		li { margin: .3rem 0; }
+       63: 		a { color: var(--accent); }
+       64: 		code {
+       65: 			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+       66: 			font-size: .88em; background: var(--code-bg);
+       67: 			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+       68: 		}
+       69: 		pre {
+       70: 			background: var(--code-bg); border: 1px solid var(--line);
+       71: 			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+       72: 		}
+       73: 		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+       74: 		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+       75: 		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+       76: 		th { color: var(--muted); font-weight: 600; }
+       77: 		.callout {
+       78: 			border: 1px solid var(--line); border-left-width: 4px;
+       79: 			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+       80: 		}
+       81: 		.callout p:first-child { margin-top: 0; }
+       82: 		.callout p:last-child { margin-bottom: 0; }
+       83: 		.callout.info { border-left-color: var(--accent); }
+       84: 		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+       85: 		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+       86: 		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+       87: 		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+       88: 		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+       89: 		.card h3 { margin-top: 0; }
+       90: 		nav.toc {
+       91: 			border: 1px solid var(--line); background: var(--panel);
+       92: 			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+       93: 		}
+       94: 		nav.toc a { margin-right: .9rem; text-decoration: none; }
+       95: 		nav.toc a:hover { text-decoration: underline; }
+       96: 		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+       97: 		@media print {
+       98: 			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+       99: 			nav.toc { display: none; }
+      100: 			main { max-width: none; padding: 0; }
+      101: 		}
+      102: 	</style>
+      103: </head>
+      104: <body>
+      105: <main>
+      106: 	<header>
+      107: 		<h1>Diff size in the sillajje sub-generator</h1>
+      108: 		<p class="sub">The full diff goes into every prompt, with no size cap. The fix is a per-file budget that keeps paths and drops content.</p>
+      109: 		<div class="meta">
+      110: 			<span class="chip">2026-10-04</span>
+      111: 			<span class="chip">scope: sillajje-core, sillajje-jj, sillajje adapter</span>
+      112: 		</div>
+      113: 	</header>
+      114: 
+      115: 	<nav class="toc">
+      116: 		<a href="#summary">Summary</a>
+      117: 		<a href="#current">Current pipeline</a>
+      118: 		<a href="#bites">Why it bites</a>
+      119: 		<a href="#options">Improvement options</a>
+      120: 		<a href="#shape">Recommended shape</a>
+      121: 		<a href="#open">Open questions</a>
+      122: 	</nav>
+      123: 
+      124: 	<section id="summary">
+      125: 		<h2>Summary</h2>
+      126: 		<p>Three code paths fetch a diff, and all three fetch the whole thing. None of them cap it. The diff is then interpolated into the prompt verbatim, and the subagent port carries no token or context limit either. So a big file does not degrade gracefully: it makes the prompt big, the provider call fails, the retry wrapper burns its attempts, and the stamp falls back to a weak subject or an empty trace.</p>
+      127: 		<p>The improvement you describe — keep the file name and the change stat, drop the content — is a per-file budget applied before prompt assembly. It belongs in <code>sillajje-core</code> as a pure function, fed by the existing diff string or by new per-file jj reads.</p>
+      128: 	</section>
+      129: 
+      130: 	<section id="current">
+      131: 		<h2>Current pipeline</h2>
+      132: 		<h3>The three diff fetches</h3>
+      133: 		<table>
+      134: 			<thead>
+      135: 				<tr><th>Path</th><th>Fetch</th><th>File</th></tr>
+      136: 			</thead>
+      137: 			<tbody>
+      138: 				<tr>
+      139: 					<td>Interaction stamp (session, with transcript)</td>
+      140: 					<td><code>jj.diff("@")</code> → one string; a failed fetch degrades to empty, never fails the stamp</td>
+      141: 					<td><code>packages/sillajje-core/src/stamp/interaction.ts:67</code></td>
+      142: 				</tr>
+      143: 				<tr>
+      144: 					<td>Diff-only stamp (manual session, rev stamp)</td>
+      145: 					<td><code>jj.diff(rev)</code> → one string; empty means <code>no-changes</code></td>
+      146: 					<td><code>packages/sillajje-core/src/stamp/diff-only.ts:50</code></td>
+      147: 				</tr>
+      148: 				<tr>
+      149: 					<td>Fold</td>
+      150: 					<td><code>jj.diffRange(base, tip, { filesets })</code> → one string</td>
+      151: 					<td><code>packages/sillajje-core/src/fold.ts:660</code></td>
+      152: 				</tr>
+      153: 			</tbody>
+      154: 		</table>
+      155: 		<p>The jj boundary returns stdout as-is. <code>Jj.diff</code> in <code>packages/sillajje-jj/src/jj.ts:439</code> calls <code>queryString(diffArgv(revset))</code>, and <code>diffArgv</code> is just <code>["diff", "-r", revset]</code>. There is no <code>--stat</code>, no name-only variant, and no byte cap anywhere in <code>packages/sillajje-jj/src/exec.ts</code>. Fold already uses <code>filesets</code> for its <code>--exclude</code> paths; <code>Jj.diff</code> does not accept <code>filesets</code>, only <code>diffRange</code> does.</p>
+      156: 
+      157: 		<h3>Prompt assembly</h3>
+      158: 		<p><code>SubGeneratorContext</code> carries three strings: <code>transcript</code>, <code>diff</code>, <code>previousDescriptions</code> (<code>packages/sillajje-core/src/sub-generator.ts:26</code>). <code>renderTemplate</code> (<code>sub-generator.ts:192</code>) substitutes the whole <code>{{diff}}</code> into every template: the header template, the three trace templates, and the manual header template. Nothing slices, truncates, or counts the injected text.</p>
+      159: 		<p>For the interaction path, <code>buildTranscript</code> (<code>interaction.ts:31</code>) joins the full user prompt, the tool-name list, and the last assistant response. That is also uncapped.</p>
+      160: 
+      161: 		<h3>The port and the config</h3>
+      162: 		<p><code>RunSubagent</code> takes <code>: prompt</code>, <code>: model</code>, and <code>: timeoutMs</code> (<code>packages/sillajje-core/src/action.ts:44</code>). There is no <code>maxTokens</code>. The adapter passes the prompt straight to <code>runSubagent</code> (<code>extensions/sillajje/src/sub-generator.ts</code>). A grep of <code>packages/pi-subagent/src</code> finds no context-window, token, or truncation handling.</p>
+      163: 		<p>The config schema exposes only <code>subGenerator.retry.maxAttempts</code> and <code>subGenerator.timeoutMs</code> (<code>packages/sillajje-core/src/config.ts:161</code>, <code>:169</code>). There is no diff budget knob.</p>
+      164: 	</section>
+      165: 
+      166: 	<section id="bites">
+      167: 		<h2>Why it bites</h2>
+      168: 		<div class="callout crit">
+      169: 			<p>A diff that overflows the model's context does not produce a "file changed" line. It makes the call fail, and <code>runWithRetry</code> (<code>sub-generator.ts:224</code>) retries <code>maxAttempts</code> times — three by default — before the fallback fires. The user pays three failed calls and gets <code>deriveSubject(prompt)</code> for the header, an empty trace, or <code>chore: manual checkpoint</code> for a manual header.</p>
+      170: 		</div>
+      171: 		<p>Three more costs, in order of how often they matter:</p>
+      172: 		<ul>
+      173: 			<li><strong>Wasted signal.</strong> The trace templates say the narrative must be "grounded in the transcript, not in the file diff" (<code>sub-generator.ts:135</code>, <code>:157</code>, <code>:179</code>). For an interaction stamp the diff is auxiliary, so a full diff can spend most of the prompt on text the trace is told to ignore.</li>
+      174: 			<li><strong>The diff is the only signal in three paths.</strong> A rev stamp, a manual session stamp, and a fold have no transcript. Their header and summary still come from the diff, so a hard budget must not blank the diff entirely there.</li>
+      175: 			<li><strong>Memory, not just context.</strong> Fetching the whole diff materializes it as a JS string before any cap runs. A generated file or a lockfile with a million lines is a real memory event even if the prompt is later trimmed.</li>
+      176: 		</ul>
+      177: 		<p>Note where the user's 200k figure sits. That is a prompt ceiling, not a diff budget. The diff should get a fraction of it, because the transcript, the header template, and the model's own output need room.</p>
+      178: 	</section>
+      179: 
+      180: 	<section id="options">
+      181: 		<h2>Improvement options</h2>
+      182: 		<div class="grid">
+      183: 			<div class="card">
+      184: 				<h3>A. Condense the diff string</h3>
+      185: 				<p>A pure function in <code>sillajje-core</code>: split the jj diff into per-file sections on the jj header lines (<code>Modified regular file &lt;path&gt;:</code>, <code>Added …</code>, <code>Deleted …</code>, <code>Renamed …</code>), keep small sections, and replace a large section with its header plus <code>diff omitted (N lines)</code>. Enforce a global budget; once spent, list the rest path-only.</p>
+      186: 				<p>Hermetic and unit-testable against captured diff text. Does not stop the big string from being materialized first.</p>
+      187: 			</div>
+      188: 			<div class="card">
+      189: 				<h3>B. Fetch per-file from jj</h3>
+      190: 				<p>Never build the big string. Read <code>jj diff --stat -r &lt;rev&gt;</code> for the file list with add/delete counts, then fetch each small file with <code>jj diff -r &lt;rev&gt; &lt;fileset&gt;</code> while the budget lasts. Emit omitted files as <code>&lt;status&gt; &lt;path&gt; (+a/-b) — content omitted</code>.</p>
+      191: 				<p>Bounded memory and a hard cap. Costs more jj invocations and needs new boundary methods, because <code>Jj.diff</code> does not take <code>filesets</code> today.</p>
+      192: 			</div>
+      193: 			<div class="card">
+      194: 				<h3>C. Ignore generated paths</h3>
+      195: 				<p>A configurable skip list, like fold's <code>--exclude</code>: lockfiles, <code>dist/**</code>, <code>*.min.js</code>, snapshots. Omit them regardless of size. Cheapest win for the common big-file case.</p>
+      196: 			</div>
+      197: 			<div class="card">
+      198: 				<h3>D. Budget transcript too</h3>
+      199: 				<p>A single assistant response can be as large as a diff. Cap the transcript with the same budget machinery, and for an interaction stamp drop diff content before dropping transcript, since the trace is transcript-grounded.</p>
+      200: 			</div>
+      201: 		</div>
+      202: 		<p>Option A is the smallest change and fits the existing tests. Option B is the correct long-term boundary and subsumes A's memory concern. C is orthogonal and should ship with either. D closes the second unbounded input.</p>
+      203: 	</section>
+      204: 
+      205: 	<section id="shape">
+      206: 		<h2>Recommended shape</h2>
+      207: 		<p>Add a <code>condenseDiff</code> module to <code>sillajje-core</code> with a pure, unit-tested core, and give it two config knobs under <code>subGenerator</code>:</p>
+      208: 		<pre><code>subGenerator: {
+      209:   diff: {
+      210:     maxBytes: 200_000,      // whole condensed diff budget
+      211:     maxFileBytes: 20_000,   // per-file content budget
+      212:     omit: ["pnpm-lock.yaml", "*.lock", "*.min.js", "dist/**", "*.snap"],
+      213:   },
+      214: }</code></pre>
+      215: 		<p>The condensed diff keeps the jj header line for every file, so the header generator can still infer a scope from the paths. Content survives only for files under <code>maxFileBytes</code> and only while <code>maxBytes</code> allows.</p>
+      216: 		<pre><code>Modified regular file src/auth.ts:
+      217: @@ -1,4 +1,6 @@
+      218:  ...full content, small file...
+      219: 
+      220: Modified regular file src/generated/schema.ts (+1834/-902):
+      221: [content omitted: 2736 lines]
+      222: 
+      223: Added regular file pnpm-lock.yaml (+0/-0):
+      224: [content omitted: ignored path]</code></pre>
+      225: 		<p>Then:</p>
+      226: 		<ul>
+      227: 			<li>Call <code>condenseDiff</code> at each fetch site — <code>interaction.ts:67</code>, <code>diff-only.ts:50</code>, <code>fold.ts:660</code> — so all three paths and the manual header path share one budget.</li>
+      228: 			<li>Keep the <code>{{diff}}</code> substitution unchanged. Condensing is an input transform, not a prompt change.</li>
+      229: 			<li>Emit one status when content was dropped, for example <code>info</code> code <code>diff-condensed</code> with the count of omitted files. Omitting silently would make a weak stamp look like a model failure.</li>
+      230: 			<li>Track budget in bytes or estimated tokens (<code>chars / 4</code>), never in lines alone: a line of minified JS is not a line of source.</li>
+      231: 			<li>Do the memory-safe version (option B) when convenient: expose <code>diffStat</code> and let <code>Jj.diff</code> accept <code>filesets</code>, so the big file is never read.</li>
+      232: 		</ul>
+      233: 	</section>
+      234: 
+      235: 	<section id="open">
+      236: 		<h2>Open questions</h2>
+      237: 		<ul>
+      238: 			<li><strong>Budget unit.</strong> Is the 200k a prompt ceiling you want enforced with a token estimate, or is the diff budget a separate smaller number? A token estimate is fuzzy without a tokenizer; bytes are exact and hermetic.</li>
+      239: 			<li><strong>Where the cap lives.</strong> Option A is a pure function in the core and needs no boundary change. Option B is the right boundary but adds <code>diffStat</code> and a <code>filesets</code> option on <code>Jj.diff</code>. Which do you want first?</li>
+      240: 			<li><strong>Granularity.</strong> Per-file, or per-hunk? Keeping the first hunk of every large file preserves a hint of what changed; it also makes the output shape less predictable.</li>
+      241: 			<li><strong>Default ignore list.</strong> Do lockfiles and generated output get a shipped default, or does the user opt in? A shipped default changes existing stamps.</li>
+      242: 			<li><strong>Fallback shape.</strong> When even the condensed diff overflows, should the header generator run with paths only, or should the stamp skip the subagent and use <code>deriveSubject</code> up front instead of after three failed calls?</li>
+      243: 		</ul>
+      244: 	</section>
+      245: 
+      246: 	<footer>Generated by the agent. Sources: <code>packages/sillajje-core/src/{sub-generator,stamp/interaction,stamp/diff-only,fold,config}.ts</code>, <code>packages/sillajje-jj/src/{jj,argv,exec}.ts</code>, <code>extensions/sillajje/src/sub-generator.ts</code>. No jj command is needed to reproduce; every claim is a read of these files.</footer>
+      247: </main>
+      248: </body>
+      249: </html>
+Modified regular file extensions/sillajje/sillajje-config.schema.json:
+    ...
+ 221  221: 				"timeoutMs": {
+ 222  222: 					"default": 30000,
+ 223  223: 					"type": "integer"
+      224: 				},
+      225: 				"diff": {
+      226: 					"default": {},
+      227: 					"additionalProperties": false,
+      228: 					"type": "object",
+      229: 					"properties": {
+      230: 						"maxTokens": {
+      231: 							"default": 12000,
+      232: 							"type": "integer"
+      233: 						},
+      234: 						"maxLinesPerFile": {
+      235: 							"default": 400,
+      236: 							"type": "integer"
+      237: 						},
+      238: 						"omit": {
+      239: 							"default": [
+      240: 								"**/*.lock",
+      241: 								"**/*-lock.json",
+      242: 								"**/*-lock.yaml",
+      243: 								"**/*.lockb",
+      244: 								"**/go.sum",
+      245: 								"**/*.min.js",
+      246: 								"**/*.min.css",
+      247: 								"**/*.map",
+      248: 								"**/*.generated.*",
+      249: 								"**/*.pb.go",
+      250: 								"**/vendor/**",
+      251: 								"**/third_party/**"
+      252: 							],
+      253: 							"type": "array",
+      254: 							"items": {
+      255: 								"type": "string"
+      256: 							}
+      257: 						}
+      258: 					}
+ 224  259: 				}
+ 225  260: 			}
+ 226  261: 		},
+    ...
+Modified regular file extensions/sillajje/test/unit/config.test.ts:
+    ...
+ 228  228: 
+ 229  229: 		expect(config.subGenerator?.retry?.maxAttempts).toBe(3);
+ 230  230: 		expect(config.subGenerator?.timeoutMs).toBe(30_000);
+      231: 		expect(config.subGenerator?.diff?.maxTokens).toBe(12_000);
+      232: 		expect(config.subGenerator?.diff?.maxLinesPerFile).toBe(400);
+      233: 		expect(config.subGenerator?.diff?.omit).toContain("**/*.lock");
+ 231  234: 	});
+ 232  235: 
+ 233  236: 	it("partial subGenerator fills the missing fields with defaults", () => {
+    ...
+ 238  241: 
+ 239  242: 		expect(config.subGenerator?.timeoutMs).toBe(10_000);
+ 240  243: 		expect(config.subGenerator?.retry?.maxAttempts).toBe(3);
+      244: 		expect(config.subGenerator?.diff?.maxTokens).toBe(12_000);
+      245: 		expect(config.subGenerator?.diff?.omit).toContain("**/*.lock");
+ 241  246: 	});
+ 242  247: 
+ 243  248: 	// -------------------------------------------------------------------
+    ...
+Modified regular file packages/sillajje-core/CONTEXT.md:
+    ...
+  11   11: **Status event**:
+  12   12: A typed event an Action emits while it runs, through its status sink. A `phase` names a step and may name the step's target; `info`, `warning`, and `error` carry a message. The core emits events and owns their codes; the adapter renders them.
+  13   13: _Avoid_: Log line, telemetry (the debug log is a separate sink)
+       14: 
+       15: **Diff budget**:
+       16: The cap a body-producing Action applies to a diff before the Sub-generator sees it: a per-file line gate, a whole-diff estimated-token ceiling, and a path omit list. A file over the gate, or matching the omit list, keeps its name and change count in the prompt and loses its content.
+       17: _Avoid_: Truncation (a file is inlined whole or left name-only, never cut mid-file), context window (that is the model's limit, not sillajje's cap)
+Added regular file packages/sillajje-core/docs/adr/0003-diff-budget.md:
+        1: # Bound the diff content a prompt receives
+        2: 
+        3: **Status**: accepted
+        4: 
+        5: Every body-producing Action feeds a file diff to the Sub-generator. A working copy can change a generated file with a hundred thousand lines, and the diff is interpolated into the prompt verbatim, so one big file can exceed the model's context, exhaust the retry wrapper, and leave only a fallback subject.
+        6: 
+        7: A diff is therefore collected under a budget. `collectDiff` reads the per-file manifest (`Jj.diffFiles`), then splits it in two. A path matching `omit` keeps its name and change count and loses its content whatever its size: lockfiles, minified bundles, source maps, and vendored code are machine-generated and never useful to the generator. A file over `maxLinesPerFile` loses its content too: it is never read into memory.
+        8: 
+        9: There is no whole-diff read. The manifest names every file, so each kept file's section is fetched by an exact `file:"…"` fileset, only while the estimated-token budget lasts; every file after that is name-only. A dropped file contributes one marker line, so the generator still sees the path: a lockfile-only change yields `chore(deps): …`, never "no changes". The budget counts markers too: when a marker no longer fits, its file joins one trailing `... and N more files omitted` line.
+       10: 
+       11: The boundary grows one read over a `DiffSpec` (a rev, or a from/to range with filesets): `Jj.diffFiles` returns the per-file status and line count. Its path is jj's *target* path from `jj diff -T` (`path`), JSON-escaped, so a rename arrives as its new path (`new`), not the `{old => new}` display form, and a path with a newline stays one record. `Jj.diff` accepts `filesets`, so one file's section can be fetched alone.
+       12: 
+       13: ## Considered Options
+       14: 
+       15: - **Condense the whole diff string (rejected).** It keeps the current one-read shape, but a monster file is materialized as a JS string before the cap runs. The budget then saves context, not memory.
+       16: - **Per-file reads (chosen).** `--stat` is cheap and never prints file content, and `jj diff -T` returns target paths that never need eliding. The pre-fetch line gate keeps a monster file out of memory. The cost is one jj read per changed file (~12 ms on jj 0.44), which is noise next to the Sub-generator call, and it removes the whole-diff read that could materialize a monster file.
+       17: - **Ship no default ignore list (rejected).** A knob nobody sets is dead. Paths are matched in the core with `matchesOmit`, and the matched files stay visible as one-line markers.
+       18: 
+       19: ## Consequences
+       20: 
+       21: - The token budget is estimated as one token per four characters. The estimate is hermetic and controllable, and it bounds a prompt; it is never a billing or truncation unit.
+       22: - The per-file status and count come from two reads paired by order: `jj diff -T` gives the JSON-escaped target path and status char, `--stat` gives the count after its last `" | "`. A length mismatch is a decode failure, not a silent skip.
+       23: - `subGenerator.diff` has three knobs: `maxTokens` (12,000 estimated tokens), `maxLinesPerFile` (400), and `omit` (a default glob list). `omit: []` disables path omission.
+       24: - Dropped content emits one `diff-condensed` info status naming the omitted count. A condensed diff must not look like a healthy one.
+       25: - The transcript is not budgeted yet. A single assistant response can be as large as a diff.
+Modified regular file packages/sillajje-core/src/config.ts:
+    ...
+ 166  166: 	{ default: {} },
+ 167  167: );
+ 168  168: 
+      169: /** Default estimated-token ceiling for inlined diff content. */
+      170: export const DEFAULT_DIFF_MAX_TOKENS = 12_000;
+      171: 
+      172: /** Default per-file line gate for inlined diff content. */
+      173: export const DEFAULT_DIFF_MAX_LINES_PER_FILE = 400;
+      174: 
+      175: /**
+      176:  * Default paths whose content never reaches a prompt: machine-generated
+      177:  * manifests, minified output, source maps, and vendored code. The file's name
+      178:  * and change count stay, so a dependency bump still yields a subject. Clear
+      179:  * the list with `subGenerator.diff.omit: []`.
+      180:  */
+      181: export const DEFAULT_DIFF_OMIT: readonly string[] = [
+      182: 	"**/*.lock",
+      183: 	"**/*-lock.json",
+      184: 	"**/*-lock.yaml",
+      185: 	"**/*.lockb",
+      186: 	"**/go.sum",
+      187: 	"**/*.min.js",
+      188: 	"**/*.min.css",
+      189: 	"**/*.map",
+      190: 	"**/*.generated.*",
+      191: 	"**/*.pb.go",
+      192: 	"**/vendor/**",
+      193: 	"**/third_party/**",
+      194: ];
+      195: 
+      196: /**
+      197:  * The sub-generator's diff budget: how much diff content reaches a prompt.
+      198:  * The budget counts estimated tokens, not bytes, so a hostile estimate is a
+      199:  * safe over-approximation of the model's cost.
+      200:  */
+      201: export interface DiffBudget {
+      202: 	/** Estimated-token ceiling for all inlined diff content. */
+      203: 	maxTokens: number;
+      204: 	/** Per-file line gate; a file over it keeps its name, not its content. */
+      205: 	maxLinesPerFile: number;
+      206: 	/** Path globs whose content is always dropped, keeping name and count. */
+      207: 	omit: readonly string[];
+      208: }
+      209: 
+      210: /** `subGenerator.diff` — the diff budget. */
+      211: const SubGeneratorDiffSchema = Type.Object(
+      212: 	{
+      213: 		maxTokens: Type.Optional(
+      214: 			Type.Integer({ default: DEFAULT_DIFF_MAX_TOKENS }),
+      215: 		),
+      216: 		maxLinesPerFile: Type.Optional(
+      217: 			Type.Integer({ default: DEFAULT_DIFF_MAX_LINES_PER_FILE }),
+      218: 		),
+      219: 		omit: Type.Optional(
+      220: 			Type.Array(Type.String(), { default: [...DEFAULT_DIFF_OMIT] }),
+      221: 		),
+      222: 	},
+      223: 	{ default: {}, additionalProperties: false },
+      224: );
+      225: 
+ 169  226: /** `subGenerator` — sub-generator behaviour control. */
+ 170  227: const SubGeneratorSchema = Type.Object(
+ 171  228: 	{
+ 172  229: 		retry: Type.Optional(SubGeneratorRetrySchema),
+ 173  230: 		timeoutMs: Type.Optional(Type.Integer({ default: 30_000 })),
+      231: 		diff: Type.Optional(SubGeneratorDiffSchema),
+ 174  232: 	},
+ 175  233: 	{ default: {} },
+ 176  234: );
+    ...
+ 266  324: 	model: string;
+ 267  325: 	maxAttempts: number;
+ 268  326: 	timeoutMs: number;
+      327: 	diff: DiffBudget;
+ 269  328: }
+ 270  329: 
+ 271  330: /** Extract the global sub-generator settings from a fully-populated config. */
+    ...
+ 276  335: 		model: cfg.subGeneratorModel ?? "openai/gpt-4o-mini",
+ 277  336: 		maxAttempts: cfg.subGenerator?.retry?.maxAttempts ?? 3,
+ 278  337: 		timeoutMs: cfg.subGenerator?.timeoutMs ?? 30_000,
+      338: 		diff: {
+      339: 			maxTokens:
+      340: 				cfg.subGenerator?.diff?.maxTokens ?? DEFAULT_DIFF_MAX_TOKENS,
+      341: 			maxLinesPerFile:
+      342: 				cfg.subGenerator?.diff?.maxLinesPerFile ??
+      343: 				DEFAULT_DIFF_MAX_LINES_PER_FILE,
+      344: 			omit: cfg.subGenerator?.diff?.omit ?? [...DEFAULT_DIFF_OMIT],
+      345: 		},
+ 279  346: 	};
+ 280  347: }
+Added regular file packages/sillajje-core/src/diff.ts:
+        1: /**
+        2:  * Diff collection under a token budget.
+        3:  *
+        4:  * Every stamp and fold feeds the sub-generator a file diff. A working copy
+        5:  * can change a generated file with a hundred thousand lines, so the full diff
+        6:  * is not a safe prompt input: it can exceed the model's context and turn a
+        7:  * stamp into three failed retries and a fallback subject.
+        8:  *
+        9:  * This module keeps a file's name and change count and drops its content when
+       10:  * the content does not fit or the path is configured as noise. The policy has
+       11:  * three gates:
+       12:  *
+       13:  * - `omit` drops a matching path's content before it is fetched, whatever its
+       14:  *   size. Lockfiles and minified bundles are the common case.
+       15:  * - `maxLinesPerFile` drops a single file's content before it is fetched, so a
+       16:  *   monster file is never read into memory.
+       17:  * - `maxTokens` bounds the estimated tokens of everything that is kept,
+       18:  *   markers included.
+       19:  *
+       20:  * No whole-diff read exists: the manifest names every file, so each kept file
+       21:  * is fetched by its exact path and a dropped file is never read.
+       22:  */
+       23: 
+       24: import type { DiffFile, DiffSpec, Jj } from "@pi-tre/sillajje-jj";
+       25: import { emitStatus, type StatusEvent } from "./action.js";
+       26: import type { DiffBudget } from "./config.js";
+       27: 
+       28: // ---------------------------------------------------------------------------
+       29: // Token estimate
+       30: // ---------------------------------------------------------------------------
+       31: 
+       32: /**
+       33:  * Estimate a text's token count as one token per four characters. The
+       34:  * estimate is deliberately crude: it is hermetic and controllable, and it is
+       35:  * used only to bound a prompt, never to bill or to truncate output.
+       36:  */
+       37: export function estimateTokens(text: string): number {
+       38: 	return Math.ceil(text.length / 4);
+       39: }
+       40: 
+       41: // ---------------------------------------------------------------------------
+       42: // Path matching
+       43: // ---------------------------------------------------------------------------
+       44: 
+       45: /**
+       46:  * Compiled omit globs, keyed by pattern. The budget is read once per action
+       47:  * and the pattern list is a handful of entries, so the cache is small and
+       48:  * lives for the process.
+       49:  */
+       50: const GLOB_CACHE = new Map<string, RegExp>();
+       51: 
+       52: /**
+       53:  * Does `path` match any of `patterns`? Patterns use `*` (within a path
+       54:  * segment), `**` (across segments), and `?`, anchored to the whole path.
+       55:  * `**\/` matches zero or more leading segments, so `**\/*.lock` matches both
+       56:  * `yarn.lock` and `vendor/yarn.lock`.
+       57:  */
+       58: export function matchesOmit(
+       59: 	path: string,
+       60: 	patterns: readonly string[],
+       61: ): boolean {
+       62: 	return patterns.some((pattern) => globToRegExp(pattern).test(path));
+       63: }
+       64: 
+       65: function globToRegExp(pattern: string): RegExp {
+       66: 	const cached = GLOB_CACHE.get(pattern);
+       67: 	if (cached !== undefined) return cached;
+       68: 	const regex = compileGlob(pattern);
+       69: 	GLOB_CACHE.set(pattern, regex);
+       70: 	return regex;
+       71: }
+       72: 
+       73: function compileGlob(pattern: string): RegExp {
+       74: 	let source = "^";
+       75: 	for (let i = 0; i < pattern.length; i++) {
+       76: 		const ch = pattern.charAt(i);
+       77: 		if (ch === "*") {
+       78: 			if (pattern.charAt(i + 1) === "*") {
+       79: 				i++;
+       80: 				if (pattern.charAt(i + 1) === "/") {
+       81: 					i++;
+       82: 					source += "(?:.*/)?";
+       83: 				} else {
+       84: 					source += ".*";
+       85: 				}
+       86: 			} else {
+       87: 				source += "[^/]*";
+       88: 			}
+       89: 		} else if (ch === "?") {
+       90: 			source += "[^/]";
+       91: 		} else if (ch === ".") {
+       92: 			source += "\\.";
+       93: 		} else if ("\\^$+()[]{}|".includes(ch)) {
+       94: 			source += `\\${ch}`;
+       95: 		} else {
+       96: 			source += ch;
+       97: 		}
+       98: 	}
+       99: 	return new RegExp(`${source}$`);
+      100: }
+      101: 
+      102: // ---------------------------------------------------------------------------
+      103: // Result shapes
+      104: // ---------------------------------------------------------------------------
+      105: 
+      106: /** Why a file's content was left out of the collected diff. */
+      107: export type OmitReason = "ignored" | "too-large" | "over-budget";
+      108: 
+      109: /** A file whose name and change count stayed in the diff, without its content. */
+      110: export interface OmittedFile extends DiffFile {
+      111: 	reason: OmitReason;
+      112: }
+      113: 
+      114: /** The diff text that reaches the prompt, plus what it left behind. */
+      115: export interface CollectedDiff {
+      116: 	text: string;
+      117: 	omitted: OmittedFile[];
+      118: }
+      119: 
+      120: // ---------------------------------------------------------------------------
+      121: // Rendering
+      122: // ---------------------------------------------------------------------------
+      123: 
+      124: const STATUS_LABELS: Record<DiffFile["status"], string> = {
+      125: 	added: "Added",
+      126: 	modified: "Modified",
+      127: 	removed: "Deleted",
+      128: 	renamed: "Renamed",
+      129: 	copied: "Copied",
+      130: };
+      131: 
+      132: /** The one-line stand-in a dropped file contributes to the diff text. */
+      133: function omittedMarker(file: DiffFile, reason: OmitReason): string {
+      134: 	const why =
+      135: 		reason === "ignored"
+      136: 			? "ignored path"
+      137: 			: reason === "too-large"
+      138: 				? "too large"
+      139: 				: "over token budget";
+      140: 	return `${STATUS_LABELS[file.status]} ${file.path} (${file.changes} lines changed): diff content omitted (${why})`;
+      141: }
+      142: 
+      143: /**
+      144:  * Emit one info status when content was dropped. Silent when nothing was:
+      145:  * a condensed diff must not look like a healthy one, and a healthy one must
+      146:  * not warn.
+      147:  */
+      148: export function emitDiffCondensed(
+      149: 	onStatus: (event: StatusEvent) => void,
+      150: 	omitted: readonly OmittedFile[],
+      151: ): void {
+      152: 	if (omitted.length === 0) return;
+      153: 	const shown = omitted.slice(0, 5).map((file) => file.path);
+      154: 	const extra =
+      155: 		omitted.length > shown.length
+      156: 			? `, +${omitted.length - shown.length} more`
+      157: 			: "";
+      158: 	emitStatus(onStatus, {
+      159: 		kind: "info",
+      160: 		code: "diff-condensed",
+      161: 		message: `diff condensed: ${omitted.length} file${omitted.length === 1 ? "" : "s"} kept by name only (${shown.join(", ")}${extra})`,
+      162: 	});
+      163: }
+      164: 
+      165: // ---------------------------------------------------------------------------
+      166: // jj reads
+      167: // ---------------------------------------------------------------------------
+      168: 
+      169: /**
+      170:  * An exact-match jj fileset for one path: `file:"…"`, with quotes and
+      171:  * backslashes escaped. A bare path is a prefix glob, so a name with a glob or
+      172:  * complement character would select the wrong files or nothing.
+      173:  */
+      174: function exactPathFileset(path: string): string {
+      175: 	const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      176: 	return `file:"${escaped}"`;
+      177: }
+      178: 
+      179: /** One file's section of the diff, as jj renders it. */
+      180: function fetchFileContent(
+      181: 	jj: Jj,
+      182: 	spec: DiffSpec,
+      183: 	path: string,
+      184: 	cwd: string,
+      185: ): Promise<string> {
+      186: 	// The manifest already carries the range's filesets, so the section is
+      187: 	// selected by the file alone. Positional filesets are unioned by jj, so
+      188: 	// re-adding the range fileset here would return the whole diff.
+      189: 	const fileset = exactPathFileset(path);
+      190: 	if ("rev" in spec) return jj.diff(spec.rev, { cwd, filesets: [fileset] });
+      191: 	return jj.diffRange(spec.from, spec.to, { cwd, filesets: [fileset] });
+      192: }
+      193: 
+      194: // ---------------------------------------------------------------------------
+      195: // collectDiff
+      196: // ---------------------------------------------------------------------------
+      197: 
+      198: /**
+      199:  * Collect a diff under `budget`, emitting one `diff-condensed` status when
+      200:  * content was dropped.
+      201:  *
+      202:  * A path matching `budget.omit` keeps its name and change count and loses its
+      203:  * content whatever its size. Otherwise a file over `maxLinesPerFile` loses its
+      204:  * content, and content is fetched in file order until the estimated-token
+      205:  * budget is spent, after which every remaining file is name-only.
+      206:  *
+      207:  * The caller keeps its own failure policy: a read that rejects propagates, so
+      208:  * a diff-only stamp can report `diff_fetch_failed` while an interaction stamp
+      209:  * can degrade to an empty diff.
+      210:  */
+      211: export async function collectDiff(
+      212: 	jj: Jj,
+      213: 	spec: DiffSpec,
+      214: 	budget: DiffBudget,
+      215: 	cwd: string,
+      216: 	onStatus?: (event: StatusEvent) => void,
+      217: ): Promise<CollectedDiff> {
+      218: 	const files = await jj.diffFiles(spec, { cwd });
+      219: 
+      220: 	const ignored = new Set(
+      221: 		files
+      222: 			.filter((file) => matchesOmit(file.path, budget.omit))
+      223: 			.map((file) => file.path),
+      224: 	);
+      225: 
+      226: 	const parts: string[] = [];
+      227: 	const omitted: OmittedFile[] = [];
+      228: 	let tokens = 0;
+      229: 	let spent = false;
+      230: 	let dropped = 0;
+      231: 
+      232: 	// A marker carries a full path, so the budget covers markers too. When a
+      233: 	// marker does not fit, its file is counted in one trailing line instead.
+      234: 	const pushOmitted = (file: DiffFile, reason: OmitReason): void => {
+      235: 		omitted.push({ ...file, reason });
+      236: 		const marker = omittedMarker(file, reason);
+      237: 		const cost = estimateTokens(marker);
+      238: 		if (tokens + cost > budget.maxTokens) {
+      239: 			dropped += 1;
+      240: 			return;
+      241: 		}
+      242: 		tokens += cost;
+      243: 		parts.push(marker);
+      244: 	};
+      245: 
+      246: 	for (const file of files) {
+      247: 		const reason = omitReason(file, budget, spent, ignored.has(file.path));
+      248: 		if (reason !== undefined) {
+      249: 			pushOmitted(file, reason);
+      250: 			if (reason === "over-budget") spent = true;
+      251: 			continue;
+      252: 		}
+      253: 
+      254: 		const content = await fetchFileContent(jj, spec, file.path, cwd);
+      255: 		const cost = estimateTokens(content);
+      256: 		if (tokens + cost > budget.maxTokens) {
+      257: 			pushOmitted(file, "over-budget");
+      258: 			spent = true;
+      259: 			continue;
+      260: 		}
+      261: 		tokens += cost;
+      262: 		parts.push(content);
+      263: 	}
+      264: 
+      265: 	if (dropped > 0) {
+      266: 		parts.push(
+      267: 			`... and ${dropped} more file${dropped === 1 ? "" : "s"} omitted`,
+      268: 		);
+      269: 	}
+      270: 
+      271: 	const result = { text: parts.join("\n"), omitted };
+      272: 	if (onStatus !== undefined) emitDiffCondensed(onStatus, omitted);
+      273: 	return result;
+      274: }
+      275: 
+      276: /**
+      277:  * The gates that need no content: an ignored path is always dropped, a file
+      278:  * over the per-file line gate is too large, and every file after the budget is
+      279:  * spent is over budget. Returns `undefined` when the file's content must be
+      280:  * fetched and measured.
+      281:  */
+      282: function omitReason(
+      283: 	file: DiffFile,
+      284: 	budget: DiffBudget,
+      285: 	spent: boolean,
+      286: 	ignored: boolean,
+      287: ): OmitReason | undefined {
+      288: 	if (ignored) return "ignored";
+      289: 	if (file.changes > budget.maxLinesPerFile) return "too-large";
+      290: 	if (spent) return "over-budget";
+      291: 	return undefined;
+      292: }
+Modified regular file packages/sillajje-core/src/fold.ts:
+    ...
+  44   44: } from "./action.js";
+  45   45: import type { CommandHelp, CommandSpec, SessionFailure } from "./args.js";
+  46   46: import {
+       47: 	type DiffBudget,
+  47   48: 	type NarrativeDetail,
+  48   49: 	type SillajjeConfig,
+  49   50: 	subGeneratorDefaults,
+  50   51: } from "./config.js";
+       52: import { collectDiff } from "./diff.js";
+  51   53: import {
+  52   54: 	buildFoldBody,
+  53   55: 	FOLD_BODY_SECTIONS,
+    ...
+ 127  129: 	model: string;
+ 128  130: 	maxAttempts: number;
+ 129  131: 	timeoutMs: number;
+      132: 	/** The diff budget every collected diff is measured against. */
+      133: 	diff: DiffBudget;
+ 130  134: }
+ 131  135: 
+ 132  136: /** A recipe-detected conflict. Thrown so the transaction rolls back. */
+    ...
+ 657  661: 		// sub-generator spends a call.
+ 658  662: 		let diff = "";
+ 659  663: 		try {
+ 660     : 			diff = await jj.diffRange(base.commitId, tip.commitId, {
+ 661     : 				cwd: sourceCwd,
+ 662     : 				...(fileset === undefined ? {} : { filesets: [fileset] }),
+ 663     : 			});
+      664: 			const collected = await collectDiff(
+      665: 				jj,
+      666: 				{
+      667: 					from: base.commitId,
+      668: 					to: tip.commitId,
+      669: 					...(fileset === undefined ? {} : { filesets: [fileset] }),
+      670: 				},
+      671: 				cfg.diff,
+      672: 				sourceCwd,
+      673: 				onStatus,
+      674: 			);
+      675: 			diff = collected.text;
+ 664  676: 		} catch (err) {
+ 665  677: 			return fail(`fold diff generation failed: ${String(err)}`);
+ 666  678: 		}
+    ...
+Modified regular file packages/sillajje-core/src/index.ts:
+    ...
+  46   46: } from "./args.js";
+  47   47: export { assembleDescription, type Section } from "./body.js";
+  48   48: export {
+       49: 	DEFAULT_DIFF_MAX_LINES_PER_FILE,
+       50: 	DEFAULT_DIFF_MAX_TOKENS,
+       51: 	DEFAULT_DIFF_OMIT,
+       52: 	type DiffBudget,
+  49   53: 	defaultSillajjeConfig,
+  50   54: 	type SillajjeConfig,
+  51   55: 	SillajjeConfigSchema,
+  52   56: } from "./config.js";
+  53   57: export {
+       58: 	type CollectedDiff,
+       59: 	collectDiff,
+       60: 	emitDiffCondensed,
+       61: 	estimateTokens,
+       62: 	matchesOmit,
+       63: 	type OmitReason,
+       64: 	type OmittedFile,
+       65: } from "./diff.js";
+       66: export {
+  54   67: 	createFold,
+  55   68: 	FOLD_ARGS,
+  56   69: 	FOLD_HELP,
+    ...
+Modified regular file packages/sillajje-core/src/stamp/diff-only.ts:
+    ...
+   9    9:  */
+  10   10: 
+  11   11: import { emitStatus } from "../action.js";
+       12: import { collectDiff } from "../diff.js";
+  12   13: import { buildCommitBody, buildMeta, type StampSource } from "../metadata.js";
+  13   14: import { generateManualHeader } from "../sub-generator.js";
+  14   15: import { queryFailureDetail } from "./internal.js";
+    ...
+  47   48: 
+  48   49: 	let diff: string;
+  49   50: 	try {
+  50     : 		diff = await deps.jj.diff(rev, { cwd: jjDir });
+       51: 		const collected = await collectDiff(
+       52: 			deps.jj,
+       53: 			{ rev },
+       54: 			cfg.diff,
+       55: 			jjDir,
+       56: 			deps.onStatus,
+       57: 		);
+       58: 		diff = collected.text;
+  51   59: 	} catch (err) {
+  52   60: 		// An unresolvable or immutable rev is jj's call to explain —
+  53   61: 		// relay its stderr rather than reading the failure as empty.
+    ...
+Modified regular file packages/sillajje-core/src/stamp/interaction.ts:
+    ...
+   8    8:  */
+   9    9: 
+  10   10: import { emitStatus } from "../action.js";
+       11: import { collectDiff } from "../diff.js";
+  11   12: import {
+  12   13: 	buildCommitBody,
+  13   14: 	buildLoop,
+    ...
+  64   65: 	// degrades to an empty diff — it must not fail the stamp.
+  65   66: 	let diff = "";
+  66   67: 	try {
+  67     : 		diff = await jj.diff("@", { cwd: wsPath });
+       68: 		const collected = await collectDiff(
+       69: 			jj,
+       70: 			{ rev: "@" },
+       71: 			cfg.diff,
+       72: 			wsPath,
+       73: 			deps.onStatus,
+       74: 		);
+       75: 		diff = collected.text;
+  68   76: 	} catch {
+  69   77: 		// Non-fatal: the sub-generator still gets transcript + prior descriptions.
+  70   78: 	}
+    ...
+Modified regular file packages/sillajje-core/src/stamp/types.ts:
+    ...
+  17   17: 	StatusEvent,
+  18   18: } from "../action.js";
+  19   19: import type { SessionFailure } from "../args.js";
+  20     : import type { NarrativeDetail } from "../config.js";
+       20: import type { DiffBudget, NarrativeDetail } from "../config.js";
+  21   21: import type {
+  22   22: 	InteractionRange,
+  23   23: 	LoopField,
+    ...
+ 103  103: 	maxAttempts: number;
+ 104  104: 	timeoutMs: number;
+ 105  105: 	model: string;
+      106: 	/** The diff budget every collected diff is measured against. */
+      107: 	diff: DiffBudget;
+ 106  108: }
+ 107  109: 
+ 108  110: /** The ports a stamp path binds, with the extracted config. */
+    ...
+Modified regular file packages/sillajje-core/test/config.test.ts:
+    ...
+   8    8: import { Check, Clean, Default } from "@sinclair/typebox/value";
+   9    9: import { describe, expect, it } from "vitest";
+  10   10: import {
+       11: 	DEFAULT_DIFF_OMIT,
+  11   12: 	defaultSillajjeConfig,
+  12   13: 	type SillajjeConfig,
+  13   14: 	SillajjeConfigSchema,
+    ...
+  43   44: 		expect(config.actions?.fold?.summary?.detail).toBe("high");
+  44   45: 		expect(config.subGenerator?.retry?.maxAttempts).toBe(3);
+  45   46: 		expect(config.subGenerator?.timeoutMs).toBe(30_000);
+       47: 		expect(config.subGenerator?.diff?.maxTokens).toBe(12_000);
+       48: 		expect(config.subGenerator?.diff?.maxLinesPerFile).toBe(400);
+       49: 		expect(config.subGenerator?.diff?.omit).toEqual([...DEFAULT_DIFF_OMIT]);
+  46   50: 	});
+  47   51: 
+  48   52: 	it("keeps a provided value and fills the rest", () => {
+    ...
+Added regular file packages/sillajje-core/test/diff.test.ts:
+        1: /**
+        2:  * Unit tests for `collectDiff` and its helpers — the diff budget that keeps a
+        3:  * big or ignored file's name and drops its content.
+        4:  *
+        5:  * The jj boundary is a minimal fake: the tests pin the fetch shape (one exact
+        6:  * fileset per file, no whole-diff read) and the omission reasons.
+        7:  */
+        8: 
+        9: import type { DiffFile, Jj } from "@pi-tre/sillajje-jj";
+       10: import { describe, expect, it, vi } from "vitest";
+       11: import {
+       12: 	collectDiff,
+       13: 	emitDiffCondensed,
+       14: 	estimateTokens,
+       15: 	matchesOmit,
+       16: 	type StatusEvent,
+       17: } from "../src/index.js";
+       18: 
+       19: const NO_OMIT: readonly string[] = [];
+       20: const SMALL_BUDGET = { maxTokens: 1_000, maxLinesPerFile: 10, omit: NO_OMIT };
+       21: 
+       22: interface FakeOptions {
+       23: 	files?: DiffFile[];
+       24: 	content?: (path: string) => string;
+       25: }
+       26: 
+       27: function makeJj(opts: FakeOptions = {}) {
+       28: 	const contentFor = (options?: { filesets?: readonly string[] }): string => {
+       29: 		const fileset = options?.filesets?.at(-1);
+       30: 		if (fileset === undefined) return "";
+       31: 		// `fetchFileContent` wraps the path in an exact-match fileset.
+       32: 		const match = /^file:"(.*)"$/.exec(fileset);
+       33: 		const path = match
+       34: 			? (match[1] ?? "").replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+       35: 			: fileset;
+       36: 		return opts.content?.(path) ?? "";
+       37: 	};
+       38: 	const diff = vi.fn(
+       39: 		async (_rev: string, options?: { filesets?: readonly string[] }) =>
+       40: 			contentFor(options),
+       41: 	);
+       42: 	const diffRange = vi.fn(
+       43: 		async (
+       44: 			_from: string,
+       45: 			_to: string,
+       46: 			options?: { filesets?: readonly string[] },
+       47: 		) => contentFor(options),
+       48: 	);
+       49: 	const diffFiles = vi.fn(async () => opts.files ?? []);
+       50: 	const jj = { diff, diffRange, diffFiles } as unknown as Jj;
+       51: 	return { jj, diff, diffRange, diffFiles };
+       52: }
+       53: 
+       54: function collectingSink(): {
+       55: 	sink: (event: StatusEvent) => void;
+       56: 	events: StatusEvent[];
+       57: } {
+       58: 	const events: StatusEvent[] = [];
+       59: 	return { sink: (event) => events.push(event), events };
+       60: }
+       61: 
+       62: describe("estimateTokens", () => {
+       63: 	it("is one token per four characters, rounded up", () => {
+       64: 		expect(estimateTokens("")).toBe(0);
+       65: 		expect(estimateTokens("abcd")).toBe(1);
+       66: 		expect(estimateTokens("abcde")).toBe(2);
+       67: 	});
+       68: });
+       69: 
+       70: describe("matchesOmit", () => {
+       71: 	it("matches a basename at any depth", () => {
+       72: 		expect(matchesOmit("yarn.lock", ["**/*.lock"])).toBe(true);
+       73: 		expect(matchesOmit("a/b/uv.lock", ["**/*.lock"])).toBe(true);
+       74: 		expect(matchesOmit("yarn.lock.bak", ["**/*.lock"])).toBe(false);
+       75: 		expect(matchesOmit("yarnlock", ["**/*.lock"])).toBe(false);
+       76: 	});
+       77: 
+       78: 	it("matches an exact basename", () => {
+       79: 		expect(matchesOmit("go.sum", ["**/go.sum"])).toBe(true);
+       80: 		expect(matchesOmit("x/go.sum", ["**/go.sum"])).toBe(true);
+       81: 		expect(matchesOmit("go.sums", ["**/go.sum"])).toBe(false);
+       82: 	});
+       83: 
+       84: 	it("matches a directory subtree", () => {
+       85: 		expect(matchesOmit("vendor/a/b.ts", ["**/vendor/**"])).toBe(true);
+       86: 		expect(matchesOmit("x/vendor/a.ts", ["**/vendor/**"])).toBe(true);
+       87: 		expect(matchesOmit("vendor", ["**/vendor/**"])).toBe(false);
+       88: 	});
+       89: 
+       90: 	it("anchors the whole path", () => {
+       91: 		expect(matchesOmit("a.generated.ts", ["**/*.generated.*"])).toBe(true);
+       92: 		expect(matchesOmit("a.generated", ["**/*.generated.*"])).toBe(false);
+       93: 		expect(matchesOmit("pnpm-lock.yaml", ["**/*-lock.yaml"])).toBe(true);
+       94: 	});
+       95: });
+       96: 
+       97: describe("collectDiff", () => {
+       98: 	it("fetches each changed file by its exact path", async () => {
+       99: 		const { jj, diff } = makeJj({
+      100: 			files: [
+      101: 				{ path: "a.ts", status: "modified", changes: 5 },
+      102: 				{ path: "b.ts", status: "modified", changes: 3 },
+      103: 			],
+      104: 			content: (path) => (path === "a.ts" ? "A" : "B"),
+      105: 		});
+      106: 
+      107: 		const result = await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws");
+      108: 
+      109: 		expect(result).toEqual({ text: "A\nB", omitted: [] });
+      110: 		expect(diff).toHaveBeenNthCalledWith(1, "@", {
+      111: 			cwd: "/ws",
+      112: 			filesets: ['file:"a.ts"'],
+      113: 		});
+      114: 		expect(diff).toHaveBeenNthCalledWith(2, "@", {
+      115: 			cwd: "/ws",
+      116: 			filesets: ['file:"b.ts"'],
+      117: 		});
+      118: 		expect(jj.diffFiles).toHaveBeenCalledTimes(1);
+      119: 	});
+      120: 
+      121: 	it("treats no changed files as an empty diff, with no file read", async () => {
+      122: 		const { jj, diff } = makeJj();
+      123: 
+      124: 		const result = await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws");
+      125: 
+      126: 		expect(result).toEqual({ text: "", omitted: [] });
+      127: 		expect(diff).not.toHaveBeenCalled();
+      128: 	});
+      129: 
+      130: 	it("drops an ignored path's content whatever its size", async () => {
+      131: 		const { jj, diff } = makeJj({
+      132: 			files: [
+      133: 				{ path: "src/a.ts", status: "modified", changes: 5 },
+      134: 				{ path: "pnpm-lock.yaml", status: "modified", changes: 3 },
+      135: 			],
+      136: 			content: (path) => (path === "src/a.ts" ? "A" : "LOCK"),
+      137: 		});
+      138: 
+      139: 		const result = await collectDiff(
+      140: 			jj,
+      141: 			{ rev: "@" },
+      142: 			{ maxTokens: 1_000, maxLinesPerFile: 10, omit: ["**/*-lock.yaml"] },
+      143: 			"/ws",
+      144: 		);
+      145: 
+      146: 		expect(result.text).toBe(
+      147: 			[
+      148: 				"A",
+      149: 				"Modified pnpm-lock.yaml (3 lines changed): diff content omitted (ignored path)",
+      150: 			].join("\n"),
+      151: 		);
+      152: 		expect(result.omitted).toEqual([
+      153: 			{
+      154: 				path: "pnpm-lock.yaml",
+      155: 				status: "modified",
+      156: 				changes: 3,
+      157: 				reason: "ignored",
+      158: 			},
+      159: 		]);
+      160: 		// The lockfile is never fetched, even though it fits the line gate.
+      161: 		expect(diff).toHaveBeenCalledTimes(1);
+      162: 		expect(diff).toHaveBeenCalledWith("@", {
+      163: 			cwd: "/ws",
+      164: 			filesets: ['file:"src/a.ts"'],
+      165: 		});
+      166: 	});
+      167: 
+      168: 	it("drops content that exceeds the token ceiling", async () => {
+      169: 		// One changed line, but a minified file: the line gate cannot see the
+      170: 		// size, so the fetched text has to pass the token ceiling.
+      171: 		const huge = "x".repeat(4_000);
+      172: 		const { jj } = makeJj({
+      173: 			files: [{ path: "bundle.min.js", status: "modified", changes: 1 }],
+      174: 			content: () => huge,
+      175: 		});
+      176: 
+      177: 		const result = await collectDiff(
+      178: 			jj,
+      179: 			{ rev: "@" },
+      180: 			{ maxTokens: 100, maxLinesPerFile: 10, omit: NO_OMIT },
+      181: 			"/ws",
+      182: 		);
+      183: 
+      184: 		expect(result.text).toBe(
+      185: 			"Modified bundle.min.js (1 lines changed): diff content omitted (over token budget)",
+      186: 		);
+      187: 		expect(result.omitted).toEqual([
+      188: 			{
+      189: 				path: "bundle.min.js",
+      190: 				status: "modified",
+      191: 				changes: 1,
+      192: 				reason: "over-budget",
+      193: 			},
+      194: 		]);
+      195: 	});
+      196: 
+      197: 	it("keeps a file over the line gate by name only, without fetching it", async () => {
+      198: 		const { jj, diff } = makeJj({
+      199: 			files: [
+      200: 				{ path: "small.ts", status: "modified", changes: 5 },
+      201: 				{ path: "big.ts", status: "modified", changes: 900 },
+      202: 			],
+      203: 			content: (path) => (path === "small.ts" ? "SMALL" : "BIG"),
+      204: 		});
+      205: 
+      206: 		const result = await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws");
+      207: 
+      208: 		expect(result.text).toBe(
+      209: 			[
+      210: 				"SMALL",
+      211: 				"Modified big.ts (900 lines changed): diff content omitted (too large)",
+      212: 			].join("\n"),
+      213: 		);
+      214: 		expect(result.omitted).toEqual([
+      215: 			{
+      216: 				path: "big.ts",
+      217: 				status: "modified",
+      218: 				changes: 900,
+      219: 				reason: "too-large",
+      220: 			},
+      221: 		]);
+      222: 		expect(diff).toHaveBeenCalledTimes(1);
+      223: 		expect(diff).toHaveBeenCalledWith("@", {
+      224: 			cwd: "/ws",
+      225: 			filesets: ['file:"small.ts"'],
+      226: 		});
+      227: 	});
+      228: 
+      229: 	it("stops inlining once the token budget is spent", async () => {
+      230: 		const budget = { maxTokens: 150, maxLinesPerFile: 100, omit: NO_OMIT };
+      231: 		const content = "x".repeat(400); // 100 estimated tokens
+      232: 		const { jj, diff } = makeJj({
+      233: 			files: [
+      234: 				{ path: "a.ts", status: "added", changes: 60 },
+      235: 				{ path: "b.ts", status: "added", changes: 60 },
+      236: 			],
+      237: 			content: () => content,
+      238: 		});
+      239: 
+      240: 		const result = await collectDiff(jj, { rev: "@" }, budget, "/ws");
+      241: 
+      242: 		expect(result.text).toBe(
+      243: 			[
+      244: 				content,
+      245: 				"Added b.ts (60 lines changed): diff content omitted (over token budget)",
+      246: 			].join("\n"),
+      247: 		);
+      248: 		expect(result.omitted.map((file) => file.path)).toEqual(["b.ts"]);
+      249: 		// b.ts is fetched once, measured, then dropped: the gate needs its size.
+      250: 		expect(diff).toHaveBeenCalledTimes(2);
+      251: 	});
+      252: 
+      253: 	it("fetches a range's file by exact path, not the range fileset", async () => {
+      254: 		const { jj, diffRange } = makeJj({
+      255: 			files: [
+      256: 				{ path: "a.ts", status: "added", changes: 1 },
+      257: 				{ path: "big.ts", status: "added", changes: 900 },
+      258: 			],
+      259: 			content: () => "RANGE FILE",
+      260: 		});
+      261: 
+      262: 		const result = await collectDiff(
+      263: 			jj,
+      264: 			{ from: "base", to: "tip", filesets: ["~excluded"] },
+      265: 			SMALL_BUDGET,
+      266: 			"/ws",
+      267: 		);
+      268: 
+      269: 		expect(result.text).toBe(
+      270: 			[
+      271: 				"RANGE FILE",
+      272: 				"Added big.ts (900 lines changed): diff content omitted (too large)",
+      273: 			].join("\n"),
+      274: 		);
+      275: 		expect(diffRange).toHaveBeenCalledWith("base", "tip", {
+      276: 			cwd: "/ws",
+      277: 			filesets: ['file:"a.ts"'],
+      278: 		});
+      279: 	});
+      280: 
+      281: 	it("escapes a path into an exact-match fileset", async () => {
+      282: 		const { jj, diff } = makeJj({
+      283: 			files: [
+      284: 				{ path: 'weird "name".ts', status: "modified", changes: 5 },
+      285: 				{ path: "big.ts", status: "modified", changes: 900 },
+      286: 			],
+      287: 			content: () => "WEIRD",
+      288: 		});
+      289: 
+      290: 		await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws");
+      291: 
+      292: 		expect(diff).toHaveBeenCalledWith("@", {
+      293: 			cwd: "/ws",
+      294: 			filesets: ['file:"weird \\"name\\".ts"'],
+      295: 		});
+      296: 	});
+      297: 
+      298: 	it("fetches a renamed file by its target path", async () => {
+      299: 		const { jj, diff } = makeJj({
+      300: 			files: [
+      301: 				{ path: "new.ts", status: "renamed", changes: 0 },
+      302: 				{ path: "big.ts", status: "modified", changes: 900 },
+      303: 			],
+      304: 			content: () => "RENAMED",
+      305: 		});
+      306: 
+      307: 		const result = await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws");
+      308: 
+      309: 		expect(result.text).toContain("RENAMED");
+      310: 		expect(diff).toHaveBeenCalledWith("@", {
+      311: 			cwd: "/ws",
+      312: 			filesets: ['file:"new.ts"'],
+      313: 		});
+      314: 	});
+      315: 
+      316: 	it("collapses markers that no longer fit the token budget", async () => {
+      317: 		const budget = {
+      318: 			maxTokens: 20,
+      319: 			maxLinesPerFile: 10,
+      320: 			omit: ["**/*.lock"],
+      321: 		};
+      322: 		const { jj } = makeJj({
+      323: 			files: [
+      324: 				{ path: "a.lock", status: "modified", changes: 1 },
+      325: 				{ path: "b.lock", status: "modified", changes: 1 },
+      326: 				{ path: "c.lock", status: "modified", changes: 1 },
+      327: 			],
+      328: 		});
+      329: 
+      330: 		const result = await collectDiff(jj, { rev: "@" }, budget, "/ws");
+      331: 
+      332: 		expect(result.text).toContain("Modified a.lock");
+      333: 		expect(result.text).toContain("... and 2 more files omitted");
+      334: 		expect(result.text).not.toContain("b.lock");
+      335: 		expect(result.omitted.map((file) => file.path)).toEqual([
+      336: 			"a.lock",
+      337: 			"b.lock",
+      338: 			"c.lock",
+      339: 		]);
+      340: 	});
+      341: 
+      342: 	it("emits one diff-condensed status when content was dropped", async () => {
+      343: 		const { jj } = makeJj({
+      344: 			files: [{ path: "big.ts", status: "added", changes: 900 }],
+      345: 		});
+      346: 		const { sink, events } = collectingSink();
+      347: 
+      348: 		await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws", sink);
+      349: 
+      350: 		expect(events).toEqual([
+      351: 			{
+      352: 				kind: "info",
+      353: 				code: "diff-condensed",
+      354: 				message: "diff condensed: 1 file kept by name only (big.ts)",
+      355: 			},
+      356: 		]);
+      357: 	});
+      358: 
+      359: 	it("stays silent when nothing was dropped", async () => {
+      360: 		const { jj } = makeJj({
+      361: 			files: [{ path: "a.ts", status: "modified", changes: 1 }],
+      362: 			content: () => "SMALL",
+      363: 		});
+      364: 		const { sink, events } = collectingSink();
+      365: 
+      366: 		await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws", sink);
+      367: 
+      368: 		expect(events).toEqual([]);
+      369: 	});
+      370: 
+      371: 	it("propagates a rejected read", async () => {
+      372: 		const { jj } = makeJj();
+      373: 		(jj.diffFiles as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      374: 			new Error("jj exploded"),
+      375: 		);
+      376: 
+      377: 		await expect(
+      378: 			collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws"),
+      379: 		).rejects.toThrow("jj exploded");
+      380: 	});
+      381: });
+      382: 
+      383: describe("emitDiffCondensed", () => {
+      384: 	it("reports the omitted count and the paths", () => {
+      385: 		const events: StatusEvent[] = [];
+      386: 		emitDiffCondensed(
+      387: 			(event) => events.push(event),
+      388: 			[
+      389: 				{
+      390: 					path: "a.ts",
+      391: 					status: "modified",
+      392: 					changes: 1,
+      393: 					reason: "over-budget",
+      394: 				},
+      395: 				{
+      396: 					path: "b.ts",
+      397: 					status: "added",
+      398: 					changes: 2,
+      399: 					reason: "too-large",
+      400: 				},
+      401: 			],
+      402: 		);
+      403: 
+      404: 		expect(events).toEqual([
+      405: 			{
+      406: 				kind: "info",
+      407: 				code: "diff-condensed",
+      408: 				message:
+      409: 					"diff condensed: 2 files kept by name only (a.ts, b.ts)",
+      410: 			},
+      411: 		]);
+      412: 	});
+      413: });
+Modified regular file packages/sillajje-core/test/fold.test.ts:
+    ...
+  97   97: 	gitPush: ReturnType<typeof vi.fn>;
+  98   98: 	transaction: ReturnType<typeof vi.fn>;
+  99   99: 	diffRange: ReturnType<typeof vi.fn>;
+      100: 	diffFiles: ReturnType<typeof vi.fn>;
+ 100  101: }
+ 101  102: 
+ 102  103: function makeJj(opts?: {
+    ...
+ 149  150: 		},
+ 150  151: 	);
+ 151  152: 	const diffRange = vi.fn(async () => "diff --git a/f b/f\n+added");
+      153: 	const diffFiles = vi.fn(async () => [
+      154: 		{ path: "f", status: "modified" as const, changes: 1 },
+      155: 	]);
+ 152  156: 	const jj = {
+ 153  157: 		log,
+ 154  158: 		diff: vi.fn(async () => "diff --git a/f b/f\n+added"),
+ 155  159: 		diffRange,
+      160: 		diffFiles,
+ 156  161: 		bookmarks,
+ 157  162: 		gitPush,
+ 158  163: 		transaction,
+    ...
+ 166  171: 		gitPush,
+ 167  172: 		transaction,
+ 168  173: 		diffRange,
+      174: 		diffFiles,
+ 169  175: 	};
+ 170  176: }
+ 171  177: 
+    ...
+ 335  341: 			kind: "abandon",
+ 336  342: 			revset: "c1::c2",
+ 337  343: 		});
+      344: 		expect(fakes.diffFiles).toHaveBeenCalledWith(
+      345: 			{ from: "base-c", to: "tip-c", filesets: [fileset] },
+      346: 			{ cwd: "." },
+      347: 		);
+ 338  348: 		expect(fakes.diffRange).toHaveBeenCalledWith("base-c", "tip-c", {
+ 339  349: 			cwd: ".",
+ 340     : 			filesets: [fileset],
+      350: 			filesets: ['file:"f"'],
+ 341  351: 		});
+ 342  352: 	});
+ 343  353: 
+    ...
+ 419  429: 				(c) => (c[0] as { kind: string }).kind === "abandon",
+ 420  430: 			),
+ 421  431: 		).toBe(false);
+      432: 		expect(fakes.diffFiles).toHaveBeenCalledWith(
+      433: 			{ from: "base-c", to: "tip-c" },
+      434: 			{ cwd: "." },
+      435: 		);
+ 422  436: 		expect(fakes.diffRange).toHaveBeenCalledWith("base-c", "tip-c", {
+ 423  437: 			cwd: ".",
+      438: 			filesets: ['file:"f"'],
+ 424  439: 		});
+ 425  440: 	});
+ 426  441: 
+ 427  442: 	it("returns no-changes when every changed path is excluded", async () => {
+ 428  443: 		const fakes = makeJj();
+ 429     : 		fakes.diffRange.mockResolvedValue("");
+      444: 		fakes.diffFiles.mockResolvedValue([]);
+ 430  445: 		const { action } = fold({ jj: fakes });
+ 431  446: 
+ 432  447: 		const result = await action({
+    ...
+Modified regular file packages/sillajje-core/test/stamp.test.ts:
+    ...
+ 164  164: 	});
+ 165  165: }
+ 166  166: 
+      167: /**
+      168:  * Overrides for a diff with one changed file: the `-T` manifest, the `--stat`
+      169:  * count, and the file's per-file section. The collector never reads a whole
+      170:  * diff, so each of the three reads needs its own answer.
+      171:  */
+      172: function oneFileDiff(
+      173: 	rev: string,
+      174: 	path: string,
+      175: 	content: string,
+      176: 	changes = 1,
+      177: ): Record<string, ExecResult> {
+      178: 	return {
+      179: 		"jj diff -T": {
+      180: 			code: 0,
+      181: 			stdout: `${JSON.stringify(path)}\tM\n`,
+      182: 			stderr: "",
+      183: 		},
+      184: 		"jj diff --stat -r": {
+      185: 			code: 0,
+      186: 			stdout: [
+      187: 				`${path} | ${changes} +`,
+      188: 				`1 file changed, ${changes} insertions(+), 0 deletions(-)`,
+      189: 				"",
+      190: 			].join("\n"),
+      191: 			stderr: "",
+      192: 		},
+      193: 		[`jj diff -r ${rev} file:"${path}"`]: {
+      194: 			code: 0,
+      195: 			stdout: content,
+      196: 			stderr: "",
+      197: 		},
+      198: 	};
+      199: }
+      200: 
+ 167  201: /** Collect all status emissions from an onStatus sink. */
+ 168  202: function collectingSink(): {
+ 169  203: 	sink: (event: StatusEvent) => void;
+    ...
+ 436  470: 
+ 437  471: 		const calls = mockCalls(exec);
+ 438  472: 
+ 439     : 		// First: diff fetch
+      473: 		// First: the per-file manifest that decides the diff budget
+ 440  474: 		expect(calls[0]![0]).toBe("jj");
+ 441     : 		expect(calls[0]![1]).toEqual(["diff", "-r", "@", "--color=never"]);
+      475: 		expect(calls[0]![1].slice(0, 2)).toEqual(["diff", "-T"]);
+      476: 		expect(calls[0]![1].slice(3)).toEqual(["-r", "@", "--color=never"]);
+      477: 		expect(calls[1]![1]).toEqual([
+      478: 			"diff",
+      479: 			"--stat",
+      480: 			"-r",
+      481: 			"@",
+      482: 			"--color=never",
+      483: 		]);
+ 442  484: 
+ 443  485: 		// Second: prior descriptions fetch
+ 444     : 		expect(calls[1]![0]).toBe("jj");
+ 445     : 		expect(calls[1]![1][0]).toBe("log");
+      486: 		expect(calls[2]![0]).toBe("jj");
+      487: 		expect(calls[2]![1][0]).toBe("log");
+ 446  488: 
+ 447  489: 		// The transactional seal follows, chained on captured op ids.
+ 448  490: 		const descCall = calls.find(
+    ...
+ 924  966: 	// -------------------------------------------------------------------
+ 925  967: 
+ 926  968: 	it("returns no-changes when diff is empty", async () => {
+ 927     : 		const exec = mockExec({
+ 928     : 			"jj diff -r @": { code: 0, stdout: "", stderr: "" },
+ 929     : 		});
+      969: 		const exec = mockExec();
+ 930  970: 		const spawn = mockSpawn();
+ 931  971: 		const { sink } = collectingSink();
+ 932  972: 
+    ...
+ 944  984: 		expect(descBody).toBeUndefined();
+ 945  985: 	});
+ 946  986: 
+      987: 	it("condenses a diff over the budget and reports diff-condensed", async () => {
+      988: 		const exec = mockExec({
+      989: 			'jj diff -r @ file:"small.ts"': {
+      990: 				code: 0,
+      991: 				stdout: "Modified regular file small.ts:\n@@ -1 +1 @@\n-a\n+b\n",
+      992: 				stderr: "",
+      993: 			},
+      994: 			"jj diff -T": {
+      995: 				code: 0,
+      996: 				stdout: ['"small.ts"\tM', '"big.ts"\tM'].join("\n"),
+      997: 				stderr: "",
+      998: 			},
+      999: 			"jj diff --stat -r @": {
+     1000: 				code: 0,
+     1001: 				stdout: [
+     1002: 					"small.ts | 2 ++",
+     1003: 					`big.ts | 900 ${"+".repeat(20)}`,
+     1004: 					"2 files changed, 902 insertions(+), 0 deletions(-)",
+     1005: 				].join("\n"),
+     1006: 				stderr: "",
+     1007: 			},
+     1008: 		});
+     1009: 		const spawn = mockSpawn();
+     1010: 		const { sink, statuses } = collectingSink();
+     1011: 
+     1012: 		const result = await stampSession(diffInput(), {
+     1013: 			jj: createJj(exec),
+     1014: 			run: spawn,
+     1015: 			config: defaultConfig(),
+     1016: 			env: TEST_ENV,
+     1017: 			onStatus: sink,
+     1018: 		});
+     1019: 
+     1020: 		expect(result.ok).toBe(true);
+     1021: 		// The condensed diff reaches the manual header sub-generator.
+     1022: 		const prompt = spawn.mock.calls[0]?.[0]?.prompt as string;
+     1023: 		expect(prompt).toContain("small.ts");
+     1024: 		expect(prompt).toContain(
+     1025: 			"Modified big.ts (900 lines changed): diff content omitted (too large)",
+     1026: 		);
+     1027: 		// No whole `jj diff` read happened: the big file was never fetched.
+     1028: 		expect(
+     1029: 			mockCalls(exec).some(
+     1030: 				(call) => call[1]?.[0] === "diff" && call[1].includes("big.ts"),
+     1031: 			),
+     1032: 		).toBe(false);
+     1033: 		expect(
+     1034: 			statuses.some(
+     1035: 				(event) =>
+     1036: 					event.kind === "info" && event.code === "diff-condensed",
+     1037: 			),
+     1038: 		).toBe(true);
+     1039: 	});
+     1040: 
+ 947 1041: 	// -------------------------------------------------------------------
+ 948 1042: 	// Happy path: full seal at rev "@"
+ 949 1043: 	// -------------------------------------------------------------------
+ 950 1044: 
+ 951 1045: 	it("seals the working copy with diff-based header and Meta line", async () => {
+ 952 1046: 		const exec = mockExec({
+ 953     : 			"jj diff -r @": {
+ 954     : 				code: 0,
+ 955     : 				stdout: diffContent,
+ 956     : 				stderr: "",
+ 957     : 			},
+     1047: 			...oneFileDiff("@", "file", diffContent),
+ 958 1048: 		});
+ 959 1049: 		const spawn = mockSpawn();
+ 960 1050: 		const { sink, statuses } = collectingSink();
+    ...
+1017 1107: 
+1018 1108: 	it("falls back to conventional-commit default when sub-generator fails", async () => {
+1019 1109: 		const exec = mockExec({
+1020     : 			"jj diff -r @": {
+1021     : 				code: 0,
+1022     : 				stdout: diffContent,
+1023     : 				stderr: "",
+1024     : 			},
+     1110: 			...oneFileDiff("@", "file", diffContent),
+1025 1111: 		});
+1026 1112: 		const spawn = vi.fn().mockRejectedValue(new Error("unavailable"));
+1027 1113: 		const { sink, statuses } = collectingSink();
+    ...
+1056 1142: 
+1057 1143: 	it("relays a failed jj diff as diff_fetch_failed", async () => {
+1058 1144: 		const exec = mockExec({
+1059     : 			"jj diff -r @": { code: 1, stdout: "", stderr: "diff error" },
+     1145: 			"jj diff -T": { code: 1, stdout: "", stderr: "diff error" },
+1060 1146: 		});
+1061 1147: 		const spawn = mockSpawn();
+1062 1148: 		const { sink, statuses } = collectingSink();
+    ...
+1107 1193: 
+1108 1194: 	it("returns ok: false when jj update-stale fails during diff stamp", async () => {
+1109 1195: 		const exec = mockExec({
+1110     : 			"jj diff -r @": {
+1111     : 				code: 0,
+1112     : 				stdout: diffContent,
+1113     : 				stderr: "",
+1114     : 			},
+     1196: 			...oneFileDiff("@", "file", diffContent),
+1115 1197: 			"jj workspace update-stale": {
+1116 1198: 				code: 1,
+1117 1199: 				stdout: "",
+    ...
+1139 1221: 
+1140 1222: 	it("returns ok: false when jj describe fails during diff stamp", async () => {
+1141 1223: 		const exec = mockExec({
+1142     : 			"jj diff -r @": {
+1143     : 				code: 0,
+1144     : 				stdout: diffContent,
+1145     : 				stderr: "",
+1146     : 			},
+     1224: 			...oneFileDiff("@", "file", diffContent),
+1147 1225: 			"jj describe": {
+1148 1226: 				code: 1,
+1149 1227: 				stdout: "",
+    ...
+1183 1261: 
+1184 1262: 	it("describes the target rev with a generated header and provenance", async () => {
+1185 1263: 		const exec = mockExec({
+1186     : 			"jj diff -r abc123": {
+1187     : 				code: 0,
+1188     : 				stdout: diffContent,
+1189     : 				stderr: "",
+1190     : 			},
+     1264: 			...oneFileDiff("abc123", "file", diffContent),
+1191 1265: 		});
+1192 1266: 		const spawn = mockSpawn();
+1193 1267: 		const { sink, statuses } = collectingSink();
+    ...
+1209 1283: 
+1210 1284: 		const calls = mockCalls(exec);
+1211 1285: 
+1212     : 		// Three jj calls: the diff fetch, the describe, and the operation read
+1213     : 		// that returns the describe's MutationResult. No seal — no update-stale,
+1214     : 		// no bookmark set, no jj new.
+1215     : 		expect(calls).toHaveLength(3);
+     1286: 		// Five jj calls: the `-T` read, the `--stat` read, the file's section,
+     1287: 		// the describe, and the operation read that returns the describe's
+     1288: 		// MutationResult. No seal — no update-stale, no bookmark set, no jj new.
+     1289: 		expect(calls).toHaveLength(5);
+1216 1290: 		expect(calls[0]![0]).toBe("jj");
+1217     : 		expect(calls[0]![1]).toEqual(["diff", "-r", "abc123", "--color=never"]);
+     1291: 		expect(calls[0]![1].slice(0, 2)).toEqual(["diff", "-T"]);
+     1292: 		expect(calls[0]![1].slice(3)).toEqual([
+     1293: 			"-r",
+     1294: 			"abc123",
+     1295: 			"--color=never",
+     1296: 		]);
+     1297: 		expect(calls[1]![1]).toEqual([
+     1298: 			"diff",
+     1299: 			"--stat",
+     1300: 			"-r",
+     1301: 			"abc123",
+     1302: 			"--color=never",
+     1303: 		]);
+     1304: 		expect(calls[2]![1]).toEqual([
+     1305: 			"diff",
+     1306: 			"-r",
+     1307: 			"abc123",
+     1308: 			'file:"file"',
+     1309: 			"--color=never",
+     1310: 		]);
+1218 1311: 
+1219     : 		const descCall = calls[1];
+     1312: 		const descCall = calls[3];
+1220 1313: 		expect(descCall![0]).toBe("jj");
+1221 1314: 		expect(descCall![1][0]).toBe("describe");
+1222 1315: 		expect(descCall![1].slice(1, 4)).toEqual(["-r", "abc123", "-m"]);
+    ...
+1249 1342: 
+1250 1343: 	it("accepts -r @ and stays describe-only", async () => {
+1251 1344: 		const exec = mockExec({
+1252     : 			"jj diff -r @": {
+1253     : 				code: 0,
+1254     : 				stdout: diffContent,
+1255     : 				stderr: "",
+1256     : 			},
+     1345: 			...oneFileDiff("@", "file", diffContent),
+1257 1346: 		});
+1258 1347: 		const spawn = mockSpawn();
+1259 1348: 		const { sink } = collectingSink();
+    ...
+1286 1375: 
+1287 1376: 	it("renders the provenance block from the call and deps.env", async () => {
+1288 1377: 		const exec = mockExec({
+1289     : 			"jj diff -r abc123": {
+1290     : 				code: 0,
+1291     : 				stdout: diffContent,
+1292     : 				stderr: "",
+1293     : 			},
+     1378: 			...oneFileDiff("abc123", "file", diffContent),
+1294 1379: 		});
+1295 1380: 		const spawn = mockSpawn();
+1296 1381: 		const { sink } = collectingSink();
+    ...
+1315 1400: 
+1316 1401: 	it("records the header fallback in the provenance block", async () => {
+1317 1402: 		const exec = mockExec({
+1318     : 			"jj diff -r abc123": {
+1319     : 				code: 0,
+1320     : 				stdout: diffContent,
+1321     : 				stderr: "",
+1322     : 			},
+     1403: 			...oneFileDiff("abc123", "file", diffContent),
+1323 1404: 		});
+1324 1405: 		const spawn = vi.fn().mockRejectedValue(new Error("unavailable"));
+1325 1406: 		const { sink, statuses } = collectingSink();
+    ...
+1346 1427: 
+1347 1428: 	it("omits the Meta section when it is not in the body", async () => {
+1348 1429: 		const exec = mockExec({
+1349     : 			"jj diff -r abc123": {
+1350     : 				code: 0,
+1351     : 				stdout: diffContent,
+1352     : 				stderr: "",
+1353     : 			},
+     1430: 			...oneFileDiff("abc123", "file", diffContent),
+1354 1431: 		});
+1355 1432: 		const spawn = mockSpawn();
+1356 1433: 		const { sink } = collectingSink();
+    ...
+1379 1456: 	// -------------------------------------------------------------------
+1380 1457: 
+1381 1458: 	it("returns no-changes on an empty diff before any mutation", async () => {
+1382     : 		const exec = mockExec({
+1383     : 			"jj diff -r abc123": { code: 0, stdout: "", stderr: "" },
+1384     : 		});
+     1459: 		const exec = mockExec();
+1385 1460: 		const spawn = mockSpawn();
+1386 1461: 		const { sink } = collectingSink();
+1387 1462: 
+    ...
+1403 1478: 
+1404 1479: 	it("relays jj's stderr when the rev does not resolve", async () => {
+1405 1480: 		const exec = mockExec({
+1406     : 			"jj diff -r nosuchrev": {
+     1481: 			"jj diff -T": {
+1407 1482: 				code: 1,
+1408 1483: 				stdout: "",
+1409 1484: 				stderr: 'Error: Revision "nosuchrev" doesn\'t exist',
+    ...
+1458 1533: 
+1459 1534: 	it("relays jj's stderr and returns failed when describe fails", async () => {
+1460 1535: 		const exec = mockExec({
+1461     : 			"jj diff -r abc123": {
+1462     : 				code: 0,
+1463     : 				stdout: diffContent,
+1464     : 				stderr: "",
+1465     : 			},
+     1536: 			...oneFileDiff("abc123", "file", diffContent),
+1466 1537: 			"jj describe": {
+1467 1538: 				code: 1,
+1468 1539: 				stdout: "",
+    ...
+1592 1663: 	/** The seal tests' mock: non-empty working-copy diff, deferred ops mint ids. */
+1593 1664: 	function sealExec(overrides?: Record<string, ExecResult | Error>): ExecFn {
+1594 1665: 		return mockExec({
+1595     : 			"jj diff -r @": { code: 0, stdout: diffContent, stderr: "" },
+     1666: 			...oneFileDiff("@", "file", diffContent),
+1596 1667: 			...overrides,
+1597 1668: 		});
+1598 1669: 	}
+    ...
+2060 2131: 					cmd,
+2061 2132: 					...args.filter((a) => a !== "--color=never"),
+2062 2133: 				].join(" ");
+2063     : 				if (key === "jj diff -r @") {
+     2134: 				if (key.startsWith("jj diff -T")) {
+     2135: 					return Promise.resolve({
+     2136: 						code: 0,
+     2137: 						stdout: '"file"\tM\n',
+     2138: 						stderr: "",
+     2139: 					});
+     2140: 				}
+     2141: 				if (key.startsWith("jj diff --stat -r")) {
+     2142: 					return Promise.resolve({
+     2143: 						code: 0,
+     2144: 						stdout: "file | 1 +\n1 file changed, 1 insertion(+), 0 deletions(-)\n",
+     2145: 						stderr: "",
+     2146: 					});
+     2147: 				}
+     2148: 				if (key === 'jj diff -r @ file:"file"') {
+2064 2149: 					return Promise.resolve({
+2065 2150: 						code: 0,
+2066 2151: 						stdout: "diff --git a/file b/file\n+added line\n",
+    ...
+Modified regular file packages/sillajje-jj/src/argv.ts:
+    ...
+   3    3:  * the process invocations stay in one module and are asserted by unit tests.
+   4    4:  */
+   5    5: 
+   6     : import type { Mutation } from "./types.js";
+        6: import type { DiffSpec, Mutation } from "./types.js";
+   7    7: 
+   8    8: /** Global flag added to every call: a user's color config cannot poison output. */
+   9    9: export const COLOR_FLAG = "--color=never";
+    ...
+  73   73: 	return ["log", "-r", revset, "--no-graph", "-T", JSON_LINE_TEMPLATE];
+  74   74: }
+  75   75: 
+  76     : export function diffArgv(revset: string): string[] {
+  77     : 	return ["diff", "-r", revset];
+       76: export function diffArgv(
+       77: 	revset: string,
+       78: 	filesets?: readonly string[],
+       79: ): string[] {
+       80: 	return ["diff", "-r", revset, ...(filesets ?? [])];
+       81: }
+       82: 
+       83: /**
+       84:  * The path read: one JSON-escaped target path and one status char per changed
+       85:  * path, tab-separated. `json(path)` escapes any newline or tab a path holds,
+       86:  * and `path` is the target path, so a rename's `{old => new}` display form
+       87:  * never reaches a fileset.
+       88:  */
+       89: export const DIFF_MANIFEST_TEMPLATE =
+       90: 	'json(path) ++ "\\t" ++ status_char ++ "\\n"';
+       91: 
+       92: /** The `-T` read: one JSON path + status char line per changed path. */
+       93: export function diffManifestArgv(spec: DiffSpec): string[] {
+       94: 	return ["diff", "-T", DIFF_MANIFEST_TEMPLATE, ...diffSpecArgv(spec)];
+       95: }
+       96: 
+       97: /** The `--stat` read: one per-file count line plus a totals line. */
+       98: export function diffStatArgv(spec: DiffSpec): string[] {
+       99: 	return ["diff", "--stat", ...diffSpecArgv(spec)];
+      100: }
+      101: 
+      102: /** The rev-or-range selector every diff read shares. */
+      103: function diffSpecArgv(spec: DiffSpec): string[] {
+      104: 	return "rev" in spec
+      105: 		? ["-r", spec.rev]
+      106: 		: ["--from", spec.from, "--to", spec.to, ...(spec.filesets ?? [])];
+  78  107: }
+  79  108: 
+  80  109: /**
+    ...
+Modified regular file packages/sillajje-jj/src/decode.ts:
+    ...
+   7    7:  */
+   8    8: 
+   9    9: import { JjError } from "./errors.js";
+  10     : import type { Bookmark, Commit } from "./types.js";
+       10: import type { Bookmark, Commit, DiffFile, DiffStatus } from "./types.js";
+  11   11: 
+  12   12: type Raw = Record<string, unknown>;
+  13   13: 
+    ...
+ 105  105: 	}
+ 106  106: 	return workspaces;
+ 107  107: }
+      108: 
+      109: /** The `jj diff -T` status char per status. */
+      110: const STATUS_CHARS: Record<string, DiffStatus> = {
+      111: 	A: "added",
+      112: 	M: "modified",
+      113: 	D: "removed",
+      114: 	R: "renamed",
+      115: 	C: "copied",
+      116: };
+      117: 
+      118: /**
+      119:  * Decode the `jj diff -T` manifest: one line per changed path, a JSON-escaped
+      120:  * target path and a status char separated by a tab. JSON keeps the parse
+      121:  * path-safe: a path may hold a newline or a tab, and it arrives escaped.
+      122:  */
+      123: function decodeDiffManifest(
+      124: 	output: string,
+      125: ): { path: string; status: DiffStatus }[] {
+      126: 	const entries: { path: string; status: DiffStatus }[] = [];
+      127: 	for (const line of splitLines(output)) {
+      128: 		const tab = line.indexOf("\t");
+      129: 		if (tab === -1) {
+      130: 			throw new JjError({ kind: "decode", what: "diff -T", raw: line });
+      131: 		}
+      132: 		const status = STATUS_CHARS[line.charAt(tab + 1)];
+      133: 		let path: unknown;
+      134: 		try {
+      135: 			path = JSON.parse(line.slice(0, tab));
+      136: 		} catch {
+      137: 			throw new JjError({
+      138: 				kind: "decode",
+      139: 				what: "diff -T path",
+      140: 				raw: line,
+      141: 			});
+      142: 		}
+      143: 		if (typeof path !== "string" || status === undefined) {
+      144: 			throw new JjError({ kind: "decode", what: "diff -T", raw: line });
+      145: 		}
+      146: 		entries.push({ path, status });
+      147: 	}
+      148: 	return entries;
+      149: }
+      150: 
+      151: /**
+      152:  * Decode the per-file counts from `jj diff --stat`, in file order. A binary
+      153:  * file or a zero-delta rename prints no integer, so its count is `0`.
+      154:  *
+      155:  * The separator is the *last* `" | "` on the line: jj prints the path
+      156:  * verbatim, and a path may itself contain `" | "`.
+      157:  */
+      158: function decodeDiffStatCounts(output: string): number[] {
+      159: 	const counts: number[] = [];
+      160: 	for (const line of splitLines(output)) {
+      161: 		const separator = line.lastIndexOf(" | ");
+      162: 		if (separator === -1) continue; // the totals line, or noise
+      163: 		const match = /^\s*(\d+)/.exec(line.slice(separator + 3));
+      164: 		counts.push(match ? Number(match[1]) : 0);
+      165: 	}
+      166: 	return counts;
+      167: }
+      168: 
+      169: /**
+      170:  * Decode a per-file manifest from the `-T` and `--stat` reads.
+      171:  *
+      172:  * Both reads walk the same tree diff in the same order, so the arrays pair by
+      173:  * index. The paths come from `-T` (the target path, JSON-escaped); the counts
+      174:  * from `--stat` (whose paths may be elided, so they are not read).
+      175:  */
+      176: export function decodeDiffFiles(manifest: string, stat: string): DiffFile[] {
+      177: 	const entries = decodeDiffManifest(manifest);
+      178: 	const counts = decodeDiffStatCounts(stat);
+      179: 	if (entries.length !== counts.length) {
+      180: 		throw new JjError({
+      181: 			kind: "decode",
+      182: 			what: "diff -T/--stat length mismatch",
+      183: 			raw: `${entries.length} summary vs ${counts.length} stat`,
+      184: 		});
+      185: 	}
+      186: 	return entries.map((entry, index) => ({
+      187: 		path: entry.path,
+      188: 		status: entry.status,
+      189: 		changes: counts[index] ?? 0,
+      190: 	}));
+      191: }
+Modified regular file packages/sillajje-jj/src/index.ts:
+    ...
+  12   12: export type {
+  13   13: 	Bookmark,
+  14   14: 	Commit,
+       15: 	DiffFile,
+       16: 	DiffSpec,
+       17: 	DiffStatus,
+  15   18: 	Jj,
+  16   19: 	JjFailure,
+  17   20: 	Mutation,
+    ...
+Modified regular file packages/sillajje-jj/src/jj.ts:
+    ...
+  13   13: 	commitsAtOpArgv,
+  14   14: 	conflictsArgv,
+  15   15: 	diffArgv,
+       16: 	diffManifestArgv,
+  16   17: 	diffRangeArgv,
+       18: 	diffStatArgv,
+  17   19: 	gitPushArgv,
+  18   20: 	headOperationArgv,
+  19   21: 	logArgv,
+    ...
+  23   25: 	versionArgv,
+  24   26: 	workspacesArgv,
+  25   27: } from "./argv.js";
+  26     : import { decodeBookmarks, decodeCommits, decodeWorkspaces } from "./decode.js";
+       28: import {
+       29: 	decodeBookmarks,
+       30: 	decodeCommits,
+       31: 	decodeDiffFiles,
+       32: 	decodeWorkspaces,
+       33: } from "./decode.js";
+  27   34: import { JjError } from "./errors.js";
+  28   35: import type { ExecFn, ExecOptions, ExecResult } from "./exec.js";
+  29   36: import type {
+  30   37: 	Commit,
+       38: 	DiffSpec,
+  31   39: 	Jj,
+  32   40: 	JjFailure,
+  33   41: 	Mutation,
+    ...
+ 433  441: 		await queryString(["workspace", "update-stale"], options);
+ 434  442: 	}
+ 435  443: 
+      444: 	/**
+      445: 	 * The per-file manifest: `-T` for the target path and status, `--stat` for
+      446: 	 * counts, zipped by order. Two concurrent reads.
+      447: 	 */
+      448: 	async function diffFiles(spec: DiffSpec, options?: ExecOptions) {
+      449: 		const [manifest, stat] = await Promise.all([
+      450: 			queryString(diffManifestArgv(spec), options),
+      451: 			queryString(diffStatArgv(spec), options),
+      452: 		]);
+      453: 		return decodeDiffFiles(manifest, stat);
+      454: 	}
+      455: 
+ 436  456: 	return {
+ 437  457: 		log: async (revset, options) =>
+ 438  458: 			decodeCommits(await queryString(logArgv(revset), options)),
+ 439     : 		diff: (revset, options) => queryString(diffArgv(revset), options),
+      459: 		diff: (revset, options) =>
+      460: 			queryString(diffArgv(revset, options?.filesets), options),
+ 440  461: 		diffRange: (from, to, options) =>
+ 441  462: 			queryString(diffRangeArgv(from, to, options?.filesets), options),
+      463: 		diffFiles,
+ 442  464: 		conflicts: async (revset, options) => {
+ 443  465: 			const output = await queryString(conflictsArgv(revset), options);
+ 444  466: 			return output
+    ...
+Modified regular file packages/sillajje-jj/src/types.ts:
+    ...
+ 106  106: 	filesets?: readonly string[];
+ 107  107: }
+ 108  108: 
+      109: /**
+      110:  * Which tree a diff reads: one revision against its parent, or the delta of
+      111:  * two arbitrary trees. The range form tolerates gaps a merge creates.
+      112:  */
+      113: export type DiffSpec =
+      114: 	| { rev: string }
+      115: 	| { from: string; to: string; filesets?: readonly string[] };
+      116: 
+      117: /** A changed path's status. jj's sigil letters map one-to-one. */
+      118: export type DiffStatus =
+      119: 	| "added"
+      120: 	| "modified"
+      121: 	| "removed"
+      122: 	| "renamed"
+      123: 	| "copied";
+      124: 
+      125: /** One changed path, with the line-change count `jj diff --stat` reports. */
+      126: export interface DiffFile {
+      127: 	/**
+      128: 	 * The target path, usable as an exact fileset. A rename's display form is
+      129: 	 * `{old => new}`; this is `new`.
+      130: 	 */
+      131: 	path: string;
+      132: 	status: DiffStatus;
+      133: 	/** Added plus removed lines; `0` for a binary file. */
+      134: 	changes: number;
+      135: }
+      136: 
+ 109  137: // ---------------------------------------------------------------------------
+ 110  138: // The facade
+ 111  139: // ---------------------------------------------------------------------------
+    ...
+ 118  146: 
+ 119  147: export interface Jj {
+ 120  148: 	log(revset: string, options?: ExecOptions): Promise<Commit[]>;
+ 121     : 	diff(revset: string, options?: ExecOptions): Promise<string>;
+      149: 	diff(revset: string, options?: DiffOptions): Promise<string>;
+ 122  150: 	/** Tree diff between two revisions. Tolerates gaps a merge creates. */
+ 123  151: 	diffRange(from: string, to: string, options?: DiffOptions): Promise<string>;
+      152: 	/** Per-file status and line counts. Two reads, zipped by order. */
+      153: 	diffFiles(spec: DiffSpec, options?: ExecOptions): Promise<DiffFile[]>;
+ 124  154: 	conflicts(revset?: string, options?: ExecOptions): Promise<string[]>;
+ 125  155: 	bookmarks(options?: ExecOptions): Promise<Bookmark[]>;
+ 126  156: 	workspaces(options?: ExecOptions): Promise<Workspace[]>;
+    ...
+Modified regular file packages/sillajje-jj/test/argv.test.ts:
+    ...
+   3    3: 
+   4    4: import {
+   5    5: 	conflictsArgv,
+        6: 	DIFF_MANIFEST_TEMPLATE,
+   6    7: 	diffArgv,
+        8: 	diffManifestArgv,
+   7    9: 	diffRangeArgv,
+       10: 	diffStatArgv,
+   8   11: 	gitPushArgv,
+   9   12: 	logArgv,
+  10   13: 	mutationArgv,
+    ...
+ 137  140: 		expect(diffArgv("@")).toEqual(["diff", "-r", "@"]);
+ 138  141: 	});
+ 139  142: 
+      143: 	it("restricts a diff to filesets", () => {
+      144: 		expect(diffArgv("@", ['~(prefix-glob:".scratch/")'])).toEqual([
+      145: 			"diff",
+      146: 			"-r",
+      147: 			"@",
+      148: 			'~(prefix-glob:".scratch/")',
+      149: 		]);
+      150: 	});
+      151: 
+      152: 	it("reads a diff manifest for a rev or a range", () => {
+      153: 		expect(diffManifestArgv({ rev: "@" })).toEqual([
+      154: 			"diff",
+      155: 			"-T",
+      156: 			DIFF_MANIFEST_TEMPLATE,
+      157: 			"-r",
+      158: 			"@",
+      159: 		]);
+      160: 		expect(
+      161: 			diffManifestArgv({ from: "a", to: "b", filesets: ["x"] }),
+      162: 		).toEqual([
+      163: 			"diff",
+      164: 			"-T",
+      165: 			DIFF_MANIFEST_TEMPLATE,
+      166: 			"--from",
+      167: 			"a",
+      168: 			"--to",
+      169: 			"b",
+      170: 			"x",
+      171: 		]);
+      172: 	});
+      173: 
+      174: 	it("reads diff stats for a rev or a range", () => {
+      175: 		expect(diffStatArgv({ rev: "abc" })).toEqual([
+      176: 			"diff",
+      177: 			"--stat",
+      178: 			"-r",
+      179: 			"abc",
+      180: 		]);
+      181: 		expect(diffStatArgv({ from: "a", to: "b" })).toEqual([
+      182: 			"diff",
+      183: 			"--stat",
+      184: 			"--from",
+      185: 			"a",
+      186: 			"--to",
+      187: 			"b",
+      188: 		]);
+      189: 	});
+      190: 
+ 140  191: 	it("reads a tree diff between two revisions", () => {
+ 141  192: 		expect(diffRangeArgv("abc", "def")).toEqual([
+ 142  193: 			"diff",
+    ...
+Added regular file packages/sillajje-jj/test/diff.test.ts:
+        1: /**
+        2:  * `Jj.diffFiles` against the installed jj.
+        3:  *
+        4:  * `diffFiles` pairs a `-T` path/status read with a `--stat` count read by
+        5:  * index. This test pins that the two reads agree in the real process: same
+        6:  * order, same count, and target paths that survive a space, a newline, a
+        7:  * binary file, and a rename.
+        8:  */
+        9: 
+       10: import { rmSync, writeFileSync } from "node:fs";
+       11: import { join } from "node:path";
+       12: import { afterAll, beforeAll, describe, expect, it } from "vitest";
+       13: 
+       14: import { createJj } from "../src/index.js";
+       15: import { initRepo, realExec, stopRealJj, useRealJj } from "./real-jj.js";
+       16: 
+       17: beforeAll(useRealJj);
+       18: afterAll(stopRealJj);
+       19: 
+       20: describe("Jj.diffFiles against real jj", () => {
+       21: 	it("pairs summary status with stat counts in tree order", async () => {
+       22: 		const cwd = initRepo();
+       23: 		writeFileSync(join(cwd, "a.txt"), "hello\nworld\n");
+       24: 		writeFileSync(join(cwd, "b.txt"), "one\ntwo\nthree\n");
+       25: 		const jj = createJj(realExec);
+       26: 
+       27: 		const files = await jj.diffFiles({ rev: "@" }, { cwd });
+       28: 
+       29: 		expect(files.map((file) => file.path)).toEqual(["a.txt", "b.txt"]);
+       30: 		expect(files).toEqual([
+       31: 			{ path: "a.txt", status: "modified", changes: 1 },
+       32: 			{ path: "b.txt", status: "added", changes: 3 },
+       33: 		]);
+       34: 	});
+       35: 
+       36: 	it("reports a removal's status and count", async () => {
+       37: 		const cwd = initRepo();
+       38: 		rmSync(join(cwd, "a.txt"));
+       39: 		const jj = createJj(realExec);
+       40: 
+       41: 		const files = await jj.diffFiles({ rev: "@" }, { cwd });
+       42: 
+       43: 		expect(files).toEqual([
+       44: 			{ path: "a.txt", status: "removed", changes: 1 },
+       45: 		]);
+       46: 	});
+       47: 
+       48: 	it("counts an empty file and a binary file as zero changes", async () => {
+       49: 		const cwd = initRepo();
+       50: 		writeFileSync(join(cwd, "c.txt"), "");
+       51: 		writeFileSync(join(cwd, "z.bin"), Buffer.from([0, 1, 2, 3, 255]));
+       52: 		const jj = createJj(realExec);
+       53: 
+       54: 		const files = await jj.diffFiles({ rev: "@" }, { cwd });
+       55: 
+       56: 		expect(files).toEqual([
+       57: 			{ path: "c.txt", status: "added", changes: 0 },
+       58: 			{ path: "z.bin", status: "added", changes: 0 },
+       59: 		]);
+       60: 	});
+       61: 
+       62: 	it("selects one file by exact path, even with a space in the name", async () => {
+       63: 		const cwd = initRepo();
+       64: 		writeFileSync(join(cwd, "a b.txt"), "x\n");
+       65: 		writeFileSync(join(cwd, "c.txt"), "y\n");
+       66: 		const jj = createJj(realExec);
+       67: 
+       68: 		const text = await jj.diff("@", { cwd, filesets: ['file:"a b.txt"'] });
+       69: 
+       70: 		expect(text).toContain("a b.txt");
+       71: 		expect(text).not.toContain("c.txt");
+       72: 	});
+       73: 
+       74: 	it("keeps a path that holds a newline in one manifest record", async () => {
+       75: 		const cwd = initRepo();
+       76: 		writeFileSync(join(cwd, "first\nsecond.txt"), "x\n");
+       77: 		const jj = createJj(realExec);
+       78: 
+       79: 		const files = await jj.diffFiles({ rev: "@" }, { cwd });
+       80: 
+       81: 		expect(files).toEqual([
+       82: 			{ path: "first\nsecond.txt", status: "added", changes: 1 },
+       83: 		]);
+       84: 	});
+       85: 
+       86: 	it("reports a rename by its target path", async () => {
+       87: 		const cwd = initRepo();
+       88: 		rmSync(join(cwd, "a.txt"));
+       89: 		writeFileSync(join(cwd, "renamed.txt"), "hello\n");
+       90: 		const jj = createJj(realExec);
+       91: 
+       92: 		const files = await jj.diffFiles({ rev: "@" }, { cwd });
+       93: 
+       94: 		const renamed = files.find((file) => file.status === "renamed");
+       95: 		expect(renamed?.path).toBe("renamed.txt");
+       96: 	});
+       97: });
+Modified regular file packages/sillajje-jj/test/reads.test.ts:
+    ...
+  84   84: 		await expect(jj.diff("@")).resolves.toBe("--- a\n+++ b\n");
+  85   85: 		expect(calls[0]!.args).toEqual(["diff", "-r", "@", "--color=never"]);
+  86   86: 	});
+       87: 
+       88: 	it("appends filesets to the diff argv", async () => {
+       89: 		const { exec, calls } = recordingExec(() => ok(""));
+       90: 		const jj = createJj(exec);
+       91: 
+       92: 		await jj.diff("@", { filesets: ["src/a.ts"] });
+       93: 		expect(calls[0]!.args).toEqual([
+       94: 			"diff",
+       95: 			"-r",
+       96: 			"@",
+       97: 			"src/a.ts",
+       98: 			"--color=never",
+       99: 		]);
+      100: 	});
+      101: });
+      102: 
+      103: describe("Jj.diffFiles", () => {
+      104: 	const MANIFEST = ['"foo.txt"\tM', '"bar.txt"\tA', '"b"\tR'].join("\n");
+      105: 	const STAT = [
+      106: 		"foo.txt  | 2 ++",
+      107: 		"bar.txt  | 3 +++",
+      108: 		"{a => b} | 0",
+      109: 		"3 files changed, 5 insertions(+), 0 deletions(-)",
+      110: 	].join("\n");
+      111: 
+      112: 	function both(manifest = MANIFEST, stat = STAT) {
+      113: 		return recordingExec((args) =>
+      114: 			ok(args.includes("-T") ? manifest : stat),
+      115: 		);
+      116: 	}
+      117: 
+      118: 	it("zips manifest target paths and status with stat counts by order", async () => {
+      119: 		const { exec, calls } = both();
+      120: 		const jj = createJj(exec);
+      121: 
+      122: 		await expect(jj.diffFiles({ rev: "@" })).resolves.toEqual([
+      123: 			{ path: "foo.txt", status: "modified", changes: 2 },
+      124: 			{ path: "bar.txt", status: "added", changes: 3 },
+      125: 			{ path: "b", status: "renamed", changes: 0 },
+      126: 		]);
+      127: 		expect(calls.map((call) => call.args[1])).toEqual(["-T", "--stat"]);
+      128: 	});
+      129: 
+      130: 	it("throws a decode failure when the two reads disagree", async () => {
+      131: 		const { exec } = both(MANIFEST, "bar.txt | 1 +");
+      132: 		const jj = createJj(exec);
+      133: 
+      134: 		const error = await jj.diffFiles({ rev: "@" }).catch((e: unknown) => e);
+      135: 		expect(error).toBeInstanceOf(JjError);
+      136: 		expect((error as JjError).failure).toMatchObject({ kind: "decode" });
+      137: 	});
+      138: 
+      139: 	it("rejects a manifest line without a tab", async () => {
+      140: 		const { exec } = both("X foo.txt", "foo.txt | 1 +");
+      141: 		const jj = createJj(exec);
+      142: 
+      143: 		const error = await jj.diffFiles({ rev: "@" }).catch((e: unknown) => e);
+      144: 		expect((error as JjError).failure).toMatchObject({
+      145: 			kind: "decode",
+      146: 			what: "diff -T",
+      147: 		});
+      148: 	});
+      149: 
+      150: 	it("reads a path that holds a separator or a newline", async () => {
+      151: 		const { exec } = both(
+      152: 			'"report | first\\nsecond.txt"\tM',
+      153: 			[
+      154: 				"report | first... | 2 ++",
+      155: 				"1 file changed, 2 insertions(+), 0 deletions(-)",
+      156: 			].join("\n"),
+      157: 		);
+      158: 		const jj = createJj(exec);
+      159: 
+      160: 		await expect(jj.diffFiles({ rev: "@" })).resolves.toEqual([
+      161: 			{
+      162: 				path: "report | first\nsecond.txt",
+      163: 				status: "modified",
+      164: 				changes: 2,
+      165: 			},
+      166: 		]);
+      167: 	});
+  87  168: });
+  88  169: 
+  89  170: describe("Jj.diffRange", () => {
+    ...
+Modified regular file packages/sillajje-workspace/test/helpers.ts:
+    ...
+  52   52: 		},
+  53   53: 		diff: async () => "",
+  54   54: 		diffRange: async () => "",
+       55: 		diffFiles: async () => [],
+  55   56: 		version: async () => ({
+  56   57: 			major: 0,
+  57   58: 			minor: 44,
+    ...

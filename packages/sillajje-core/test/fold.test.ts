@@ -97,6 +97,7 @@ interface Fakes {
 	gitPush: ReturnType<typeof vi.fn>;
 	transaction: ReturnType<typeof vi.fn>;
 	diffRange: ReturnType<typeof vi.fn>;
+	diffFiles: ReturnType<typeof vi.fn>;
 }
 
 function makeJj(opts?: {
@@ -149,7 +150,9 @@ function makeJj(opts?: {
 		},
 	);
 	const diffRange = vi.fn(async () => "diff --git a/f b/f\n+added");
-	const diffFiles = vi.fn(async () => []);
+	const diffFiles = vi.fn(async () => [
+		{ path: "f", status: "modified" as const, changes: 1 },
+	]);
 	const jj = {
 		log,
 		diff: vi.fn(async () => "diff --git a/f b/f\n+added"),
@@ -168,6 +171,7 @@ function makeJj(opts?: {
 		gitPush,
 		transaction,
 		diffRange,
+		diffFiles,
 	};
 }
 
@@ -337,9 +341,13 @@ describe("createFold", () => {
 			kind: "abandon",
 			revset: "c1::c2",
 		});
+		expect(fakes.diffFiles).toHaveBeenCalledWith(
+			{ from: "base-c", to: "tip-c", filesets: [fileset] },
+			{ cwd: "." },
+		);
 		expect(fakes.diffRange).toHaveBeenCalledWith("base-c", "tip-c", {
 			cwd: ".",
-			filesets: [fileset],
+			filesets: ['file:"f"'],
 		});
 	});
 
@@ -421,14 +429,19 @@ describe("createFold", () => {
 				(c) => (c[0] as { kind: string }).kind === "abandon",
 			),
 		).toBe(false);
+		expect(fakes.diffFiles).toHaveBeenCalledWith(
+			{ from: "base-c", to: "tip-c" },
+			{ cwd: "." },
+		);
 		expect(fakes.diffRange).toHaveBeenCalledWith("base-c", "tip-c", {
 			cwd: ".",
+			filesets: ['file:"f"'],
 		});
 	});
 
 	it("returns no-changes when every changed path is excluded", async () => {
 		const fakes = makeJj();
-		fakes.diffRange.mockResolvedValue("");
+		fakes.diffFiles.mockResolvedValue([]);
 		const { action } = fold({ jj: fakes });
 
 		const result = await action({

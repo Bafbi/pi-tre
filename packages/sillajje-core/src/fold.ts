@@ -661,7 +661,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		// sub-generator spends a call.
 		let diff = "";
 		try {
-			const collected = await collectDiff(
+			diff = await collectDiff(
 				jj,
 				{
 					from: base.commitId,
@@ -672,7 +672,6 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				sourceCwd,
 				onStatus,
 			);
-			diff = collected.text;
 		} catch (err) {
 			return fail(`fold diff generation failed: ${String(err)}`);
 		}

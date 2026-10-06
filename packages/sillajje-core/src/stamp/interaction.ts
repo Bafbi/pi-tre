@@ -65,14 +65,13 @@ export async function stampInteractionPath(
 	// degrades to an empty diff — it must not fail the stamp.
 	let diff = "";
 	try {
-		const collected = await collectDiff(
+		diff = await collectDiff(
 			jj,
 			{ rev: "@" },
 			cfg.diff,
 			wsPath,
 			deps.onStatus,
 		);
-		diff = collected.text;
 	} catch {
 		// Non-fatal: the sub-generator still gets transcript + prior descriptions.
 	}

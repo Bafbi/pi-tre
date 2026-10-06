@@ -80,9 +80,18 @@ export function diffArgv(
 	return ["diff", "-r", revset, ...(filesets ?? [])];
 }
 
-/** The `--summary` read: one `<sigil> <path>` line per changed path. */
-export function diffSummaryArgv(spec: DiffSpec): string[] {
-	return ["diff", "--summary", ...diffSpecArgv(spec)];
+/**
+ * The path read: one JSON-escaped target path and one status char per changed
+ * path, tab-separated. `json(path)` escapes any newline or tab a path holds,
+ * and `path` is the target path, so a rename's `{old => new}` display form
+ * never reaches a fileset.
+ */
+export const DIFF_MANIFEST_TEMPLATE =
+	'json(path) ++ "\\t" ++ status_char ++ "\\n"';
+
+/** The `-T` read: one JSON path + status char line per changed path. */
+export function diffManifestArgv(spec: DiffSpec): string[] {
+	return ["diff", "-T", DIFF_MANIFEST_TEMPLATE, ...diffSpecArgv(spec)];
 }
 
 /** The `--stat` read: one per-file count line plus a totals line. */

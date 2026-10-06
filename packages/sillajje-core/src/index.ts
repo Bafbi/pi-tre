@@ -55,15 +55,6 @@ export {
 	SillajjeConfigSchema,
 } from "./config.js";
 export {
-	type CollectedDiff,
-	collectDiff,
-	emitDiffCondensed,
-	estimateTokens,
-	matchesOmit,
-	type OmitReason,
-	type OmittedFile,
-} from "./diff.js";
-export {
 	createFold,
 	FOLD_ARGS,
 	FOLD_HELP,

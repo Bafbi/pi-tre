@@ -14,10 +14,11 @@
  *   size. Lockfiles and minified bundles are the common case.
  * - `maxLinesPerFile` drops a single file's content before it is fetched, so a
  *   monster file is never read into memory.
- * - `maxTokens` bounds the estimated tokens of the content that is fetched.
+ * - `maxTokens` bounds the estimated tokens of everything that is kept,
+ *   markers included.
  *
- * A diff with nothing to omit is still fetched whole when it is small: one
- * `jj diff` call beats a per-file walk.
+ * No whole-diff read exists: the manifest names every file, so each kept file
+ * is fetched by its exact path and a dropped file is never read.
  */
 
 import type { DiffFile, DiffSpec, Jj } from "@pi-tre/sillajje-jj";
@@ -103,17 +104,11 @@ function compileGlob(pattern: string): RegExp {
 // ---------------------------------------------------------------------------
 
 /** Why a file's content was left out of the collected diff. */
-export type OmitReason = "ignored" | "too-large" | "over-budget";
+type OmitReason = "ignored" | "too-large" | "over-budget";
 
 /** A file whose name and change count stayed in the diff, without its content. */
 export interface OmittedFile extends DiffFile {
 	reason: OmitReason;
-}
-
-/** The diff text that reaches the prompt, plus what it left behind. */
-export interface CollectedDiff {
-	text: string;
-	omitted: OmittedFile[];
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +152,7 @@ export function emitDiffCondensed(
 	emitStatus(onStatus, {
 		kind: "info",
 		code: "diff-condensed",
-		message: `diff condensed: ${omitted.length} file${omitted.length === 1 ? "" : "s"} kept by name only (${shown.join(", ")}${extra})`,
+		message: `diff condensed: ${omitted.length} file${omitted.length === 1 ? "" : "s"} omitted (${shown.join(", ")}${extra})`,
 	});
 }
 
@@ -165,13 +160,14 @@ export function emitDiffCondensed(
 // jj reads
 // ---------------------------------------------------------------------------
 
-/** The whole diff in one read. */
-function fetchText(jj: Jj, spec: DiffSpec, cwd: string): Promise<string> {
-	if ("rev" in spec) return jj.diff(spec.rev, { cwd });
-	return jj.diffRange(spec.from, spec.to, {
-		cwd,
-		...(spec.filesets === undefined ? {} : { filesets: spec.filesets }),
-	});
+/**
+ * An exact-match jj fileset for one path: `file:"…"`, with quotes and
+ * backslashes escaped. A bare path is a prefix glob, so a name with a glob or
+ * complement character would select the wrong files or nothing.
+ */
+function exactPathFileset(path: string): string {
+	const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+	return `file:"${escaped}"`;
 }
 
 /** One file's section of the diff, as jj renders it. */
@@ -181,11 +177,12 @@ function fetchFileContent(
 	path: string,
 	cwd: string,
 ): Promise<string> {
-	if ("rev" in spec) return jj.diff(spec.rev, { cwd, filesets: [path] });
-	return jj.diffRange(spec.from, spec.to, {
-		cwd,
-		filesets: [...(spec.filesets ?? []), path],
-	});
+	// The manifest already carries the range's filesets, so the section is
+	// selected by the file alone. Positional filesets are unioned by jj, so
+	// re-adding the range fileset here would return the whole diff.
+	const fileset = exactPathFileset(path);
+	if ("rev" in spec) return jj.diff(spec.rev, { cwd, filesets: [fileset] });
+	return jj.diffRange(spec.from, spec.to, { cwd, filesets: [fileset] });
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +208,7 @@ export async function collectDiff(
 	budget: DiffBudget,
 	cwd: string,
 	onStatus?: (event: StatusEvent) => void,
-): Promise<CollectedDiff> {
+): Promise<string> {
 	const files = await jj.diffFiles(spec, { cwd });
 
 	const ignored = new Set(
@@ -219,41 +216,46 @@ export async function collectDiff(
 			.filter((file) => matchesOmit(file.path, budget.omit))
 			.map((file) => file.path),
 	);
-	const candidateLines = files.reduce(
-		(sum, file) => (ignored.has(file.path) ? sum : sum + file.changes),
-		0,
-	);
-
-	// Fast path: nothing is name-only and the whole diff is small. The line
-	// gate is a cheap filter, not the budget's unit: a minified file is one
-	// changed line and megabytes of text, so the fetched text still has to
-	// pass the token ceiling before it is inlined.
-	if (ignored.size === 0 && candidateLines <= budget.maxLinesPerFile) {
-		const text = await fetchText(jj, spec, cwd);
-		if (estimateTokens(text) <= budget.maxTokens) {
-			return { text, omitted: [] };
-		}
-	}
 
 	const parts: string[] = [];
 	const omitted: OmittedFile[] = [];
 	let tokens = 0;
 	let spent = false;
+	let dropped = 0;
+
+	// The trailing collapse line is part of the text, so the ceiling reserves
+	// its worst case up front; `dropped` never exceeds `files.length`.
+	const tailReserve = estimateTokens(
+		`... and ${files.length} more files omitted`,
+	);
+	const ceiling = Math.max(0, budget.maxTokens - tailReserve);
+
+	// A marker carries a full path, so the ceiling covers markers too. When a
+	// marker does not fit, its file is counted in one trailing line instead.
+	const pushOmitted = (file: DiffFile, reason: OmitReason): void => {
+		omitted.push({ ...file, reason });
+		const marker = omittedMarker(file, reason);
+		const cost = estimateTokens(marker);
+		if (tokens + cost > ceiling) {
+			dropped += 1;
+			return;
+		}
+		tokens += cost;
+		parts.push(marker);
+	};
 
 	for (const file of files) {
 		const reason = omitReason(file, budget, spent, ignored.has(file.path));
 		if (reason !== undefined) {
-			omitted.push({ ...file, reason });
-			parts.push(omittedMarker(file, reason));
+			pushOmitted(file, reason);
 			if (reason === "over-budget") spent = true;
 			continue;
 		}
 
 		const content = await fetchFileContent(jj, spec, file.path, cwd);
 		const cost = estimateTokens(content);
-		if (tokens + cost > budget.maxTokens) {
-			omitted.push({ ...file, reason: "over-budget" });
-			parts.push(omittedMarker(file, "over-budget"));
+		if (tokens + cost > ceiling) {
+			pushOmitted(file, "over-budget");
 			spent = true;
 			continue;
 		}
@@ -261,9 +263,14 @@ export async function collectDiff(
 		parts.push(content);
 	}
 
-	const result = { text: parts.join("\n"), omitted };
+	if (dropped > 0) {
+		const tail = `... and ${dropped} more file${dropped === 1 ? "" : "s"} omitted`;
+		tokens += estimateTokens(tail);
+		parts.push(tail);
+	}
+
 	if (onStatus !== undefined) emitDiffCondensed(onStatus, omitted);
-	return result;
+	return parts.join("\n");
 }
 
 /**
