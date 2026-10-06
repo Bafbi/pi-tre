@@ -320,6 +320,18 @@ describe("collectDiff", () => {
 		]);
 	});
 
+	it("omits the collapse line when the budget cannot hold it", async () => {
+		const budget = { maxTokens: 0, maxLinesPerFile: 10, omit: NO_OMIT };
+		const { jj } = makeJj({
+			files: [{ path: "big.ts", status: "modified", changes: 900 }],
+		});
+
+		const result = await collectDiff(jj, { rev: "@" }, budget, "/ws");
+
+		expect(result).toBe("");
+		expect(estimateTokens(result)).toBeLessThanOrEqual(budget.maxTokens);
+	});
+
 	it("emits one diff-condensed status when content was dropped", async () => {
 		const { jj } = makeJj({
 			files: [{ path: "big.ts", status: "added", changes: 900 }],

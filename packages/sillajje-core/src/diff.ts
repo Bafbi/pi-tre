@@ -265,8 +265,13 @@ export async function collectDiff(
 
 	if (dropped > 0) {
 		const tail = `... and ${dropped} more file${dropped === 1 ? "" : "s"} omitted`;
-		tokens += estimateTokens(tail);
-		parts.push(tail);
+		// The reserve covers the tail only when the budget exceeds it. A
+		// smaller budget clamps `ceiling` to zero, so the tail is appended
+		// only when it still fits the ceiling itself.
+		if (tokens + estimateTokens(tail) <= budget.maxTokens) {
+			tokens += estimateTokens(tail);
+			parts.push(tail);
+		}
 	}
 
 	if (onStatus !== undefined) emitDiffCondensed(onStatus, omitted);
