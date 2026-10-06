@@ -22,6 +22,7 @@ import {
 	installDefaultSubGeneratorMock,
 	jj,
 	recordInteraction,
+	recordsIn,
 	runSillajje,
 	sessionBookmark,
 	sessionKeyId,
@@ -144,6 +145,21 @@ describeJj("sillajje fold", () => {
 		execSync("jj bookmark set main -r @", { cwd, stdio: "pipe" });
 
 		await runSillajje(runner, "fold -s @ -o main");
+
+		const foldRecords = recordsIn(
+			getSessionManager(runner).getBranch(),
+			"fold",
+		);
+		expect(foldRecords.map((r) => r.stage)).toEqual(["start", "done"]);
+		expect(foldRecords[0]).toMatchObject({
+			operation: "fold",
+			input: { onto: "main" },
+		});
+		expect(foldRecords[1]).toMatchObject({
+			stage: "done",
+			resolved: { target: "main" },
+			generator: { fallbacks: [] },
+		});
 
 		// Exactly one child of main, carrying the session work.
 		const children = childrenOf(cwd, "main");

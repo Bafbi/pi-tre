@@ -9,11 +9,11 @@
  */
 
 import { emitStatus } from "../action.js";
-import { collectDiff } from "../diff.js";
+import { collectDiff, type OmittedFile } from "../diff.js";
 import { buildCommitBody, buildMeta, type StampSource } from "../metadata.js";
 import { generateManualHeader } from "../sub-generator.js";
 import { queryFailureDetail } from "./internal.js";
-import type { StampDeps } from "./types.js";
+import type { StampDeps, StampDiagnostics } from "./types.js";
 
 /** Provenance facts the caller derives from the call crossing the seam. */
 export interface DiffOnlyFacts {
@@ -26,7 +26,12 @@ export interface DiffOnlyFacts {
 
 /** The assembled diff-only commit body, ready for the caller's seal step. */
 export type DiffOnlyBody =
-	| { ok: true; body: string; subject: string }
+	| {
+			ok: true;
+			body: string;
+			subject: string;
+			diagnostics: StampDiagnostics;
+	  }
 	| { ok: false; reason: "no-changes" | "failed" };
 
 /**
@@ -47,14 +52,19 @@ export async function buildDiffOnlyBody(
 	emitStatus(deps.onStatus, { kind: "phase", code: "collecting-diff" });
 
 	let diff: string;
+	let files = 0;
+	let omitted: ReadonlyArray<OmittedFile> = [];
 	try {
-		diff = await collectDiff(
+		const collected = await collectDiff(
 			deps.jj,
 			{ rev },
 			cfg.diff,
 			jjDir,
 			deps.onStatus,
 		);
+		diff = collected.text;
+		files = collected.files;
+		omitted = collected.omitted;
 	} catch (err) {
 		// An unresolvable or immutable rev is jj's call to explain —
 		// relay its stderr rather than reading the failure as empty.
@@ -114,5 +124,11 @@ export async function buildDiffOnlyBody(
 		cfg.body,
 	);
 
-	return { ok: true, body, subject };
+	const diagnostics: StampDiagnostics = {
+		source: facts.source,
+		model: cfg.model,
+		fallbacks: fellBack ? ["header"] : [],
+		diff: { files, omitted },
+	};
+	return { ok: true, body, subject, diagnostics };
 }

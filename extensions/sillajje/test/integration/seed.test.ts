@@ -28,6 +28,7 @@ import {
 	getSessionId,
 	getSessionManager,
 	makeRunnerCwd,
+	recordsIn,
 	runSillajje,
 	tempDirs,
 	wsPath,
@@ -302,6 +303,14 @@ describeJj("sillajje seed — /sillajje:seed moves edits", () => {
 		await runSillajje(runner, "seed --push");
 		expect(readFileSync(join(cwd, ".env"), "utf-8")).toBe("EDITED\n");
 		expect(notifications.at(-1)?.msg).toContain(".env");
+
+		const pushRecord = recordsIn(
+			getSessionManager(runner).getBranch(),
+			"seed",
+		).find(
+			(record) => record.trigger === "push" && record.stage === "done",
+		);
+		expect(pushRecord?.result).toMatchObject({ paths: [".env"] });
 	});
 
 	it("--push refuses a path the checkout also moved, and --force overwrites", async () => {

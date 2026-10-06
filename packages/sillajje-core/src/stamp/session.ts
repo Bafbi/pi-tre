@@ -50,6 +50,7 @@ export async function stampSessionPath(
 			sessionKey,
 			built.body,
 			built.subject,
+			built.diagnostics,
 		);
 	} catch (err) {
 		emitStatus(deps.onStatus, {

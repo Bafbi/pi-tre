@@ -18,10 +18,12 @@ import type {
 } from "../action.js";
 import type { SessionFailure } from "../args.js";
 import type { DiffBudget, NarrativeDetail } from "../config.js";
+import type { OmittedFile } from "../diff.js";
 import type {
 	InteractionRange,
 	LoopField,
 	StampBodySection,
+	StampSource,
 } from "../metadata.js";
 
 // ---------------------------------------------------------------------------
@@ -78,9 +80,30 @@ export interface RevStampInput {
 
 export type { SessionFailure };
 
+/** The diff manifest of what reached the sub-generator. */
+interface StampDiffManifest {
+	files: number;
+	omitted: ReadonlyArray<OmittedFile>;
+}
+
+/** What a stamp observed, for the Record. */
+export interface StampDiagnostics {
+	source: StampSource;
+	model: string;
+	fallbacks: string[];
+	diff: StampDiffManifest;
+}
+
 /** The terminal result of a stamp operation. */
 export type StampResult =
-	| { ok: true; subject: string; rev: string }
+	| {
+			ok: true;
+			subject: string;
+			rev: string;
+			diagnostics: StampDiagnostics;
+			/** The sealed change's id, when the path could resolve it. */
+			changeId: string | undefined;
+	  }
 	| { ok: false; reason: "no-changes" | "failed" | SessionFailure };
 
 /** The two stamp actions, bound at the factory. */

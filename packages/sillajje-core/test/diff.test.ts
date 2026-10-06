@@ -106,7 +106,7 @@ describe("collectDiff", () => {
 
 		const result = await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws");
 
-		expect(result).toBe("A\nB");
+		expect(result.text).toBe("A\nB");
 		expect(diff).toHaveBeenNthCalledWith(1, "@", {
 			cwd: "/ws",
 			filesets: ['file:"a.ts"'],
@@ -123,7 +123,7 @@ describe("collectDiff", () => {
 
 		const result = await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws");
 
-		expect(result).toBe("");
+		expect(result.text).toBe("");
 		expect(diff).not.toHaveBeenCalled();
 	});
 
@@ -143,7 +143,7 @@ describe("collectDiff", () => {
 			"/ws",
 		);
 
-		expect(result).toBe(
+		expect(result.text).toBe(
 			[
 				"A",
 				"Modified pnpm-lock.yaml (3 lines changed): diff content omitted (ignored path)",
@@ -173,7 +173,7 @@ describe("collectDiff", () => {
 			"/ws",
 		);
 
-		expect(result).toBe(
+		expect(result.text).toBe(
 			"Modified bundle.min.js (1 lines changed): diff content omitted (over token budget)",
 		);
 	});
@@ -189,7 +189,7 @@ describe("collectDiff", () => {
 
 		const result = await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws");
 
-		expect(result).toBe(
+		expect(result.text).toBe(
 			[
 				"SMALL",
 				"Modified big.ts (900 lines changed): diff content omitted (too large)",
@@ -215,7 +215,7 @@ describe("collectDiff", () => {
 
 		const result = await collectDiff(jj, { rev: "@" }, budget, "/ws");
 
-		expect(result).toBe(
+		expect(result.text).toBe(
 			[
 				content,
 				"Added b.ts (60 lines changed): diff content omitted (over token budget)",
@@ -241,7 +241,7 @@ describe("collectDiff", () => {
 			"/ws",
 		);
 
-		expect(result).toBe(
+		expect(result.text).toBe(
 			[
 				"RANGE FILE",
 				"Added big.ts (900 lines changed): diff content omitted (too large)",
@@ -281,7 +281,7 @@ describe("collectDiff", () => {
 
 		const result = await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws");
 
-		expect(result).toContain("RENAMED");
+		expect(result.text).toContain("RENAMED");
 		expect(diff).toHaveBeenCalledWith("@", {
 			cwd: "/ws",
 			filesets: ['file:"new.ts"'],
@@ -305,11 +305,13 @@ describe("collectDiff", () => {
 
 		const result = await collectDiff(jj, { rev: "@" }, budget, "/ws", sink);
 
-		expect(result).toContain("Modified a.lock");
-		expect(result).toContain("... and 2 more files omitted");
-		expect(result).not.toContain("b.lock");
+		expect(result.text).toContain("Modified a.lock");
+		expect(result.text).toContain("... and 2 more files omitted");
+		expect(result.text).not.toContain("b.lock");
 		// The trailing line is charged too, so the text stays under the ceiling.
-		expect(estimateTokens(result)).toBeLessThanOrEqual(budget.maxTokens);
+		expect(estimateTokens(result.text)).toBeLessThanOrEqual(
+			budget.maxTokens,
+		);
 		expect(events).toEqual([
 			{
 				kind: "info",
@@ -328,8 +330,10 @@ describe("collectDiff", () => {
 
 		const result = await collectDiff(jj, { rev: "@" }, budget, "/ws");
 
-		expect(result).toBe("");
-		expect(estimateTokens(result)).toBeLessThanOrEqual(budget.maxTokens);
+		expect(result.text).toBe("");
+		expect(estimateTokens(result.text)).toBeLessThanOrEqual(
+			budget.maxTokens,
+		);
 	});
 
 	it("emits one diff-condensed status when content was dropped", async () => {
@@ -359,6 +363,68 @@ describe("collectDiff", () => {
 		await collectDiff(jj, { rev: "@" }, SMALL_BUDGET, "/ws", sink);
 
 		expect(events).toEqual([]);
+	});
+
+	it("returns the omitted manifest beside the text", async () => {
+		const { jj } = makeJj({
+			files: [
+				{ path: "a.ts", status: "modified", changes: 5 },
+				{ path: "pnpm-lock.yaml", status: "modified", changes: 3 },
+				{ path: "big.ts", status: "modified", changes: 900 },
+			],
+			content: (path) => (path === "a.ts" ? "A" : "OTHER"),
+		});
+
+		const result = await collectDiff(
+			jj,
+			{ rev: "@" },
+			{ maxTokens: 1_000, maxLinesPerFile: 10, omit: ["**/*-lock.yaml"] },
+			"/ws",
+		);
+
+		expect(result.text).toContain("A");
+		expect(result.omitted).toEqual([
+			{
+				path: "pnpm-lock.yaml",
+				status: "modified",
+				changes: 3,
+				reason: "ignored",
+			},
+			{
+				path: "big.ts",
+				status: "modified",
+				changes: 900,
+				reason: "too-large",
+			},
+		]);
+	});
+
+	it("returns a token-budget-only drop in the manifest", async () => {
+		const { jj } = makeJj({
+			files: [
+				{ path: "a.ts", status: "added", changes: 60 },
+				{ path: "b.ts", status: "added", changes: 60 },
+			],
+			content: () => "x".repeat(400),
+		});
+
+		const result = await collectDiff(
+			jj,
+			{ rev: "@" },
+			{ maxTokens: 150, maxLinesPerFile: 100, omit: [] },
+			"/ws",
+		);
+
+		// b.ts fits the line gate and the omit list; only the token ceiling
+		// dropped it.
+		expect(result.omitted).toEqual([
+			{
+				path: "b.ts",
+				status: "added",
+				changes: 60,
+				reason: "over-budget",
+			},
+		]);
 	});
 
 	it("propagates a rejected read", async () => {

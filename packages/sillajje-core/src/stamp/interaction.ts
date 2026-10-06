@@ -8,7 +8,7 @@
  */
 
 import { emitStatus } from "../action.js";
-import { collectDiff } from "../diff.js";
+import { collectDiff, type OmittedFile } from "../diff.js";
 import {
 	buildCommitBody,
 	buildLoop,
@@ -23,7 +23,12 @@ import {
 	type SubGeneratorContext,
 } from "../sub-generator.js";
 import { sealWorkingCopy } from "./internal.js";
-import type { InteractionData, StampDeps, StampResult } from "./types.js";
+import type {
+	InteractionData,
+	StampDeps,
+	StampDiagnostics,
+	StampResult,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Sub-generator transcript builder
@@ -64,14 +69,19 @@ export async function stampInteractionPath(
 	// The diff is auxiliary context for the sub-generator. A rejected fetch
 	// degrades to an empty diff — it must not fail the stamp.
 	let diff = "";
+	let files = 0;
+	let omitted: ReadonlyArray<OmittedFile> = [];
 	try {
-		diff = await collectDiff(
+		const collected = await collectDiff(
 			jj,
 			{ rev: "@" },
 			cfg.diff,
 			wsPath,
 			deps.onStatus,
 		);
+		diff = collected.text;
+		files = collected.files;
+		omitted = collected.omitted;
 	} catch {
 		// Non-fatal: the sub-generator still gets transcript + prior descriptions.
 	}
@@ -188,8 +198,22 @@ export async function stampInteractionPath(
 		target: sessionKey,
 	});
 
+	const diagnostics: StampDiagnostics = {
+		source: "interaction",
+		model: cfg.model,
+		fallbacks,
+		diff: { files, omitted },
+	};
+
 	try {
-		return await sealWorkingCopy(deps, wsPath, sessionKey, body, subject);
+		return await sealWorkingCopy(
+			deps,
+			wsPath,
+			sessionKey,
+			body,
+			subject,
+			diagnostics,
+		);
 	} catch (err) {
 		emitStatus(deps.onStatus, {
 			kind: "error",

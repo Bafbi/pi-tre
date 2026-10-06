@@ -6,10 +6,12 @@ import {
 	captureUi,
 	createRunner,
 	describeJj,
+	getSessionManager,
 	installDefaultSubGeneratorMock,
 	jj,
 	makeRunnerCwd,
 	recordInteraction,
+	recordsIn,
 	runSillajje,
 	sessionBookmark,
 	tempDirs,
@@ -233,6 +235,12 @@ describeJj("sillajje archive / unarchive", () => {
 
 		// Unarchive.
 		await runSillajje(runner, `unarchive -s ${sessionId}`);
+
+		const unarchiveRecords = recordsIn(
+			getSessionManager(runner).getBranch(),
+			"unarchive",
+		);
+		expect(unarchiveRecords.map((r) => r.stage)).toEqual(["start", "done"]);
 
 		// Workspace should be recreated.
 		expect(existsSync(path)).toBe(true);

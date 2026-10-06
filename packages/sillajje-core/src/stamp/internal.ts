@@ -12,7 +12,7 @@ import {
 import { emitStatus } from "../action.js";
 import { type SillajjeConfig, subGeneratorDefaults } from "../config.js";
 import { LOOP_FIELDS, STAMP_BODY_SECTIONS } from "../metadata.js";
-import type { StampConfig, StampDeps } from "./types.js";
+import type { StampConfig, StampDeps, StampDiagnostics } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Config extraction
@@ -132,32 +132,35 @@ async function reportDivergence(
 	jj: Jj,
 	deps: StampDeps,
 	wsPath: string,
-): Promise<void> {
+): Promise<string | undefined> {
 	// After the seal's `jj new`, the stamped change sits at `@-`.
 	let changeId: string;
 	try {
 		const stamped = await jj.log("@-", { cwd: wsPath });
 		const first = stamped[0];
-		if (first === undefined) return;
+		if (first === undefined) return undefined;
 		changeId = first.changeId;
 	} catch {
-		return;
+		return undefined;
 	}
-	if (changeId.length === 0) return;
+	if (changeId.length === 0) return undefined;
 
 	let divergent: { changeId: string }[];
 	try {
 		divergent = await jj.log("divergent()", { cwd: wsPath });
 	} catch {
-		return;
+		return changeId;
 	}
-	if (!divergent.some((commit) => commit.changeId === changeId)) return;
+	if (!divergent.some((commit) => commit.changeId === changeId)) {
+		return changeId;
+	}
 
 	emitStatus(deps.onStatus, {
 		kind: "warning",
 		code: "divergence-after-integrate",
 		message: `divergent variants of the stamped change ${changeId} exist — a concurrent operation rewrote it while the seal integrated; inspect with: jj log -r ${changeId} — and abandon the unwanted copy with: jj abandon <rev>`,
 	});
+	return changeId;
 }
 
 /**
@@ -184,8 +187,16 @@ export async function sealWorkingCopy(
 	sessionKey: string,
 	body: string,
 	subject: string,
+	diagnostics: StampDiagnostics,
 ): Promise<
-	{ ok: true; subject: string; rev: string } | { ok: false; reason: "failed" }
+	| {
+			ok: true;
+			subject: string;
+			rev: string;
+			diagnostics: StampDiagnostics;
+			changeId: string | undefined;
+	  }
+	| { ok: false; reason: "failed" }
 > {
 	const jj = deps.jj;
 
@@ -220,10 +231,11 @@ export async function sealWorkingCopy(
 		return { ok: false, reason: "failed" };
 	}
 
-	// 3. Best-effort divergence report — never fails the committed seal.
-	await reportDivergence(jj, deps, wsPath);
+	// 3. Best-effort divergence report — never fails the committed seal. The
+	// read also resolves the stamped change's id for the Record.
+	const changeId = await reportDivergence(jj, deps, wsPath);
 
-	return { ok: true, subject, rev: "@" };
+	return { ok: true, subject, rev: "@", diagnostics, changeId };
 }
 
 /**
@@ -236,8 +248,16 @@ export async function describeRevision(
 	rev: string,
 	body: string,
 	subject: string,
+	diagnostics: StampDiagnostics,
 ): Promise<
-	{ ok: true; subject: string; rev: string } | { ok: false; reason: "failed" }
+	| {
+			ok: true;
+			subject: string;
+			rev: string;
+			diagnostics: StampDiagnostics;
+			changeId: string | undefined;
+	  }
+	| { ok: false; reason: "failed" }
 > {
 	const result = await deps.jj.apply(
 		{ kind: "describe", rev, message: body },
@@ -252,5 +272,14 @@ export async function describeRevision(
 		return { ok: false, reason: "failed" };
 	}
 
-	return { ok: true, subject, rev };
+	// Best effort: resolve the described revision's change id for the Record.
+	let changeId: string | undefined;
+	try {
+		const commits = await deps.jj.log(rev, { cwd: wsPath });
+		changeId = commits[0]?.changeId;
+	} catch {
+		// The describe succeeded; a failed probe must not fail the stamp.
+	}
+
+	return { ok: true, subject, rev, diagnostics, changeId };
 }

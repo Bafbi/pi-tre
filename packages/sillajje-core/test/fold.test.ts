@@ -272,7 +272,7 @@ describe("createFold", () => {
 
 		const result = await action({ rev: "feat", onto: "main" });
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "test subject",
 			rev: "folded",
@@ -545,10 +545,11 @@ describe("createFold", () => {
 
 		const result = await action({ rev: "feat", onto: "main" });
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: false,
 			reason: "conflict",
 			files: ["file.txt"],
+			resolved: expect.objectContaining({ target: "main" }),
 		});
 		const warning = statuses.find(
 			(s) => s.kind === "warning" && s.code === "conflict",
@@ -557,6 +558,20 @@ describe("createFold", () => {
 		if (warning?.kind === "warning") {
 			expect(warning.message).toContain("file.txt");
 		}
+	});
+
+	it("keeps the resolved refs when the transaction throws", async () => {
+		const fakes = makeJj();
+		fakes.transaction.mockRejectedValueOnce(new Error("jj exploded"));
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({ rev: "feat", onto: "main" });
+
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "failed",
+			resolved: expect.objectContaining({ target: "main" }),
+		});
 	});
 
 	it("returns no-changes for an empty delta without a transaction", async () => {

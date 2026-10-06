@@ -5,9 +5,11 @@ import {
 	captureUi,
 	createRunner,
 	describeJj,
+	getSessionManager,
 	installDefaultSubGeneratorMock,
 	makeRunnerCwd,
 	recordInteraction,
+	recordsIn,
 	sessionBookmark,
 	sessionKeyId,
 	tempDirs,
@@ -170,6 +172,16 @@ describeJj("sillajje sync", () => {
 		const cmd = getSyncCommand(runner);
 		await cmd.handler("-o main", runner.createCommandContext());
 
+		const syncRecords = recordsIn(
+			getSessionManager(runner).getBranch(),
+			"sync",
+		);
+		expect(syncRecords.map((r) => r.stage)).toEqual(["start", "done"]);
+		expect(syncRecords[1]).toMatchObject({
+			stage: "done",
+			result: { rev: "main" },
+		});
+
 		// Merge commit: @ has exactly the two expected parents.
 		expect(parentCount(path)).toBe(2);
 		const parents = parentIds(path);
@@ -292,6 +304,14 @@ describeJj("sillajje sync", () => {
 				msg: expect.stringContaining("sync failed"),
 			}),
 		);
+
+		// The Record keeps jj's failing subcommand and stderr, not just "failed".
+		const syncRecord = recordsIn(
+			getSessionManager(runner).getBranch(),
+			"sync",
+		).find((record) => record.stage === "failed");
+		expect(syncRecord?.error).toMatchObject({ code: "rebase_failed" });
+		expect(syncRecord?.error?.message).toContain("sync failed");
 
 		// Session unchanged: still a single parent, no merge.
 		expect(parentCount(path)).toBe(1);

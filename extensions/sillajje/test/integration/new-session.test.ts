@@ -23,6 +23,7 @@ import {
 	getSessionManager,
 	initRepo,
 	jj,
+	recordsIn,
 	runSillajje,
 	sessionBookmark,
 	wsPath,
@@ -188,6 +189,16 @@ describeJj("sillajje new session", () => {
 		expect(lastSessionBase(getSessionManager(runner).getBranch())).toEqual({
 			base: expected,
 			label: "@",
+		});
+
+		const baseRecords = recordsIn(
+			getSessionManager(runner).getBranch(),
+			"base",
+		);
+		expect(baseRecords.map((r) => r.stage)).toEqual(["start", "done"]);
+		expect(baseRecords[1]).toMatchObject({
+			stage: "done",
+			resolved: { base: expected, label: "@" },
 		});
 	});
 

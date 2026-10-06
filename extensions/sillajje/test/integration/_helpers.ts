@@ -10,6 +10,7 @@ import {
 	ExtensionRunner,
 	ModelRegistry,
 	ModelRuntime,
+	type SessionEntry,
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { RunSubagent } from "@pi-tre/sillajje-core";
@@ -17,6 +18,7 @@ import type { ExecFn } from "@pi-tre/sillajje-jj";
 import { defaultOwner, repoSlug } from "@pi-tre/sillajje-workspace";
 import { afterEach, describe, expect } from "vitest";
 import { setTestPorts } from "../../src/index.js";
+import { RECORD_TYPE, type SillajjeRecord } from "../../src/record.js";
 
 export const tempDirs: string[] = [];
 
@@ -127,6 +129,32 @@ export function getSessionManager(runner: ExtensionRunner): SessionManager {
 		);
 	}
 	return sessionManager;
+}
+
+/**
+ * Every Record on the branch, optionally filtered to one operation. Test-only:
+ * the extension never reads a Record back.
+ */
+export function recordsIn<Op extends SillajjeRecord["operation"]>(
+	branch: SessionEntry[],
+	operation: Op,
+): Extract<SillajjeRecord, { operation: Op }>[];
+export function recordsIn(branch: SessionEntry[]): SillajjeRecord[];
+export function recordsIn(
+	branch: SessionEntry[],
+	operation?: SillajjeRecord["operation"],
+): SillajjeRecord[] {
+	const records: SillajjeRecord[] = [];
+	for (const entry of branch) {
+		if (entry.type !== "custom" || entry.customType !== RECORD_TYPE)
+			continue;
+		const data = entry.data as SillajjeRecord | undefined;
+		if (data === undefined || data === null || typeof data !== "object")
+			continue;
+		if (operation !== undefined && data.operation !== operation) continue;
+		records.push(data);
+	}
+	return records;
 }
 
 /**

@@ -41,5 +41,12 @@ export async function stampRevPath(
 		target: rev,
 	});
 
-	return describeRevision(deps, wsPath, rev, built.body, built.subject);
+	return describeRevision(
+		deps,
+		wsPath,
+		rev,
+		built.body,
+		built.subject,
+		built.diagnostics,
+	);
 }
