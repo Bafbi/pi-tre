@@ -126,6 +126,14 @@ _Avoid_: Status pill (that reports session state, not a running Action), loader,
 The notification that reports a finished Action's result: what it published, advanced, or rejected. It replaces Progress, which is cleared when the command returns.
 _Avoid_: Result (that is the Action's return value in the core)
 
+**Marker**:
+A session-log entry a sillajje mechanism reads back to decide behavior — the Base marker, the Stamp marker, the Folded source marker, the Seed marker. A Marker is an input; a Record is an observation.
+_Avoid_: Checkpoint, cursor (the Stamp marker is the cursor, but not every Marker is)
+
+**Record**:
+A persisted session-log entry that records one sillajje operation and its outcome, for after-the-fact diagnosis and retro. It is observational — the extension never reads it back — and each operation invocation writes two: a start record naming the input and resolved refs, then a terminal done, failed, or noop record. The start record survives a crash mid-operation.
+_Avoid_: Log line, telemetry, Status event (a Status event is the live core event; a Record is its persisted form)
+
 ## Concurrency
 
 Each Pi session gets its own jj workspace (`sillajje/<session-key>`), so concurrent Pi processes on the same repo never share a working directory. A new workspace branches from the `trunk()` revset, so unlanded work on the main checkout stays out of the session. When `trunk()` resolves to `root()` (the repo has no trunk bookmark), the session starts from an empty tree and sillajje warns. jj handles concurrent operations on one repo natively — bookmarks, working-copy snapshots, and lock files are coordinated by jj itself — so no locking or coordination is needed in the extension. The session-ID collision guard (a numeric `-N` suffix on the session key) covers the pathological case of two sessions sharing an ID.

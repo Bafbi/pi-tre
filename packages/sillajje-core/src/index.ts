@@ -54,6 +54,7 @@ export {
 	type SillajjeConfig,
 	SillajjeConfigSchema,
 } from "./config.js";
+export type { OmittedFile } from "./diff.js";
 export {
 	createFold,
 	FOLD_ARGS,

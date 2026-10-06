@@ -49,7 +49,7 @@ import {
 	type SillajjeConfig,
 	subGeneratorDefaults,
 } from "./config.js";
-import { collectDiff } from "./diff.js";
+import { collectDiff, type OmittedFile } from "./diff.js";
 import {
 	buildFoldBody,
 	FOLD_BODY_SECTIONS,
@@ -92,6 +92,19 @@ export interface FoldInput {
 	noMarker?: boolean | undefined;
 }
 
+/** What a fold observed, for the Record. */
+interface FoldDiagnostics {
+	base: string;
+	tip: string;
+	target: string;
+	diff: {
+		files: number;
+		omitted: ReadonlyArray<OmittedFile>;
+	};
+	model: string;
+	fallbacks: string[];
+}
+
 /** The fold outcome. Conflicts carry the files for the adapter to render. */
 export type FoldResult =
 	| {
@@ -109,6 +122,8 @@ export type FoldResult =
 			archived?: boolean | undefined;
 			/** The `bookmark` or `bookmark@remote` targets pushed; empty when `--push` did not run. */
 			pushed: readonly string[];
+			/** What the fold observed, for the Record. */
+			diagnostics: FoldDiagnostics;
 	  }
 	| {
 			ok: false;
@@ -120,6 +135,10 @@ export type FoldResult =
 				| SessionFailure;
 			files?: string[];
 			message?: string;
+			/** The refs the fold had resolved when it failed. */
+			resolved?:
+				| { base: string; tip: string; target: string }
+				| undefined;
 	  };
 
 /** The fold's extracted configuration. */
@@ -447,13 +466,20 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 	const { jj, workspaces, onStatus } = ports;
 	const cfg = getFoldConfig(ports.config);
 
-	const fail = (message: string): FoldResult => {
+	const fail = (
+		message: string,
+		resolved?: { base: string; tip: string; target: string },
+	): FoldResult => {
 		emitStatus(onStatus, {
 			kind: "error",
 			code: "fold_failed",
 			message,
 		});
-		return { ok: false, reason: "failed" };
+		return {
+			ok: false,
+			reason: "failed",
+			...(resolved ? { resolved } : {}),
+		};
 	};
 
 	return async (input) => {
@@ -618,6 +644,9 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 
 		let base: Commit;
 		let delta: Commit[];
+		let resolvedRef:
+			| { base: string; tip: string; target: string }
+			| undefined;
 		try {
 			const recorded =
 				input.noMarker === true || destPreFold === undefined
@@ -650,6 +679,12 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			return fail(`fold base resolution failed: ${String(err)}`);
 		}
 
+		resolvedRef = {
+			base: base.changeId,
+			tip: tip.changeId,
+			target: targetRev,
+		};
+
 		// An empty delta is a designed no-op, before any mutation.
 		if (delta.length === 0) {
 			return { ok: false, reason: "no-changes" };
@@ -660,8 +695,10 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		// no-op. Compute it here, before any mutation and before the
 		// sub-generator spends a call.
 		let diff = "";
+		let files = 0;
+		let omitted: ReadonlyArray<OmittedFile> = [];
 		try {
-			diff = await collectDiff(
+			const collected = await collectDiff(
 				jj,
 				{
 					from: base.commitId,
@@ -672,8 +709,14 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				sourceCwd,
 				onStatus,
 			);
+			diff = collected.text;
+			files = collected.files;
+			omitted = collected.omitted;
 		} catch (err) {
-			return fail(`fold diff generation failed: ${String(err)}`);
+			return fail(
+				`fold diff generation failed: ${String(err)}`,
+				resolvedRef,
+			);
 		}
 		if (diff.trim().length === 0) {
 			return { ok: false, reason: "no-changes" };
@@ -690,6 +733,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		// Generate the body from the folded change's own diff.
 		let body: string;
 		let subject: string;
+		const fallbacks: string[] = [];
 		try {
 			const subCtx: SubGeneratorContext = {
 				transcript: "",
@@ -711,6 +755,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				}),
 			]);
 			if (header.fellBack) {
+				fallbacks.push("header");
 				emitStatus(onStatus, {
 					kind: "warning",
 					code: "header-fallback",
@@ -719,6 +764,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				});
 			}
 			if (summary.fellBack) {
+				fallbacks.push("summary");
 				emitStatus(onStatus, {
 					kind: "warning",
 					code: "summary-fallback",
@@ -738,7 +784,10 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				cfg.body,
 			);
 		} catch (err) {
-			return fail(`fold message generation failed: ${String(err)}`);
+			return fail(
+				`fold message generation failed: ${String(err)}`,
+				resolvedRef,
+			);
 		}
 
 		emitStatus(onStatus, {
@@ -839,10 +888,16 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		try {
 			const result = await jj.transaction(recipe, { cwd: sourceCwd });
 			if (!result.ok) {
-				return fail(`fold failed: ${formatFailure(result.error)}`);
+				return fail(
+					`fold failed: ${formatFailure(result.error)}`,
+					resolvedRef,
+				);
 			}
 			if (result.value === undefined) {
-				return fail("fold failed: the transaction did not complete");
+				return fail(
+					"fold failed: the transaction did not complete",
+					resolvedRef,
+				);
 			}
 			folded = result.value;
 		} catch (err) {
@@ -852,7 +907,12 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 					code: "conflict",
 					message: `fold produced file-level conflicts — resolve them manually:\n${err.files.join("\n")}`,
 				});
-				return { ok: false, reason: "conflict", files: err.files };
+				return {
+					ok: false,
+					reason: "conflict",
+					files: err.files,
+					resolved: resolvedRef,
+				};
 			}
 			return fail(`fold failed: ${String(err)}`);
 		}
@@ -903,6 +963,14 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			sessionKey: source.sessionKey,
 			archived,
 			pushed,
+			diagnostics: {
+				base: base.changeId,
+				tip: tip.changeId,
+				target: targetRev,
+				diff: { files, omitted },
+				model: cfg.model,
+				fallbacks,
+			},
 		};
 	};
 }

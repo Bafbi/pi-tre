@@ -111,6 +111,14 @@ export interface OmittedFile extends DiffFile {
 	reason: OmitReason;
 }
 
+/** The assembled diff text and the files whose content it dropped. */
+export interface CollectedDiff {
+	text: string;
+	/** Total changed files in the range, before any content was dropped. */
+	files: number;
+	omitted: readonly OmittedFile[];
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -208,7 +216,7 @@ export async function collectDiff(
 	budget: DiffBudget,
 	cwd: string,
 	onStatus?: (event: StatusEvent) => void,
-): Promise<string> {
+): Promise<CollectedDiff> {
 	const files = await jj.diffFiles(spec, { cwd });
 
 	const ignored = new Set(
@@ -275,7 +283,7 @@ export async function collectDiff(
 	}
 
 	if (onStatus !== undefined) emitDiffCondensed(onStatus, omitted);
-	return parts.join("\n");
+	return { text: parts.join("\n"), files: files.length, omitted };
 }
 
 /**

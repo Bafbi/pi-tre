@@ -272,7 +272,7 @@ describe("createFold", () => {
 
 		const result = await action({ rev: "feat", onto: "main" });
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "test subject",
 			rev: "folded",
@@ -545,10 +545,11 @@ describe("createFold", () => {
 
 		const result = await action({ rev: "feat", onto: "main" });
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: false,
 			reason: "conflict",
 			files: ["file.txt"],
+			resolved: expect.objectContaining({ target: "main" }),
 		});
 		const warning = statuses.find(
 			(s) => s.kind === "warning" && s.code === "conflict",

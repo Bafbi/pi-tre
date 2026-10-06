@@ -65,6 +65,14 @@ import {
 	type SetWidget,
 } from "./progress.js";
 import {
+	foldRecordFields,
+	lastErrorFailure,
+	RECORD_TYPE,
+	recordOperation,
+	type SillajjeRecord,
+	stampSettle,
+} from "./record.js";
+import {
 	copySeedFile,
 	hashFile,
 	lastSeedRecord,
@@ -238,6 +246,26 @@ export default function (pi: ExtensionAPI) {
 			owner,
 		});
 
+	/**
+	 * Write one Record to the session log. A Record is observational: the
+	 * extension never reads it back, and it never enters the model's context.
+	 */
+	const writeRecord = (record: SillajjeRecord): void => {
+		pi.appendEntry(RECORD_TYPE, record);
+	};
+
+	/** Record a guard decision: a blocked tool call or a corrected command. */
+	const recordGuard = async (
+		input: Record<string, unknown>,
+		result: Record<string, unknown>,
+	): Promise<void> => {
+		await recordOperation(writeRecord, "guard", {
+			fields: { session: state.getSessionKey(), input },
+			run: async () => result,
+			settle: () => ({ stage: "done", result }),
+		});
+	};
+
 	// -------------------------------------------------------------------
 	// setSessionBookmark — point the session bookmark at the working copy
 	// -------------------------------------------------------------------
@@ -327,8 +355,13 @@ export default function (pi: ExtensionAPI) {
 	 * debug logs, UI notifications, and Progress, so one policy serves every
 	 * Action the adapter drives.
 	 */
-	const createStatusSink = (ctx: CommandContext, progress?: Progress) => {
+	const createStatusSink = (
+		ctx: CommandContext,
+		progress?: Progress,
+		capture?: StatusEvent[],
+	) => {
 		return (s: StatusEvent) => {
+			capture?.push(s);
 			if (s.kind === "phase") {
 				debug.event(
 					`action_phase_${s.code}`,
@@ -364,6 +397,7 @@ export default function (pi: ExtensionAPI) {
 		ctx: CommandContext,
 		repoRoot?: string,
 		progress?: Progress,
+		capture?: StatusEvent[],
 	) => {
 		const root =
 			repoRoot ?? state.getRepoRoot() ?? state.getWorkspacePath() ?? ".";
@@ -373,7 +407,7 @@ export default function (pi: ExtensionAPI) {
 			config: activeConfig ?? loadSillajjeConfig(),
 			versions: env,
 			run: resolveRunSubagent(),
-			onStatus: createStatusSink(ctx, progress),
+			onStatus: createStatusSink(ctx, progress, capture),
 		};
 	};
 
@@ -388,7 +422,8 @@ export default function (pi: ExtensionAPI) {
 		ctx: CommandContext,
 		repoRoot?: string,
 		progress?: Progress,
-	) => createStamp(buildPorts(ctx, repoRoot, progress));
+		capture?: StatusEvent[],
+	) => createStamp(buildPorts(ctx, repoRoot, progress, capture));
 
 	/**
 	 * The command spelling the adapter owns. The core renders the usage line
@@ -534,10 +569,21 @@ export default function (pi: ExtensionAPI) {
 
 		let outcome: Awaited<ReturnType<typeof workspaces.seed>>;
 		try {
-			outcome = await workspaces.seed({
-				source,
-				workspacePath,
-				paths,
+			outcome = await recordOperation(writeRecord, "seed", {
+				fields: {
+					trigger: "copy",
+					session: state.getSessionKey(),
+					input: { source, paths: [...paths] },
+				},
+				run: () => workspaces.seed({ source, workspacePath, paths }),
+				settle: (result) => ({
+					stage:
+						Object.keys(result.copied).length > 0 ? "done" : "noop",
+					result: {
+						copied: Object.keys(result.copied),
+						skipped: result.skipped,
+					},
+				}),
 			});
 		} catch (err) {
 			debug.error("seed_failed", err);
@@ -777,12 +823,51 @@ export default function (pi: ExtensionAPI) {
 			progress?.step("creating-workspace");
 			try {
 				const workspaces = workspacesFor(repoRoot);
-				const result = await workspaces.ensure(
-					sessionId,
-					baseMarker === undefined
-						? undefined
-						: { base: baseMarker.base },
-				);
+				const result = await recordOperation(writeRecord, "workspace", {
+					fields: {
+						session: workspaces.sessionKey(sessionId),
+						...(baseMarker === undefined
+							? {}
+							: {
+									resolved: {
+										base: baseMarker.base,
+										label: baseMarker.label,
+									},
+								}),
+					},
+					run: () =>
+						workspaces.ensure(
+							sessionId,
+							baseMarker === undefined
+								? undefined
+								: { base: baseMarker.base },
+						),
+					settle: (workspaceResult) =>
+						workspaceResult.ok
+							? workspaceResult.status === "created"
+								? {
+										stage: "done" as const,
+										result: {
+											status: "created" as const,
+											fromRoot: workspaceResult.fromRoot,
+											workspace:
+												workspaceResult.workspace
+													.workspacePath,
+										},
+									}
+								: {
+										stage: "noop" as const,
+										result: { status: "reused" as const },
+									}
+							: {
+									stage: "failed" as const,
+									result: { reason: workspaceResult.reason },
+									error: {
+										message:
+											"session is archived; unarchive it to continue",
+									},
+								},
+				});
 
 				// An archived session is never rebuilt here; the user must
 				// unarchive it, which resumes from the session bookmark.
@@ -958,7 +1043,10 @@ export default function (pi: ExtensionAPI) {
 	// stampPending — project the pending Interaction and stamp it
 	// -----------------------------------------------------------------------
 
-	const stampPending = async (ctx: ExtensionContext) => {
+	const stampPending = async (
+		ctx: ExtensionContext,
+		trigger: "auto" | "flush" = "auto",
+	) => {
 		const sessionId = state.getSessionId();
 		const wsPath = state.getWorkspacePath();
 		if (!sessionId || !wsPath) {
@@ -982,10 +1070,16 @@ export default function (pi: ExtensionAPI) {
 		});
 
 		await withProgress(ctx, async (progress) => {
-			const result = await buildStamp(ctx, undefined, progress).session({
-				target: sessionKey,
-				current: { sessionKey, wsPath },
-				interaction: projected,
+			const captured: StatusEvent[] = [];
+			const result = await recordOperation(writeRecord, "stamp", {
+				fields: { trigger, session: sessionKey },
+				run: () =>
+					buildStamp(ctx, undefined, progress, captured).session({
+						target: sessionKey,
+						current: { sessionKey, wsPath },
+						interaction: projected,
+					}),
+				settle: stampSettle(captured),
 			});
 
 			if (result.ok) {
@@ -1029,9 +1123,15 @@ export default function (pi: ExtensionAPI) {
 		debug.event("stamp_manual_start");
 
 		await withProgress(ctx, async (progress) => {
-			const result = await buildStamp(ctx, undefined, progress).session({
-				target: sessionKey,
-				current: { sessionKey, wsPath },
+			const captured: StatusEvent[] = [];
+			const result = await recordOperation(writeRecord, "stamp", {
+				fields: { trigger: "manual", session: sessionKey },
+				run: () =>
+					buildStamp(ctx, undefined, progress, captured).session({
+						target: sessionKey,
+						current: { sessionKey, wsPath },
+					}),
+				settle: stampSettle(captured),
 			});
 
 			if (result.ok) {
@@ -1102,12 +1202,20 @@ export default function (pi: ExtensionAPI) {
 
 		// Missing workspace — block tools so nothing writes to the real repo.
 		if (state.isMissingWorkspace()) {
+			await recordGuard(
+				{ tool: event.toolName },
+				{ blocked: "missing-workspace" },
+			);
 			return { block: true, reason: missingWorkspaceBlockReason };
 		}
 		if (isWorkspaceGone()) {
 			markMissingWorkspaceAndNotify(
 				ctx,
 				"workspace directory no longer exists",
+			);
+			await recordGuard(
+				{ tool: event.toolName },
+				{ blocked: "missing-workspace" },
 			);
 			return { block: true, reason: missingWorkspaceBlockReason };
 		}
@@ -1125,6 +1233,10 @@ export default function (pi: ExtensionAPI) {
 				toolName: event.toolName,
 				path: info.originalPath,
 			});
+			await recordGuard(
+				{ tool: event.toolName, path: info.originalPath },
+				{ blocked: "absolute-path" },
+			);
 			return {
 				block: true,
 				reason: [
@@ -1169,6 +1281,10 @@ export default function (pi: ExtensionAPI) {
 				? `/sillajje:${subcommand}`
 				: "/sillajje:<status|seed|new|stamp|archive|unarchive|sync|fold|serve>";
 			debug.event("input_old_form_guard", { text: event.text });
+			await recordGuard(
+				{ command: event.text },
+				{ corrected: suggestion },
+			);
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					`[sillajje] "/sillajje ..." is retired — use "${suggestion}"`,
@@ -1254,13 +1370,28 @@ export default function (pi: ExtensionAPI) {
 
 		// Flush a completed but unstamped Interaction so its work is not left
 		// un-stamped in the working copy.
-		await stampPending(ctx);
+		await stampPending(ctx, "flush");
 
 		if (!state.hasUserPrompted()) {
 			const workspaces = workspacesFor(repoRoot);
-			await workspaces.archive(
-				workspaces.sessionKey(state.getSessionKey() ?? sessionId),
+			const sessionKey = workspaces.sessionKey(
+				state.getSessionKey() ?? sessionId,
 			);
+			await recordOperation(writeRecord, "archive", {
+				fields: { trigger: "shutdown", session: sessionKey },
+				run: () => workspaces.archive(sessionKey),
+				settle: (outcome) =>
+					outcome.status === "failed"
+						? {
+								stage: "failed",
+								error: { message: outcome.reason },
+								result: { status: outcome.status },
+							}
+						: {
+								stage: "done",
+								result: { status: outcome.status },
+							},
+			});
 			syncPill(ctx);
 		}
 	});
@@ -1320,9 +1451,14 @@ export default function (pi: ExtensionAPI) {
 		record: SeedRecord,
 		workspacePath: string,
 		options: { push: boolean; force: boolean },
-	): { moved: boolean; updated: Record<string, string> } => {
+	): {
+		moved: boolean;
+		updated: Record<string, string>;
+		touched: string[];
+	} => {
 		const { push, force } = options;
 		const updated = { ...record.paths };
+		const touched: string[] = [];
 		let moved = false;
 		for (const [rel, recorded] of Object.entries(record.paths)) {
 			if (!isSafeSeedPath(rel)) {
@@ -1366,6 +1502,7 @@ export default function (pi: ExtensionAPI) {
 				copySeedFile(wsFile, coFile);
 				updated[rel] = hashFile(coFile) ?? wsHash;
 				moved = true;
+				touched.push(rel);
 				report("pushed to the checkout");
 				continue;
 			}
@@ -1394,9 +1531,10 @@ export default function (pi: ExtensionAPI) {
 			copySeedFile(coFile, wsFile);
 			updated[rel] = hashFile(wsFile) ?? coHash;
 			moved = true;
+			touched.push(rel);
 			report("pulled from the checkout");
 		}
-		return { moved, updated };
+		return { moved, updated, touched };
 	};
 
 	const handleSeed = async (
@@ -1476,13 +1614,24 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		if (push || pull) {
-			const { moved, updated } = moveSeedPaths(
-				ctx,
-				record,
-				workspacePath,
+			const { moved, updated } = await recordOperation(
+				writeRecord,
+				"seed",
 				{
-					push,
-					force,
+					fields: {
+						trigger: push ? "push" : "pull",
+						session: sessionKey,
+						input: { target, push, pull, force },
+					},
+					run: async () =>
+						moveSeedPaths(ctx, record, workspacePath, {
+							push,
+							force,
+						}),
+					settle: (result) => ({
+						stage: result.moved ? "done" : "noop",
+						result: { moved: result.moved, paths: result.touched },
+					}),
 				},
 			);
 
@@ -1685,12 +1834,43 @@ export default function (pi: ExtensionAPI) {
 
 		await withProgress(ctx, async (progress) => {
 			const ports = buildPorts(ctx, repoRoot, progress);
-			const result = await createArchive(ports)({
-				target,
-				current: {
-					sessionKey: state.getSessionKey(),
-					wsPath: state.getWorkspacePath(),
+			const result = await recordOperation(writeRecord, "archive", {
+				fields: {
+					trigger: "command",
+					session: archiveTarget,
+					input: { target },
 				},
+				run: () =>
+					createArchive(ports)({
+						target,
+						current: {
+							sessionKey: state.getSessionKey(),
+							wsPath: state.getWorkspacePath(),
+						},
+					}),
+				settle: (archiveResult) =>
+					archiveResult.ok
+						? {
+								stage:
+									archiveResult.status === "removed"
+										? "done"
+										: "noop",
+								session: archiveResult.sessionKey,
+								result: { status: archiveResult.status },
+							}
+						: {
+								stage: "failed",
+								result: { reason: archiveResult.reason },
+								error: {
+									message:
+										archiveResult.reason === "failed"
+											? archiveResult.message
+											: renderSessionFailure(
+													archiveResult.reason,
+													target,
+												),
+								},
+							},
 			});
 			if (!result.ok) {
 				if (result.reason === "failed") {
@@ -1782,13 +1962,15 @@ export default function (pi: ExtensionAPI) {
 			// Side-effect scope: a Rev stamp touches no session state —
 			// the pending interaction survives and still auto-stamps.
 			await withProgress(ctx, async (progress) => {
-				const revResult = await buildStamp(
-					ctx,
-					undefined,
-					progress,
-				).rev({
-					cwd: wsPath,
-					rev,
+				const captured: StatusEvent[] = [];
+				const revResult = await recordOperation(writeRecord, "stamp", {
+					fields: { trigger: "rev", input: { rev } },
+					run: () =>
+						buildStamp(ctx, undefined, progress, captured).rev({
+							cwd: wsPath,
+							rev,
+						}),
+					settle: stampSettle(captured),
 				});
 
 				if (revResult.ok) {
@@ -1863,17 +2045,32 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			await withProgress(ctx, async (progress) => {
-				const sessionResult = await buildStamp(
-					ctx,
-					repoRoot,
-					progress,
-				).session({
-					target: sessionId,
-					current: {
-						sessionKey: state.getSessionKey(),
-						wsPath: state.getWorkspacePath(),
+				const captured: StatusEvent[] = [];
+				const sessionResult = await recordOperation(
+					writeRecord,
+					"stamp",
+					{
+						fields: {
+							trigger: "cross-session",
+							session: targetKey,
+							input: { target: sessionId },
+						},
+						run: () =>
+							buildStamp(
+								ctx,
+								repoRoot,
+								progress,
+								captured,
+							).session({
+								target: sessionId,
+								current: {
+									sessionKey: state.getSessionKey(),
+									wsPath: state.getWorkspacePath(),
+								},
+							}),
+						settle: stampSettle(captured),
 					},
-				});
+				);
 
 				if (sessionResult.ok) {
 					debug.event("stamp_session_done", {
@@ -1955,12 +2152,44 @@ export default function (pi: ExtensionAPI) {
 
 		await withProgress(ctx, async (progress) => {
 			const ports = buildPorts(ctx, repoRoot, progress);
-			const result = await createUnarchive(ports)({
-				target,
-				current: {
-					sessionKey: state.getSessionKey(),
-					wsPath: state.getWorkspacePath(),
-				},
+			const result = await recordOperation(writeRecord, "unarchive", {
+				fields: { trigger: "command", input: { target } },
+				run: () =>
+					createUnarchive(ports)({
+						target,
+						current: {
+							sessionKey: state.getSessionKey(),
+							wsPath: state.getWorkspacePath(),
+						},
+					}),
+				settle: (unarchiveResult) =>
+					unarchiveResult.ok
+						? {
+								stage: "done",
+								session: unarchiveResult.workspace.sessionKey,
+								result: {
+									sessionKey:
+										unarchiveResult.workspace.sessionKey,
+									workspace:
+										unarchiveResult.workspace.workspacePath,
+								},
+							}
+						: {
+								stage: "failed",
+								result: { reason: unarchiveResult.reason },
+								error: {
+									message:
+										unarchiveResult.reason === "failed"
+											? unarchiveResult.message
+											: unarchiveResult.reason ===
+													"active"
+												? "session is already active"
+												: renderSessionFailure(
+														unarchiveResult.reason,
+														target,
+													),
+								},
+							},
 			});
 			if (!result.ok) {
 				if (result.reason === "failed") {
@@ -2207,7 +2436,23 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const base = await resolveNewBase(ctx, onto, ontoSession, repoRoot);
+		const base = await recordOperation(writeRecord, "base", {
+			fields: { input: { onto, ontoSession } },
+			run: () => resolveNewBase(ctx, onto, ontoSession, repoRoot),
+			settle: (marker) =>
+				marker === undefined
+					? {
+							stage: "failed",
+							error: { message: "base did not resolve" },
+						}
+					: {
+							stage: "done",
+							resolved: {
+								base: marker.base,
+								label: marker.label,
+							},
+						},
+		});
 		if (base === undefined) return;
 
 		await startNewSession(ctx, base);
@@ -2237,14 +2482,51 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		await withProgress(ctx, async (progress) => {
-			const sync = createSync(buildPorts(ctx, repoRoot, progress));
-			const result = await sync({
-				target: session,
-				current: {
-					sessionKey: state.getSessionKey(),
-					wsPath: state.getWorkspacePath(),
+			const captured: StatusEvent[] = [];
+			const sync = createSync(
+				buildPorts(ctx, repoRoot, progress, captured),
+			);
+			const result = await recordOperation(writeRecord, "sync", {
+				fields: {
+					session,
+					input: { target: session, rev },
 				},
-				rev,
+				run: () =>
+					sync({
+						target: session,
+						current: {
+							sessionKey: state.getSessionKey(),
+							wsPath: state.getWorkspacePath(),
+						},
+						rev,
+					}),
+				settle: (syncResult) =>
+					syncResult.ok
+						? {
+								stage: "done",
+								session: syncResult.sessionKey,
+								result: { rev: syncResult.rev },
+							}
+						: {
+								stage: "failed",
+								result: {
+									reason: syncResult.reason,
+									...("files" in syncResult
+										? { files: syncResult.files }
+										: {}),
+								},
+								...lastErrorFailure(
+									captured,
+									syncResult.reason === "failed"
+										? "sync failed"
+										: syncResult.reason === "conflict"
+											? "sync produced conflicts"
+											: renderSessionFailure(
+													syncResult.reason,
+													session,
+												),
+								),
+							},
 			});
 
 			if (result.ok) {
@@ -2325,22 +2607,78 @@ export default function (pi: ExtensionAPI) {
 			noMarker,
 		});
 		await withProgress(ctx, async (progress) => {
-			const fold = createFold(buildPorts(ctx, repoRoot, progress));
-			const result = await fold({
-				session,
-				rev,
-				onto,
-				named,
-				exclude,
-				update,
-				push,
-				archive,
-				noMarker,
-				current: {
-					sessionKey: state.getSessionKey(),
-					wsPath: state.getWorkspacePath(),
+			const captured: StatusEvent[] = [];
+			const fold = createFold(
+				buildPorts(ctx, repoRoot, progress, captured),
+			);
+			const result = await recordOperation(writeRecord, "fold", {
+				fields: {
+					session,
+					input: {
+						session,
+						rev,
+						onto,
+						named,
+						exclude,
+						update,
+						push,
+						archive,
+						noMarker,
+					},
 				},
-				cwd: repoRoot,
+				run: () =>
+					fold({
+						session,
+						rev,
+						onto,
+						named,
+						exclude,
+						update,
+						push,
+						archive,
+						noMarker,
+						current: {
+							sessionKey: state.getSessionKey(),
+							wsPath: state.getWorkspacePath(),
+						},
+						cwd: repoRoot,
+					}),
+				settle: (foldResult) =>
+					foldResult.ok
+						? { stage: "done", ...foldRecordFields(foldResult) }
+						: foldResult.reason === "no-changes"
+							? {
+									stage: "noop",
+									result: { reason: "no-changes" },
+								}
+							: foldResult.reason === "usage"
+								? {
+										stage: "failed",
+										error: {
+											message:
+												foldResult.message ??
+												"invalid fold arguments",
+										},
+									}
+								: foldResult.reason === "conflict"
+									? {
+											stage: "failed",
+											result: {
+												reason: "conflict",
+												files: foldResult.files,
+											},
+											error: {
+												message: `fold produced conflicts: ${(foldResult.files ?? []).join(", ")}`,
+											},
+										}
+									: {
+											stage: "failed",
+											...lastErrorFailure(
+												captured,
+												"fold failed",
+											),
+											resolved: foldResult.resolved,
+										},
 			});
 
 			const targetLabel = onto ?? "the target";

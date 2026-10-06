@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Persist sillajje actions and errors in the session file</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Persist sillajje actions and errors in the session file</h1>
+		<p class="sub">Use the non-context <code>custom</code> entry pi already offers, so the fold's input, diff budget, sub-generator outcome, and error live beside the transcript.</p>
+		<div class="meta">
+			<span class="chip">2026-10-06</span>
+			<span class="chip">scope: extensions/sillajje, sillajje-core</span>
+			<span class="chip">status: proposal</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#gap">Why data is missing today</a>
+		<a href="#relaunch">Why the relaunch changed nothing</a>
+		<a href="#channel">The channel pi already gives us</a>
+		<a href="#shape">Proposed record</a>
+		<a href="#hooks">Where to write it</a>
+		<a href="#open">Open questions</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>The diagnosis was possible only by reading jj's operation store and inferring the fallback subject. The fold's own error text and the sub-generator warnings never reached a file we can read. pi already provides the channel — <code>pi.appendEntry(customType, data)</code> writes a non-context <code>custom</code> entry — and sillajje already uses it for <code>sillajje/base</code>, <code>sillajje/seed</code>, and <code>sillajje/stamp</code>.</p>
+		<p>Add one diagnostic entry type and write it from the two places that already see everything: the shared status sink and each action's completion. Failures are always recorded; phases and success detail can be gated.</p>
+	</section>
+
+	<section id="gap">
+		<h2>Why data is missing today</h2>
+		<table>
+			<thead><tr><th>Signal</th><th>Where it goes now</th><th>Readable after the fact?</th></tr></thead>
+			<tbody>
+				<tr>
+					<td>Fold input flags, base/tip refs, marker, bookmark</td>
+					<td><code>debug.event("fold_start"/"fold_done")</code>, only when <code>debug</code> is on</td>
+					<td>No for ChunkEdge: <code>grep 01a107e9 ~/.pi/logs/sillajje.log</code> returns nothing</td>
+				</tr>
+				<tr>
+					<td>Sub-generator fallback warnings</td>
+					<td><code>createStatusSink</code> → <code>ctx.ui.notify</code> only</td>
+					<td>No. The warning is transient UI text</td>
+				</tr>
+				<tr>
+					<td>jj failure (code, stderr, failing command)</td>
+					<td><code>createStatusSink</code> → <code>ctx.ui.notify</code>, plus <code>debug.error</code> when on</td>
+					<td>No. Not even the reject reason is persisted</td>
+				</tr>
+				<tr>
+					<td>Diff-budget result (files, omitted paths, token estimate)</td>
+					<td><code>emitDiffCondensed</code> → status event → UI</td>
+					<td>No</td>
+				</tr>
+				<tr>
+					<td>Action done/failed</td>
+					<td><code>debug.event</code> / <code>debug.error</code></td>
+					<td>No for ChunkEdge</td>
+				</tr>
+			</tbody>
+		</table>
+		<p>Two independent reasons produce the gap:</p>
+		<ul>
+			<li><strong>Verbose channels are off.</strong> <code>debug</code> defaults to <code>false</code> (<code>packages/sillajje-core/src/config.ts:251</code>). Neither <code>~/.pi/agent/configs/sillajje.json</code> nor <code>/home/neudeline/git/ChunkEdge/.pi/configs/sillajje.json</code> sets it, so the global log is silent for the ChunkEdge run.</li>
+			<li><strong>The error path has no persistent sink.</strong> <code>createStatusSink</code> (<code>extensions/sillajje/src/index.ts:328-357</code>) maps <code>warning</code> and <code>error</code> to UI notifications, and nothing else.</li>
+		</ul>
+	</section>
+
+	<section id="relaunch">
+		<h2>Why the relaunch changed nothing</h2>
+		<p>The relaunch and the retry both ran the same build, and that build predates the diff budget:</p>
+		<ul>
+			<li>pi loads sillajje from the package declared in <code>~/.pi/agent/settings.json</code>: <code>"git:github.com/Bafbi/pi-tre"</code>.</li>
+			<li>The package checkout is <code>~/.pi/agent/git/github.com/Bafbi/pi-tre</code>, pinned to <code>2929f698ffb55b15d03d21e1de1d84f3be4c28db</code> (last reconciled 2026-10-05 15:34).</li>
+			<li>That checkout has no <code>packages/sillajje-core/src/diff.ts</code>, and its ADRs stop at <code>0002</code>. <code>fold.ts:660</code> still calls <code>jj.diffRange(base.commitId, tip.commitId, …)</code> whole.</li>
+			<li>The retry at 2026-10-06 12:10:31 duplicated the same 55 commits and squashed with the same fallback subject, <code>chore: agent interaction</code> — the <code>deriveSubject("")</code> default. The sub-generator still exhausted.</li>
+		</ul>
+		<div class="callout info">
+			<p>The diff budget lives in the dev tree and in the session workspace base, not in the package pi loads for ChunkEdge. To exercise dev code there, load a local package: <code>pi -e /home/neudeline/code/pi-tre</code> (see <code>docs/packages.md</code>, "Local <code>./pi-tools</code>"), or pin the package to the branch that carries the budget and run <code>pi update --extensions</code>.</p>
+		</div>
+	</section>
+
+	<section id="channel">
+		<h2>The channel pi already gives us</h2>
+		<p><code>pi.appendEntry()</code> persists non-context session data. The session format calls it a <code>CustomEntry</code>:</p>
+		<pre><code>{"type":"custom","id":"h8i9j0k1","parentId":"g7h8i9j0","timestamp":"…","customType":"sillajje/action","data":{…}}</code></pre>
+		<p>It does not enter LLM context, may be rendered by a registered entry renderer, and is identified on reload by <code>customType</code>. Sillajje already writes three types this way, so the wiring and the read-back helpers exist.</p>
+	</section>
+
+	<section id="shape">
+		<h2>Proposed record</h2>
+		<p>One write per action invocation, plus one per failure. A single <code>sillajje/action</code> type keeps the schema in one place; a distinct <code>sillajje/error</code> type would make failures greppable without a discriminator.</p>
+		<pre><code>{
+  "customType": "sillajje/action",
+  "data": {
+    "action": "fold",                 // fold | stamp | sync | seed | archive | new
+    "phase": "fold|error",           // fold_start | fold_done | fold_failed
+    "ok": false,
+    "input": { "session": "…", "onto": "trunk()", "named": null,
+               "update": null, "exclude": [".scratch/*"], "noMarker": false },
+    "resolved": { "base": "qsnwx…", "tip": "lrvrs…", "target": "trunk()" },
+    "source": { "sessionKey": "…", "wsPath": "…" },
+    "diff": { "files": 312, "omitted": [{ "path": "blocks.json",
+              "changes": 214000, "reason": "too-large" }],
+              "estimatedTokens": 12000 },
+    "generator": { "model": "opencode-go/deepseek-v4.1-flash",
+                   "headerFellBack": true, "summaryFellBack": true,
+                   "attempts": 3 },
+    "error": { "step": "bookmarkSet", "code": 2,
+               "message": "invalid value 'slj/f/…' … Syntax error" },
+    "result": { "rev": null, "marker": null, "bookmark": null, "pushed": [] }
+  }
+}</code></pre>
+		<p>The useful-detail set is exactly what was missing for 01a107e9: the sub-generator fallback flags, the diff-budget manifest, the resolved base and tip, and the failing step with jj's message.</p>
+	</section>
+
+	<section id="hooks">
+		<h2>Where to write it</h2>
+		<ol>
+			<li><strong>The status sink.</strong> <code>createStatusSink</code> in <code>extensions/sillajje/src/index.ts</code> already receives every <code>phase</code>, <code>info</code>, <code>warning</code>, and <code>error</code>. Appending on <code>warning</code> and <code>error</code> alone captures the two missing fault classes with no per-action work.</li>
+			<li><strong>Action completion.</strong> The <code>fold</code>, <code>stamp</code>, and <code>sync</code> handlers already branch on <code>result.ok</code>. One <code>appendEntry</code> per branch writes the input, the resolved refs, and the result.</li>
+			<li><strong>The sub-generator result.</strong> <code>header.fellBack</code> and <code>summary.fellBack</code> already exist in <code>fold.ts</code> and drive the warnings. Carry the flags, not a boolean.</li>
+			<li><strong>The diff budget.</strong> <code>collectDiff</code> returns the omitted-file list; <code>emitDiffCondensed</code> turns it into a message. Persist the structured list, not the rendered sentence.</li>
+		</ol>
+	</section>
+
+	<section id="open">
+		<h2>Open questions</h2>
+		<ul>
+			<li><strong>Type naming.</strong> One <code>sillajje/action</code> with an <code>action</code> field, or <code>sillajje/fold</code>, <code>sillajje/stamp</code>, …? One type is easier to query; per-action types are easier to render differently.</li>
+			<li><strong>Volume.</strong> Always write the failure record. Gate the success record and every phase behind <code>debug</code>, or always write one line per invocation? A fold with 55 commits runs ~8 jj commands; per-command tracing is too much for the session.</li>
+			<li><strong>Error detail.</strong> Persist jj's full stderr and the exact argv, or a trimmed <code>step + code + message</code>? The full argv can be long and may contain paths.</li>
+			<li><strong>Correlation.</strong> Stamp the record with the action's change id or op id so it joins the jj op log after the fact? The op id is only known after the last command.</li>
+			<li><strong>Read-back.</strong> Do you want a <code>/sillajje:log</code> command that prints the last action records, so a user can paste them without opening the jsonl?</li>
+			<li><strong>Load path.</strong> How should the dev tree reach ChunkEdge: <code>pi -e /home/neudeline/code/pi-tre</code>, a local package declaration in <code>.pi/settings.json</code>, or a pinned git ref plus <code>pi update --extensions</code>?</li>
+		</ul>
+	</section>
+
+	<footer>Generated by the agent. Sources: <code>~/.pi/agent/settings.json</code>; the package checkout <code>~/.pi/agent/git/github.com/Bafbi/pi-tre</code> @ <code>2929f698</code>; <code>extensions/sillajje/src/index.ts</code> (<code>createStatusSink</code>, fold handler); <code>packages/sillajje-core/src/{config,fold,sub-generator}.ts</code>; pi docs <code>session-format.md</code>, <code>packages.md</code>, <code>extensions.md</code>; ChunkEdge op store.</footer>
+</main>
+</body>
+</html>

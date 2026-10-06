@@ -424,7 +424,7 @@ describe("stampSession (interaction context)", () => {
 			},
 		);
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "act/feat: test interaction",
 			rev: "@",
@@ -612,7 +612,7 @@ describe("stampSession (interaction context)", () => {
 		);
 
 		// Should succeed with fallback subject.
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "Fix the login bug",
 			rev: "@",
@@ -778,7 +778,7 @@ describe("stampSession (interaction context)", () => {
 		});
 
 		// Stamp should succeed despite the throwing sink.
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "act/feat: test interaction",
 			rev: "@",
@@ -1057,7 +1057,7 @@ describe("stampSession (manual context)", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "act/feat: test interaction",
 			rev: "@",
@@ -1121,7 +1121,7 @@ describe("stampSession (manual context)", () => {
 		});
 
 		// Should succeed with fallback subject.
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "chore: manual checkpoint",
 			rev: "@",
@@ -1275,7 +1275,7 @@ describe("stampRev", () => {
 		});
 
 		// Value result carries the subject and the rev.
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "act/feat: test interaction",
 			rev: "abc123",
@@ -1283,10 +1283,11 @@ describe("stampRev", () => {
 
 		const calls = mockCalls(exec);
 
-		// Five jj calls: the `-T` read, the `--stat` read, the file's section,
-		// the describe, and the operation read that returns the describe's
-		// MutationResult. No seal — no update-stale, no bookmark set, no jj new.
-		expect(calls).toHaveLength(5);
+		// Six jj calls: the `-T` read, the `--stat` read, the file's section,
+		// the describe, the operation read that returns the describe's
+		// MutationResult, and the change-id read for the Record. No seal — no
+		// update-stale, no bookmark set, no jj new.
+		expect(calls).toHaveLength(6);
 		expect(calls[0]![0]).toBe("jj");
 		expect(calls[0]![1].slice(0, 2)).toEqual(["diff", "-T"]);
 		expect(calls[0]![1].slice(3)).toEqual([
@@ -1313,6 +1314,10 @@ describe("stampRev", () => {
 		expect(descCall![0]).toBe("jj");
 		expect(descCall![1][0]).toBe("describe");
 		expect(descCall![1].slice(1, 4)).toEqual(["-r", "abc123", "-m"]);
+
+		// The change-id read resolves the described revision for the Record.
+		expect(calls[5]![0]).toBe("jj");
+		expect(calls[5]![1][0]).toBe("log");
 
 		// No seal-side calls exist.
 		expect(
@@ -1355,7 +1360,7 @@ describe("stampRev", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "act/feat: test interaction",
 			rev: "@",
@@ -1681,7 +1686,7 @@ describe("seal transaction", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "act/feat: test interaction",
 			rev: "@",
@@ -2034,7 +2039,7 @@ describe("seal transaction", () => {
 			onStatus: sink,
 		});
 
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "act/feat: test interaction",
 			rev: "@",
@@ -2236,7 +2241,7 @@ describe("seal transaction", () => {
 		});
 
 		// The seal itself succeeded — the report is a warning on top.
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			ok: true,
 			subject: "act/feat: test interaction",
 			rev: "@",
