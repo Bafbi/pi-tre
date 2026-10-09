@@ -187,6 +187,428 @@ describeJj("sillajje fold", () => {
 		);
 	}, 30_000);
 
+	it("moves the caller's home revision onto the folded change", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		// Trunk is the initial commit; the home revision sits on top of it.
+		jj(["bookmark", "set", "main", "-r", "@-"], cwd);
+		const homeChange = changeId(cwd, "@");
+
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
+		await simulateInteraction(runner, "Session change", "Done.");
+
+		await runSillajje(runner, "fold -s @ -o main --rebase @");
+
+		// The folded change is the only child of main; the home revision moved
+		// onto it.
+		const folded = childrenOf(cwd, "main")[0];
+		expect(folded).toBeDefined();
+		expect(changeId(cwd, "@")).toBe(homeChange);
+		expect(commitId(cwd, "@-")).toBe(commitId(cwd, folded.id));
+
+		// --rebase does not touch the published body or its provenance.
+		const desc = description(cwd, folded.id);
+		expect(desc).toContain("Ref:");
+		expect(desc).not.toContain("Meta:");
+		expect(desc).not.toContain("Loop:");
+
+		// The caller's working copy is current, not stale: this read aborts if
+		// the fold left the workspace stale.
+		expect(
+			jj(["log", "-r", "@", "--no-graph", "-T", "change_id"], cwd),
+		).toBe(homeChange);
+
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("rebased @"),
+			}),
+		);
+	}, 30_000);
+
+	it("moves a subtree and its bookmark onto the folded change", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		// A two-commit home branch, bookmarked at its root.
+		jj(["new", "main", "-m", "home1"], cwd);
+		writeFileSync(join(cwd, "home1.txt"), "home1\n");
+		jj(["bookmark", "set", "home", "-r", "@"], cwd);
+		const homeRoot = changeId(cwd, "home");
+		jj(["new", "-m", "home2"], cwd);
+		writeFileSync(join(cwd, "home2.txt"), "home2\n");
+		const homeTip = changeId(cwd, "@");
+
+		// A source branch to fold.
+		jj(["new", base, "-m", "src"], cwd);
+		writeFileSync(join(cwd, "src.txt"), "src\n");
+		jj(["bookmark", "set", "src", "-r", "@"], cwd);
+		jj(["new", "-m", "after"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r src -o main --rebase home");
+
+		const folded = childrenOf(cwd, "main")[0];
+		expect(folded).toBeDefined();
+		// home1 moved under the folded change, home2 followed, bookmark intact.
+		expect(changeId(cwd, "home")).toBe(homeRoot);
+		expect(
+			jj(
+				[
+					"log",
+					"-r",
+					"home",
+					"--no-graph",
+					"-T",
+					'parents.map(|p| p.change_id()).join(" ")',
+				],
+				cwd,
+			),
+		).toBe(folded?.id);
+		expect(childrenOf(cwd, "home")[0]?.id).toBe(homeTip);
+	}, 30_000);
+
+	it("rejects --rebase naming an ancestor of the target", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		// main is a child of `anc`.
+		jj(["new", base, "-m", "anc"], cwd);
+		writeFileSync(join(cwd, "anc.txt"), "anc\n");
+		jj(["bookmark", "set", "anc", "-r", "@"], cwd);
+		jj(["new", "-m", "main"], cwd);
+		writeFileSync(join(cwd, "main.txt"), "main\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		// A source branch to fold.
+		jj(["new", base, "-m", "src"], cwd);
+		writeFileSync(join(cwd, "src.txt"), "src\n");
+		jj(["bookmark", "set", "src", "-r", "@"], cwd);
+		jj(["new", "-m", "after"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r src -o main --rebase anc");
+
+		expect(childrenOf(cwd, "main")).toHaveLength(0);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "warning",
+				msg: expect.stringContaining("ancestor"),
+			}),
+		);
+	}, 30_000);
+
+	it("rejects --rebase naming root()", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "main"], cwd);
+		writeFileSync(join(cwd, "main.txt"), "main\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "src"], cwd);
+		writeFileSync(join(cwd, "src.txt"), "src\n");
+		jj(["bookmark", "set", "src", "-r", "@"], cwd);
+		jj(["new", "-m", "after"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r src -o main --rebase root()");
+
+		expect(childrenOf(cwd, "main")).toHaveLength(0);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "warning",
+				msg: expect.stringContaining("--rebase"),
+			}),
+		);
+	}, 30_000);
+
+	it("rejects --rebase naming an immutable revision", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "main"], cwd);
+		writeFileSync(join(cwd, "main.txt"), "main\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		// A sibling branch, marked immutable so jj would refuse to rewrite it.
+		jj(["new", base, "-m", "home"], cwd);
+		writeFileSync(join(cwd, "home.txt"), "home\n");
+		jj(["bookmark", "set", "home", "-r", "@"], cwd);
+		jj(
+			[
+				"config",
+				"set",
+				"--repo",
+				'revset-aliases."immutable_heads()"',
+				"home",
+			],
+			cwd,
+		);
+
+		jj(["new", base, "-m", "src"], cwd);
+		writeFileSync(join(cwd, "src.txt"), "src\n");
+		jj(["bookmark", "set", "src", "-r", "@"], cwd);
+		jj(["new", "-m", "after"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r src -o main --rebase home");
+
+		expect(childrenOf(cwd, "main")).toHaveLength(0);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "warning",
+				msg: expect.stringContaining("immutable"),
+			}),
+		);
+	}, 30_000);
+
+	it("replays a revision the fold already published as an empty commit", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "src"], cwd);
+		writeFileSync(join(cwd, "src.txt"), "src\n");
+		jj(["bookmark", "set", "src", "-r", "@"], cwd);
+		const srcBefore = changeId(cwd, "src");
+		jj(["new", "-m", "after"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r src -o main --rebase src");
+
+		// The fold published src's delta, then moved src onto it. The replay is
+		// empty, not a conflict, and the fold succeeds.
+		const folded = childrenOf(cwd, "main")[0];
+		expect(folded).toBeDefined();
+		expect(changeId(cwd, "src")).toBe(srcBefore);
+		expect(
+			jj(
+				[
+					"log",
+					"-r",
+					"src",
+					"--no-graph",
+					"-T",
+					'parents.map(|p| p.change_id()).join(" ")',
+				],
+				cwd,
+			),
+		).toBe(folded?.id);
+		expect(jj(["diff", "-r", "src"], cwd)).toBe("");
+		expect(notifications.some((n) => n.msg.includes("conflict"))).toBe(
+			false,
+		);
+	}, 30_000);
+
+	it("rolls back when the rebase conflicts", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "file.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		// src folds cleanly: it adds an unrelated file.
+		jj(["new", base, "-m", "src"], cwd);
+		writeFileSync(join(cwd, "src.txt"), "src\n");
+		jj(["bookmark", "set", "src", "-r", "@"], cwd);
+
+		// other edits the same path main added, so the rebase onto the fold
+		// conflicts.
+		jj(["new", base, "-m", "other"], cwd);
+		writeFileSync(join(cwd, "file.txt"), "other\n");
+		jj(["bookmark", "set", "other", "-r", "@"], cwd);
+		const otherBefore = changeId(cwd, "other");
+		jj(["new", "-m", "after"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r src -o main --rebase other");
+
+		// The whole fold rolled back: nothing published, nothing moved.
+		expect(childrenOf(cwd, "main")).toHaveLength(0);
+		expect(changeId(cwd, "other")).toBe(otherBefore);
+		const conflict = notifications.find(
+			(n) => n.type === "warning" && n.msg.includes("conflict"),
+		);
+		expect(conflict).toBeDefined();
+		expect(conflict?.msg).toContain("file.txt");
+	}, 30_000);
+
+	it("rejects --rebase naming a merge revision", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "main"], cwd);
+		writeFileSync(join(cwd, "main.txt"), "main\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "side"], cwd);
+		writeFileSync(join(cwd, "side.txt"), "side\n");
+		jj(["bookmark", "set", "side", "-r", "@"], cwd);
+
+		// A merge of main and side, bookmarked as the revision to move. jj's
+		// rebase would drop the side parent, so --rebase refuses it.
+		jj(["new", "main", "side", "-m", "home"], cwd);
+		writeFileSync(join(cwd, "home.txt"), "home\n");
+		jj(["bookmark", "set", "home", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "src"], cwd);
+		writeFileSync(join(cwd, "src.txt"), "src\n");
+		jj(["bookmark", "set", "src", "-r", "@"], cwd);
+		jj(["new", "-m", "after"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r src -o main --rebase home");
+
+		expect(
+			childrenOf(cwd, "main").filter((c) =>
+				description(cwd, c.id).includes("Ref:"),
+			),
+		).toHaveLength(0);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "warning",
+				msg: expect.stringContaining("merge"),
+			}),
+		);
+	}, 30_000);
+
+	it("advances the target and moves the home revision with --update --rebase", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		jj(["bookmark", "set", "main", "-r", "@-"], cwd);
+		const homeChange = changeId(cwd, "@");
+
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
+		await simulateInteraction(runner, "Session change", "Done.");
+
+		await runSillajje(runner, "fold -s @ -o main --update --rebase @");
+
+		// main advanced to the folded change, and the home revision now sits on
+		// top of it.
+		const advanced = changeId(cwd, "main");
+		expect(description(cwd, "main")).toContain("Ref:");
+		expect(changeId(cwd, "@")).toBe(homeChange);
+		expect(changeId(cwd, "@-")).toBe(advanced);
+		// The Folded source marker records the source tip, untouched by the
+		// rebase.
+		expect(changeId(cwd, `slj/f/main/${sessionKeyId(sessionId)}`)).toBe(
+			changeId(cwd, sessionBookmark(sessionId)),
+		);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("rebased @"),
+			}),
+		);
+	}, 30_000);
+
+	it("names a review branch and moves the home revision with --rebase", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "main"], cwd);
+		writeFileSync(join(cwd, "main.txt"), "main\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", "main", "-m", "home"], cwd);
+		const homeChange = changeId(cwd, "@");
+		jj(["bookmark", "set", "home", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "src"], cwd);
+		writeFileSync(join(cwd, "src.txt"), "src\n");
+		jj(["bookmark", "set", "src", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		await runSillajje(
+			runner,
+			"fold -r src -o main --named review --rebase home",
+		);
+
+		expect(description(cwd, "review")).toContain("Ref:");
+		expect(changeId(cwd, "home")).toBe(homeChange);
+		expect(commitId(cwd, "home-")).toBe(commitId(cwd, "review"));
+		// The marker is keyed by the named destination.
+		expect(changeId(cwd, "slj/f/review/src")).toBe(changeId(cwd, "src"));
+	}, 30_000);
+
+	it("excludes a path and still moves the home revision with --rebase", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "main"], cwd);
+		writeFileSync(join(cwd, "main.txt"), "main\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", "main", "-m", "home"], cwd);
+		const homeChange = changeId(cwd, "@");
+		jj(["bookmark", "set", "home", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "src"], cwd);
+		writeFileSync(join(cwd, "src.txt"), "src\n");
+		writeFileSync(join(cwd, "skip.txt"), "skip\n");
+		jj(["bookmark", "set", "src", "-r", "@"], cwd);
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		await runSillajje(
+			runner,
+			"fold -r src -o main --exclude skip.txt --rebase home",
+		);
+
+		const folded = childrenOf(cwd, "main")[0];
+		expect(folded).toBeDefined();
+		const files = jj(["file", "list", "-r", folded.id], cwd);
+		expect(files).toContain("src.txt");
+		expect(files).not.toContain("skip.txt");
+		expect(changeId(cwd, "home")).toBe(homeChange);
+		expect(commitId(cwd, "home-")).toBe(commitId(cwd, folded.id));
+	}, 30_000);
+
 	it("updates a session from its last stamp, not the workspace working copy", async () => {
 		const cwd = initRepo();
 		const runner = await createRunner(cwd);
@@ -823,6 +1245,67 @@ describeJj("sillajje fold", () => {
 
 		await runSillajje(runner, "fold -r feat -o main --update --push");
 		expect(bareRef(remote, "main")).toBe(commitId(cwd, "main"));
+	}, 30_000);
+
+	it("pushes the advanced bookmark and moves the home revision with --rebase", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		// main, and a home revision on top of it.
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+		jj(["new", "-m", "home"], cwd);
+		const homeChange = changeId(cwd, "@");
+		jj(["bookmark", "set", "home", "-r", "@"], cwd);
+
+		// A source branch to fold.
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "feat.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const remote = addBareRemote(cwd);
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+
+		await runSillajje(
+			runner,
+			"fold -r feat -o main --update --push --rebase home",
+		);
+
+		const advanced = commitId(cwd, "main");
+		expect(bareRef(remote, "main")).toBe(advanced);
+		expect(changeId(cwd, "home")).toBe(homeChange);
+		expect(commitId(cwd, "home-")).toBe(advanced);
+	}, 30_000);
+
+	it("archives the session after moving the home revision with --rebase", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		captureNotifications(runner);
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+
+		jj(["bookmark", "set", "main", "-r", "@-"], cwd);
+		const homeChange = changeId(cwd, "@");
+
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
+		await simulateInteraction(runner, "Session change", "Done.");
+
+		await runSillajje(runner, "fold -s @ -o main --archive --rebase @");
+
+		// The home revision moved onto the folded change, and the session is
+		// retired with its bookmark intact.
+		const folded = childrenOf(cwd, "main")[0];
+		expect(folded).toBeDefined();
+		expect(changeId(cwd, "@")).toBe(homeChange);
+		expect(commitId(cwd, "@-")).toBe(commitId(cwd, folded.id));
+		expect(existsSync(workspace)).toBe(false);
+		expect(jj(["bookmark", "list"], cwd)).toContain(
+			sessionBookmark(sessionId),
+		);
 	}, 30_000);
 
 	it("warns and keeps the folded change when the push fails", async () => {

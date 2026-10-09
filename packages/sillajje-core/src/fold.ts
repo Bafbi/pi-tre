@@ -90,6 +90,8 @@ export interface FoldInput {
 	push?: boolean | undefined;
 	/** `--no-marker`: ignore the Folded source marker and record none. */
 	noMarker?: boolean | undefined;
+	/** `--rebase <rev>`: move this revision and its descendants onto the folded change. */
+	rebase?: string | undefined;
 }
 
 /** What a fold observed, for the Record. */
@@ -124,6 +126,8 @@ export type FoldResult =
 			pushed: readonly string[];
 			/** What the fold observed, for the Record. */
 			diagnostics: FoldDiagnostics;
+			/** The `--rebase` revision moved onto the folded change, when the flag was given. */
+			rebase?: string | undefined;
 	  }
 	| {
 			ok: false;
@@ -189,23 +193,118 @@ interface FoldSource {
 	cwd: string;
 }
 
-/** Resolve exactly one revision, or throw a jj error the caller relays. */
+/** A revset that resolved to zero revisions or many, never exactly one. */
+class RevisionCountError extends Error {}
+
+/**
+ * Resolve exactly one revision, or throw. `label` names the caller in the
+ * message: `source` for a Fold source, `rebase` for `--rebase`.
+ */
 async function resolveSingle(
 	jj: Jj,
 	rev: string,
 	cwd: string,
+	label = "source",
 ): Promise<Commit> {
 	const commits = await jj.log(rev, { cwd });
 	if (commits.length !== 1) {
-		throw new Error(
-			`fold source ${rev} resolves to ${commits.length} revisions — expected one`,
+		throw new RevisionCountError(
+			`fold ${label} ${rev} resolves to ${commits.length} revisions — expected one`,
 		);
 	}
 	const commit = commits[0];
 	if (commit === undefined) {
-		throw new Error(`fold source ${rev} resolves to no revision`);
+		throw new RevisionCountError(
+			`fold ${label} ${rev} resolves to no revision`,
+		);
 	}
 	return commit;
+}
+
+/** The result of resolving `--rebase` and rejecting what a rebase cannot take. */
+type RebaseTargetResolution =
+	| { ok: true; commit: Commit }
+	| { ok: false; reason: "usage" | "failed"; message: string };
+
+/**
+ * Resolve the `--rebase` revision at the caller's checkout (the repo root), not
+ * the source workspace, so `@` is the home working-copy revision even when the
+ * source is a session. Reject, before message generation, a rev that is not a
+ * single commit, an immutable rev, a merge, or an ancestor of the target (a
+ * cycle). A jj read failure reports the cause. A revset that resolves to no or
+ * many commits keeps the fixed usage message.
+ */
+async function resolveRebaseTarget(
+	jj: Jj,
+	rev: string,
+	target: Commit,
+	cwd: string,
+): Promise<RebaseTargetResolution> {
+	let commit: Commit;
+	try {
+		commit = await resolveSingle(jj, rev, cwd, "rebase");
+	} catch (err) {
+		if (err instanceof RevisionCountError) {
+			return {
+				ok: false,
+				reason: "usage",
+				message: `--rebase ${rev} must resolve to exactly one revision`,
+			};
+		}
+		return {
+			ok: false,
+			reason: "failed",
+			message: `fold rebase resolution failed: ${String(err)}`,
+		};
+	}
+
+	let immutable: Commit[];
+	try {
+		immutable = await jj.log(`${commit.changeId} & immutable()`, { cwd });
+	} catch (err) {
+		return {
+			ok: false,
+			reason: "failed",
+			message: `fold rebase guard failed: ${String(err)}`,
+		};
+	}
+	if (immutable.length > 0) {
+		return {
+			ok: false,
+			reason: "usage",
+			message: `--rebase ${rev} is immutable; it cannot be rebased onto the folded change`,
+		};
+	}
+
+	if (commit.parents.length > 1) {
+		return {
+			ok: false,
+			reason: "usage",
+			message: `--rebase ${rev} is a merge; it cannot be rebased onto the folded change without dropping its other parents`,
+		};
+	}
+
+	let reaches: Commit[];
+	try {
+		reaches = await jj.log(`${commit.changeId}::${target.changeId}`, {
+			cwd,
+		});
+	} catch (err) {
+		return {
+			ok: false,
+			reason: "failed",
+			message: `fold rebase guard failed: ${String(err)}`,
+		};
+	}
+	if (reaches.length > 0) {
+		return {
+			ok: false,
+			reason: "usage",
+			message: `--rebase ${rev} is an ancestor of the target; it cannot be rebased onto the folded change`,
+		};
+	}
+
+	return { ok: true, commit };
 }
 
 /**
@@ -609,6 +708,32 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			return fail(`fold destination resolution failed: ${String(err)}`);
 		}
 
+		// `--rebase` moves the named revision onto the folded change. Resolve it
+		// and reject what a rebase cannot take, before message generation.
+		let rebaseCommit: Commit | undefined;
+		if (input.rebase !== undefined) {
+			// The cycle guard needs a single target. Refuse rather than skip it.
+			if (targetCommit === undefined) {
+				return {
+					ok: false,
+					reason: "usage",
+					message: `--rebase requires ${targetRev} to resolve to exactly one revision`,
+				};
+			}
+			const resolved = await resolveRebaseTarget(
+				jj,
+				input.rebase,
+				targetCommit,
+				cwd,
+			);
+			if (!resolved.ok) {
+				return resolved.reason === "failed"
+					? fail(resolved.message)
+					: { ok: false, reason: "usage", message: resolved.message };
+			}
+			rebaseCommit = resolved.commit;
+		}
+
 		// `--update [<bookmark>]` advances a bookmark after the fold. Without a
 		// value it needs the target's single local bookmark.
 		let updateBookmark: string | undefined;
@@ -881,6 +1006,22 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				if (!landed.ok) return undefined;
 			}
 
+			// `--rebase` moves the named revision last, so it lands on the final
+			// folded change id.
+			if (rebaseCommit !== undefined) {
+				const moved = await tx.apply({
+					kind: "rebase",
+					source: rebaseCommit.changeId,
+					onto: [folded.changeId],
+				});
+				if (!moved.ok) return undefined;
+				const rebaseConflicts = await tx.conflicts(
+					rebaseCommit.changeId,
+				);
+				if (rebaseConflicts.length > 0)
+					throw new FoldAbort(rebaseConflicts);
+			}
+
 			return folded;
 		};
 
@@ -915,6 +1056,21 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				};
 			}
 			return fail(`fold failed: ${String(err)}`, resolvedRef);
+		}
+
+		// `--rebase` rewrote the caller's working-copy revision inside the deferred
+		// transaction, so its workspace is stale. Refresh it; a failed refresh is a
+		// warning, never an undo of the fold.
+		if (rebaseCommit !== undefined) {
+			try {
+				await jj.workspaceUpdateStale({ cwd });
+			} catch (err) {
+				emitStatus(onStatus, {
+					kind: "warning",
+					code: "update_stale_failed",
+					message: `jj workspace update-stale failed: ${String(err)}`,
+				});
+			}
 		}
 
 		// Push the bookmark `--update` advanced, opt-in and best-effort.
@@ -962,6 +1118,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 					: foldedMarkerName(dest, source.sourceName),
 			sessionKey: source.sessionKey,
 			archived,
+			rebase: input.rebase,
 			pushed,
 			diagnostics: {
 				base: base.changeId,
@@ -978,7 +1135,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 /** The fold subcommand — publish a source range under a target. */
 export const FOLD_ARGS: CommandSpec = {
 	name: "fold",
-	usage: "fold (-s <id|@> | -r <rev>) -o <rev> [--named [<branch>]] [--update [<bookmark>]] [--push] [--archive] [--exclude <path>] [--no-marker]",
+	usage: "fold (-s <id|@> | -r <rev>) -o <rev> [--named [<branch>]] [--update [<bookmark>]] [--push] [--archive] [--exclude <path>] [--no-marker] [--rebase <rev>]",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "rev", aliases: ["-r", "--rev"], takesValue: true },
@@ -988,6 +1145,7 @@ export const FOLD_ARGS: CommandSpec = {
 		{ key: "push", aliases: ["--push"], takesValue: false },
 		{ key: "archive", aliases: ["--archive"], takesValue: false },
 		{ key: "noMarker", aliases: ["--no-marker"], takesValue: false },
+		{ key: "rebase", aliases: ["--rebase"], takesValue: true },
 		{
 			key: "exclude",
 			aliases: ["--exclude"],
@@ -1015,6 +1173,7 @@ export const FOLD_HELP: CommandHelp = {
 		"      --archive          archive the session after a successful fold",
 		"      --exclude <path>   leave paths out of the published change (repeatable)",
 		"      --no-marker        ignore and write no Folded source marker",
+		"      --rebase <rev>     move <rev> and its descendants onto the folded change",
 		"  -h, --help             show this help",
 		"",
 		"A fold that names or advances a destination records a Folded source marker",

@@ -57,6 +57,20 @@ const MAIN: Commit = {
 	parents: [],
 	description: "B",
 };
+/** The rebase fixture's rev and change id: one name for the fixture and the fake. */
+const REBASE_REV = "home";
+const HOME: Commit = {
+	commitId: "home-c",
+	changeId: REBASE_REV,
+	parents: ["main-c"],
+	description: "home",
+};
+const MERGE: Commit = {
+	commitId: "merge-c",
+	changeId: "merge",
+	parents: ["main-c", "side-c"],
+	description: "merge",
+};
 const PREV: Commit = {
 	commitId: "prev-c",
 	changeId: "prev",
@@ -68,10 +82,9 @@ const CURRENT: CurrentSession = { sessionKey: "owner/s1", wsPath: "/ws" };
 
 /** The commit graph the fake jj resolves ancestry against. */
 const GRAPH = new Map<string, readonly string[]>(
-	[BASE, PREV, TIP, MAIN, FOLDED, COPY_ROOT, COPY_HEAD].map((commit) => [
-		commit.commitId,
-		commit.parents,
-	]),
+	[BASE, PREV, TIP, MAIN, FOLDED, COPY_ROOT, COPY_HEAD, HOME, MERGE].map(
+		(commit) => [commit.commitId, commit.parents],
+	),
 );
 
 /** Whether `ancestorId` is reachable from `descendantId` in the fake graph. */
@@ -98,22 +111,42 @@ interface Fakes {
 	transaction: ReturnType<typeof vi.fn>;
 	diffRange: ReturnType<typeof vi.fn>;
 	diffFiles: ReturnType<typeof vi.fn>;
+	workspaceUpdateStale: ReturnType<typeof vi.fn>;
 }
 
 function makeJj(opts?: {
 	delta?: Commit[];
 	conflicts?: string[];
+	rebaseConflicts?: string[];
+	immutable?: string[];
 	bookmarks?: Bookmark[];
 	/** Commit ids `jj log` resolves to no revision. */
 	logEmptyFor?: string[];
+	/** Revsets `jj log` throws on, standing in for a jj read failure. */
+	logThrowsFor?: string[];
+	/** Revsets `jj log` resolves to several commits, for a non-single target. */
+	logManyFor?: Record<string, Commit[]>;
 }): Fakes {
 	const delta = opts?.delta ?? [TIP];
 	const log = vi.fn(async (revset: string) => {
+		if (opts?.logThrowsFor?.includes(revset)) {
+			throw new Error(`boom on ${revset}`);
+		}
 		if (opts?.logEmptyFor?.includes(revset)) return [];
+		const many = opts?.logManyFor?.[revset];
+		if (many !== undefined) return many;
+		const immutableMatch = /^(.+) & immutable\(\)$/.exec(revset);
+		if (immutableMatch) {
+			return (opts?.immutable ?? []).includes(immutableMatch[1] ?? "")
+				? [TIP]
+				: [];
+		}
 		if (revset === "feat" || revset === "@") return [TIP];
 		if (revset === TIP.commitId) return [TIP];
 		if (revset === "main") return [MAIN];
 		if (revset === MAIN.commitId) return [MAIN];
+		if (revset === REBASE_REV) return [HOME];
+		if (revset === "merge") return [MERGE];
 		if (revset === PREV.commitId) return [PREV];
 		if (revset.startsWith("fork_point")) return [BASE];
 		if (revset.startsWith("sillajje/")) return [TIP];
@@ -137,7 +170,11 @@ function makeJj(opts?: {
 		}
 		return { ok: true, value: { op: "op-squash", created: [] } };
 	});
-	const conflicts = vi.fn(async () => opts?.conflicts ?? []);
+	const conflicts = vi.fn(async (revset?: string) =>
+		revset === REBASE_REV
+			? (opts?.rebaseConflicts ?? [])
+			: (opts?.conflicts ?? []),
+	);
 	const bookmarks = vi.fn(
 		async () => opts?.bookmarks ?? [{ name: "main", target: ["main-c"] }],
 	);
@@ -149,6 +186,7 @@ function makeJj(opts?: {
 			return { ok: true, value };
 		},
 	);
+	const workspaceUpdateStale = vi.fn(async () => {});
 	const diffRange = vi.fn(async () => "diff --git a/f b/f\n+added");
 	const diffFiles = vi.fn(async () => [
 		{ path: "f", status: "modified" as const, changes: 1 },
@@ -160,6 +198,7 @@ function makeJj(opts?: {
 		diffFiles,
 		bookmarks,
 		gitPush,
+		workspaceUpdateStale,
 		transaction,
 	} as unknown as Jj;
 	return {
@@ -172,6 +211,7 @@ function makeJj(opts?: {
 		transaction,
 		diffRange,
 		diffFiles,
+		workspaceUpdateStale,
 	};
 }
 
@@ -1098,5 +1138,219 @@ describe("createFold", () => {
 				(s) => s.kind === "warning" && s.code === "archive_failed",
 			),
 		).toBe(true);
+	});
+
+	it("moves the --rebase revision onto the folded change", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			rebase: REBASE_REV,
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.rebase).toBe("home");
+		expect(fakes.apply).toHaveBeenCalledWith({
+			kind: "rebase",
+			source: "home",
+			onto: ["folded"],
+		});
+	});
+
+	it("rejects --rebase naming an immutable revision", async () => {
+		const fakes = makeJj({ immutable: ["home"] });
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			rebase: REBASE_REV,
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "usage",
+			message: expect.stringContaining("immutable"),
+		});
+		expect(fakes.transaction).not.toHaveBeenCalled();
+		expect(fakes.diffFiles).not.toHaveBeenCalled();
+	});
+
+	it("rejects --rebase naming a merge revision", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			rebase: "merge",
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "usage",
+			message: expect.stringContaining("merge"),
+		});
+		expect(fakes.transaction).not.toHaveBeenCalled();
+	});
+
+	it("rejects --rebase naming an ancestor of the target", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			rebase: "main",
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "usage",
+			message: expect.stringContaining("--rebase"),
+		});
+		expect(fakes.transaction).not.toHaveBeenCalled();
+		expect(fakes.diffFiles).not.toHaveBeenCalled();
+	});
+
+	it("rejects --rebase that does not resolve to one revision", async () => {
+		const fakes = makeJj({ logEmptyFor: ["missing"] });
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			rebase: "missing",
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "usage",
+			message: expect.stringContaining("--rebase"),
+		});
+		expect(fakes.transaction).not.toHaveBeenCalled();
+	});
+
+	it("reports a jj read failure while resolving --rebase", async () => {
+		const fakes = makeJj({ logThrowsFor: ["boom"] });
+		const { action, statuses } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			rebase: "boom",
+		});
+
+		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(statuses).toContainEqual(
+			expect.objectContaining({ kind: "error", code: "fold_failed" }),
+		);
+	});
+
+	it("rejects --rebase when the target is not a single revision", async () => {
+		const fakes = makeJj({ logManyFor: { multi: [MAIN, HOME] } });
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "multi",
+			rebase: REBASE_REV,
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			reason: "usage",
+			message: expect.stringContaining("--rebase"),
+		});
+		expect(fakes.transaction).not.toHaveBeenCalled();
+	});
+
+	it("rolls back when the rebase produces conflicts", async () => {
+		const fakes = makeJj({ rebaseConflicts: ["rebased.txt"] });
+		const { action, statuses } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			rebase: REBASE_REV,
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "conflict",
+			files: ["rebased.txt"],
+		});
+		expect(
+			statuses.some((s) => s.kind === "warning" && s.code === "conflict"),
+		).toBe(true);
+	});
+
+	it("resolves --rebase at the caller's checkout, not the source workspace", async () => {
+		const fakes = makeJj();
+		const resolve = vi.fn().mockResolvedValue({
+			ok: true,
+			sessionKey: "owner/s1",
+			wsPath: "/ws",
+		});
+		const { action } = fold({ jj: fakes, resolve });
+
+		await action({
+			session: "@",
+			current: CURRENT,
+			onto: "main",
+			rebase: REBASE_REV,
+			cwd: "/repo",
+		});
+
+		expect(fakes.log).toHaveBeenCalledWith("home", { cwd: "/repo" });
+	});
+
+	it("refreshes the working copy after --rebase", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		await action({
+			rev: "feat",
+			onto: "main",
+			rebase: REBASE_REV,
+			cwd: "/repo",
+		});
+
+		expect(fakes.workspaceUpdateStale).toHaveBeenCalledWith({
+			cwd: "/repo",
+		});
+	});
+
+	it("does not refresh the working copy without --rebase", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		await action({ rev: "feat", onto: "main" });
+
+		expect(fakes.workspaceUpdateStale).not.toHaveBeenCalled();
+	});
+
+	it("a failed refresh warns and leaves the fold successful", async () => {
+		const fakes = makeJj();
+		fakes.workspaceUpdateStale.mockRejectedValueOnce(
+			new Error("stale boom"),
+		);
+		const { action, statuses } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			rebase: REBASE_REV,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(statuses).toContainEqual(
+			expect.objectContaining({
+				kind: "warning",
+				code: "update_stale_failed",
+			}),
+		);
 	});
 });

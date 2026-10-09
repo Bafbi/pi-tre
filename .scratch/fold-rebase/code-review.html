@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Code review: fold --rebase</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Code review: fold <code>--rebase</code></h1>
+		<p class="sub">Standards pass with two comment/doc nits; Spec finds one real coverage gap and one guard that can silently not run.</p>
+		<div class="meta">
+			<span class="chip">2026-10-09</span>
+			<span class="chip">range: merge-base(main, @)..@</span>
+			<span class="chip">jj: 13 commits</span>
+			<span class="chip">gate: green</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#standards">Standards</a>
+		<a href="#spec">Spec</a>
+		<a href="#open">Open questions</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>The change implements the <code>fold --rebase</code> PRD and its four issues. The reviewed diff is <code>jj diff --from 'heads(::@ &amp; ::main)' --to @</code> (merge base <code>73aad31313ab</code>), 12 files. Both per-module gates pass: <code>mise run //packages/sillajje-core:check</code> (288 tests) and <code>mise run //extensions/sillajje:check</code> (332 tests), including the new real-jj fold tests.</p>
+		<p><strong>Standards:</strong> 4 findings, no hard violations. Worst: two new semicolons in prose, against the repo's explicit "Use periods, not semicolons" rule.</p>
+		<p><strong>Spec:</strong> 5 findings. Worst: the PRD and issue 01 claim <code>--rebase</code> composes with <code>--named</code>, <code>--exclude</code>, and <code>--no-marker</code>, but only <code>--update</code>, <code>--push</code>, and <code>--archive</code> are tested.</p>
+	</section>
+
+	<section id="standards">
+		<h2>Standards</h2>
+		<p>Sources: root <code>AGENTS.md</code> (<code># Writing</code>, <code># Philosophy</code>, <code># DevX expectations</code>); <code>CONTEXT-MAP.md</code>; extension and package <code>CONTEXT.md</code>; ADR 0006; Biome/tsc gates. No <code>CODING_STANDARDS.md</code> or <code>CONTRIBUTING.md</code> exists. The Fowler smell baseline is added to those. Tooling-enforced rules are skipped, and the gate is green.</p>
+
+		<h3>1. Semicolons in new prose — documented-standard breach (soft)</h3>
+		<p><code>AGENTS.md</code> says "Use periods, not semicolons. Replace an em dash with a new sentence." Two new passages break it. The earlier triage commit <code>89b3625</code> claims it "rewrote the new CONTEXT.md and ADR 0006 prose to the user's writing rules (no semicolons or em dashes)", so these are misses of stated intent, not policy disagreement.</p>
+		<ul>
+			<li><code>packages/sillajje-core/src/fold.ts:215</code> — "A jj read failure reports the cause; a revset that resolves to no or many commits keeps the fixed usage message."</li>
+			<li><code>extensions/sillajje/docs/adr/0006-fold-publishes-a-source-range.md:98</code> — "That empty replay is accepted; skipping or dropping commits that become empty because their content already landed is out of scope."</li>
+		</ul>
+		<p>The rest of the new prose (the CONTEXT.md fold sentence, the ADR amendment body) uses no semicolons or em dashes. The pre-existing <code>CONTEXT.md</code>/ADR prose is full of both, so this is a soft breach of an aspirational rule, not a regression against the surrounding style.</p>
+
+		<h3>2. Long compound sentences — documented-standard judgement call</h3>
+		<p><code>AGENTS.md</code>: "One thought per sentence everywhere else. Split sentences longer than about 25 words."</p>
+		<ul>
+			<li><code>extensions/sillajje/CONTEXT.md:23</code> (new tail) — "The revision resolves in the caller's checkout, so <code>@</code> is the home working-copy revision, and the move runs in the Fold's transaction, so a conflict rolls the whole Fold back." Two causal chains, 33 words, one sentence.</li>
+			<li><code>extensions/sillajje/docs/adr/0006-fold-publishes-a-source-range.md:86</code> (new amendment) — "The revision resolves in the caller's checkout, the repo root, before the transaction opens, and the resolved change id is what the transaction rebases." Two thoughts joined by "and".</li>
+		</ul>
+
+		<h3>3. Duplicated Code — baseline smell (judgement call)</h3>
+		<p><code>resolveRebaseTarget</code> builds the same failure literal three times from <code>String(err)</code>: <code>fold.ts:237</code> (<code>fold rebase resolution failed</code>), <code>:248</code> and <code>:277</code> (both <code>fold rebase guard failed</code>). A local <code>failed(message)</code> helper would collapse the three. Low value, but the shape is identical.</p>
+
+		<h3>4. Test double coupled to a fixture name — baseline smell (judgement call)</h3>
+		<p>In <code>packages/sillajje-core/test/fold.test.ts:168</code> the <code>conflicts</code> fake branches on the literal <code>revset === "home"</code> to pick the rebase conflict list. It keys on the fixture label, not on the behavior under test, so a renamed rebase fixture would silently route rebase conflicts down the folded-conflict path. Keying on the rebase source the action is given would be more robust.</p>
+
+		<div class="callout ok">
+			<p>No hard, tooling-adjacent violations. Biome format/lint and both <code>typecheck</code> runs are clean, the new code follows the existing core idioms (discriminated <code>Result</code>-style unions, <code>emitStatus</code> codes, boundary-owned jj argv), and intent comments are present.</p>
+		</div>
+	</section>
+
+	<section id="spec">
+		<h2>Spec</h2>
+		<p>Spec: <code>.scratch/fold-rebase/PRD.md</code> and <code>.scratch/fold-rebase/issues/01..04</code> (the issue-tracker workflow refines the PRD, so the issues are in scope). The change implements the core requirement: repo-root resolution, one-transaction rebase, conflict rollback, working-copy refresh, <code>(rebased &lt;rev&gt;)</code> outcome, help text, glossary sentence, and ADR amendment.</p>
+
+		<h3>1. Claimed compositions are untested — partial</h3>
+		<p>Issue 01 checklist: "<code>--rebase</code> composes with <code>--named</code>, <code>--update</code>, <code>--push</code>, <code>--archive</code>, <code>--exclude</code>, and <code>--no-marker</code>; no new mutual exclusion." PRD user story 7 (compose with <code>--named</code>) and user story 10 (compose with <code>--exclude</code> and <code>--no-marker</code>) require the same. The integration suite covers <code>--update</code>+<code>--rebase</code>, <code>--update --push --rebase</code>, and <code>--archive --rebase</code>. There is no test for <code>--named --rebase</code>, <code>--exclude … --rebase</code>, or <code>--no-marker --rebase</code>.</p>
+		<p>These are not free paths: <code>--named</code> changes the marker destination, and <code>--exclude</code> inserts an explicit <code>abandon</code> between the squash and the rebase, so the interaction is worth one integration test each.</p>
+
+		<h3>2. The cycle guard can silently not run — partial</h3>
+		<p>PRD user story 15 and issue 02 require an ancestor <code>--rebase</code> to fail with a usage message before the sub-generator. <code>resolveRebaseTarget</code> guards with <code>if (target !== undefined)</code> (<code>fold.ts:268</code>) and silently skips the check otherwise. <code>targetCommit</code> is <code>undefined</code> whenever <code>-o &lt;rev&gt;</code> does not resolve to exactly one commit (<code>fold.ts:675</code>: <code>targets.length === 1 ? targets[0] : undefined</code>). A multi-commit <code>-o</code> revset is accepted by <code>jj new targetRev</code>, so an ancestor <code>--rebase</code> escapes the pre-generation guard and fails inside the transaction instead, spending the sub-generator call the guard exists to save.</p>
+
+		<h3>3. PRD out of sync with shipped guards — documentation drift</h3>
+		<p>The immutable guard and the merge guard are user-visible behavior that ships, and both the glossary (<code>CONTEXT.md:23</code>) and the ADR amendment describe them. The PRD's "Implementation Decisions", "Out of Scope", and user stories never mention either, yet the PRD status is <code>done</code>. Issue 04 carries them, so the requirement is recorded somewhere — but the top-level spec no longer matches the command.</p>
+
+		<h3>4. Issue 04 contradicts itself — minor</h3>
+		<p>Issue 04's "What to build" says "a merge revision is rejected" and its checklist says "A merge revision is rejected before generation rather than reparented". Its <strong>Deviation</strong> note says "the ticket asked for a merge revision to be reparented keeping its other parent." One of the two is stale.</p>
+
+		<h3>5. Glossary gains three sentences, not one — minor</h3>
+		<p>Issue 03: "The Fold glossary entry gains one sentence describing <code>--rebase</code>." The implementation adds three (<code>CONTEXT.md:23</code>): the move, the repo-root resolution plus in-transaction rollback, and the immutable/merge rejection. Issue 03's deviation note acknowledges the added content, so this is a wording mismatch rather than an unrecorded change.</p>
+
+		<div class="callout warn">
+			<p><strong>Accepted deviation, confirmed sound.</strong> PRD user story 2 ("an arbitrary revision") and user story 3 ("a chain of work moves as a unit") read wider than the shipped merge guard. I reproduced both cases with real jj: <code>jj rebase -s &lt;merge&gt; -o &lt;dest&gt;</code> flattens the named merge to one parent, while a merge <em>descendant</em> keeps its outside parent under <code>-s</code>. Rejecting the named merge is therefore correct and the named-only guard is not too narrow. This is a recorded narrowing (issue 04), not a defect.</p>
+		</div>
+	</section>
+
+	<section id="open">
+		<h2>Open questions</h2>
+		<ul>
+			<li>Add the three missing composition tests (<code>--named</code>, <code>--exclude</code>, <code>--no-marker</code>), or narrow issue 01's checklist to the tested set?</li>
+			<li>Make the cycle guard fail closed when <code>-o</code> is not a single commit, or document multi-commit <code>-o</code> as unsupported with <code>--rebase</code>?</li>
+			<li>Do the writing rules apply to <code>.scratch/</code> planning docs? The new PRD and issue 04 use em dashes and semicolons throughout. If yes, they need the same pass the triage commit gave <code>CONTEXT.md</code> and the ADR.</li>
+		</ul>
+	</section>
+
+	<footer>Generated by the code-review skill. Diff base: <code>heads(::@ &amp; ::main)</code>, range <code>main..@</code>, 13 commits. Gates run: <code>mise run //packages/sillajje-core:check</code>, <code>mise run //extensions/sillajje:check</code>. Both green.</footer>
+</main>
+</body>
+</html>
