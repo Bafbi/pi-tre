@@ -2585,6 +2585,8 @@ export default function (pi: ExtensionAPI) {
 		const push = values.push === true;
 		const archive = values.archive === true;
 		const noMarker = values.noMarker === true;
+		const rebase =
+			typeof values.rebase === "string" ? values.rebase : undefined;
 
 		const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
 		if (!repoRoot) {
@@ -2605,6 +2607,7 @@ export default function (pi: ExtensionAPI) {
 			exclude,
 			update,
 			noMarker,
+			rebase,
 		});
 		await withProgress(ctx, async (progress) => {
 			const captured: StatusEvent[] = [];
@@ -2624,6 +2627,7 @@ export default function (pi: ExtensionAPI) {
 						push,
 						archive,
 						noMarker,
+						rebase,
 					},
 				},
 				run: () =>
@@ -2637,6 +2641,7 @@ export default function (pi: ExtensionAPI) {
 						push,
 						archive,
 						noMarker,
+						rebase,
 						current: {
 							sessionKey: state.getSessionKey(),
 							wsPath: state.getWorkspacePath(),
@@ -2688,6 +2693,7 @@ export default function (pi: ExtensionAPI) {
 					ref: result.ref,
 					bookmark: result.bookmark,
 					marker: result.marker,
+					rebase: result.rebase,
 					pushed: result.pushed,
 				});
 				// Archiving the current session is an adapter-side state change:
@@ -2721,8 +2727,12 @@ export default function (pi: ExtensionAPI) {
 						result.pushed.length > 0
 							? ` (pushed ${result.pushed.join(", ")})`
 							: "";
+					const rebasedNote =
+						result.rebase === undefined
+							? ""
+							: ` (rebased ${result.rebase})`;
 					ctx.ui.notify(
-						`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${namedNote}${pushed}`,
+						`[sillajje] folded onto ${targetLabel} as ${result.rev}: ${result.subject}${namedNote}${pushed}${rebasedNote}`,
 						"info",
 					);
 				}

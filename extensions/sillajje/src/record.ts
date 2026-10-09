@@ -137,6 +137,7 @@ interface FoldRecord extends RecordBase {
 				push?: boolean | undefined;
 				archive?: boolean | undefined;
 				noMarker?: boolean | undefined;
+				rebase?: string | undefined;
 		  }
 		| undefined;
 	resolved?: { base: string; tip: string; target: string } | undefined;
@@ -149,6 +150,7 @@ interface FoldRecord extends RecordBase {
 				marker?: string | undefined;
 				pushed: readonly string[];
 				archived?: boolean | undefined;
+				rebase?: string | undefined;
 		  }
 		| { reason: string; files?: readonly string[] | undefined }
 		| undefined;
@@ -333,6 +335,7 @@ export const foldRecordFields = (
 		marker: result.marker,
 		pushed: [...result.pushed],
 		archived: result.archived,
+		rebase: result.rebase,
 	},
 	resolved: {
 		base: result.diagnostics.base,
