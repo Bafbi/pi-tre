@@ -82,3 +82,17 @@ An empty `--named` names the folded change `fold-<change id>`, a name that exist
 When two recorded tips are each an ancestor of the source but neither is an ancestor of the other — a merge source — the tip-most choice is unspecified. Any ancestor is a safe base: a lower base only re-publishes more, never different content.
 
 This supersedes the branch-key amendment above — the marker is no longer a single branch-keyed ref — and the `--update` mode in "Amendment: publish and update are separate modes".
+
+## Amendment: `--rebase` moves a revision onto the published change
+
+`fold --rebase <rev>` moves the named revision and its descendants onto the folded change with `jj rebase -s <rev> -o <folded>`, as the last step of the fold transaction. The revision resolves in the caller's checkout, the repo root, before the transaction opens. The resolved change id is what the transaction rebases. `@` therefore means the caller's home working-copy revision even when the source is a session in another workspace, where `@` would otherwise be the session's working copy. A revision that is an ancestor of the target, or the target itself, is rejected before message generation, because rebasing it onto a child of the target is a cycle. A conflict on the rebased change throws the same abort as a conflict on the folded change, so the whole fold rolls back. After the transaction integrates, the action runs `jj workspace update-stale` at the repo root, because the deferred transaction rewrote that workspace's working-copy commit without updating it. A failed refresh warns and leaves the fold landed.
+
+**Repo-root resolution (chosen)** vs resolving in the source workspace or accepting a workspace-qualified rev. The home revision belongs to the caller, not to the source, and the repo root is the caller's checkout. Resolving there makes `@` mean one thing. A workspace-qualified rev would make the common case spell jj's workspace vocabulary.
+
+**In-transaction (chosen)** vs a post-commit rebase. Fold already promises one atomic publish with one rollback path. A rebase that conflicts must not leave a published change and a half-moved home revision. The deferred transaction updates no working copy, which is why the explicit refresh follows.
+
+**Pre-generation cycle guard (chosen)** vs letting jj fail inside the transaction. The guard runs before the sub-generator, so a rejected invocation spends no model call.
+
+This amendment does not touch the marker, the `Ref:` provenance line, or the published body: the rebase is not published content. It leaves `--update` and `--push` unchanged, so `--update <bookmark> --rebase <rev>` composes. It differs from `Sync`: Sync brings a target into a session's ancestry as a merge and keeps the session active, while `--rebase` moves a named revision onto the published change.
+
+Two positions are rejected before message generation. An immutable revision is refused because jj will not rewrite it. A merge revision is refused because a jj rebase replaces a commit's parents with the destination, so moving a merge would drop its other parents. Refusing is safer than rewriting history silently. A revision whose content the Fold already published is not refused: jj applies its diff to a tree that already has those changes, so it replays to an empty commit, not a conflict, and the Fold succeeds. That empty replay is accepted. Skipping or dropping commits that become empty because their content already landed is out of scope.

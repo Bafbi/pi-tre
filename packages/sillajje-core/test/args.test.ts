@@ -262,6 +262,24 @@ describe("FOLD_ARGS", () => {
 			},
 		});
 	});
+
+	it("accepts --rebase with its revision", () => {
+		expect(
+			parseCommandArgs("-r feat -o main --rebase @", FOLD_ARGS),
+		).toEqual({
+			kind: "go",
+			values: { rev: "feat", onto: "main", rebase: "@" },
+		});
+	});
+
+	it("rejects a bare --rebase", () => {
+		expect(parseCommandArgs("-r feat -o main --rebase", FOLD_ARGS)).toEqual(
+			{
+				kind: "error",
+				message: expect.stringContaining("--rebase requires a value"),
+			},
+		);
+	});
 });
 
 describe("renderHelp", () => {
