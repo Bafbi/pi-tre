@@ -174,7 +174,7 @@ describeJj("sillajje records — Stamp", () => {
 		const runner = await createRunner(initRepo());
 		await runner.emit({ type: "session_start", reason: "startup" });
 		recordInteraction(runner, "do work", "done");
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const records = recordsIn(
 			getSessionManager(runner).getBranch(),

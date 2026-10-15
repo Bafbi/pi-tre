@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRunner, makeRunnerCwd } from "./_helpers.js";
+import {
+	createRunner,
+	emitUserPromptStart,
+	makeRunnerCwd,
+} from "./_helpers.js";
 
 describe("sillajje scaffold", () => {
 	it("loads from configured path and registers handlers/commands", async () => {
@@ -56,11 +60,11 @@ describe("sillajje scaffold", () => {
 
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const result = await runner.emitBeforeAgentStart(
-			"do something",
-			undefined,
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		const result = await emitUserPromptStart(runner, "do something", {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 		expect(result.messages).toEqual([]);
 		expect(result.systemPromptOptions.forceSystemPrompt).toBeUndefined();
 	});

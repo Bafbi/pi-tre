@@ -21,11 +21,11 @@ afterAll(stopRealJj);
 
 describe("parseJjVersion", () => {
 	it("parses a release carrying a build suffix", () => {
-		expect(parseJjVersion("jj 0.44.0-af45d57de716")).toEqual({
+		expect(parseJjVersion("jj 0.46.0-7d382314f942")).toEqual({
 			major: 0,
-			minor: 44,
+			minor: 46,
 			patch: 0,
-			raw: "jj 0.44.0-af45d57de716",
+			raw: "jj 0.46.0-7d382314f942",
 		});
 	});
 

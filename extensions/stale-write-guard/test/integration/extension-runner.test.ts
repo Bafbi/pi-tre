@@ -24,6 +24,24 @@ function setMtimeMs(path: string, mtimeMs: number): void {
 	utimesSync(path, timeSeconds, timeSeconds);
 }
 
+/**
+ * Emit `before_agent_start` for a submitted user prompt.
+ *
+ * Pi 1.2.0 gives the runner a trigger object (`{ messageType, prompt }`)
+ * instead of a bare prompt string. This wrapper keeps call sites focused on
+ * the values under test.
+ */
+function emitUserPromptStart(
+	runner: ExtensionRunner,
+	prompt: string,
+	systemPromptOptions: Parameters<ExtensionRunner["emitBeforeAgentStart"]>[1],
+) {
+	return runner.emitBeforeAgentStart(
+		{ messageType: "user", prompt, images: undefined },
+		systemPromptOptions,
+	);
+}
+
 async function createRunner(
 	cwd: string,
 	extensionPaths?: string[],
@@ -311,7 +329,7 @@ describe("stale-write-guard extension", () => {
 
 		// Mirrors pi's _expandSkillCommand block format.
 		const prompt = `<skill name="my-skill" location="${skillPath}">\nReferences are relative to ${skillDir}.\n\n${body}\n</skill>\n\nUser: go`;
-		await runner.emitBeforeAgentStart(prompt, undefined, {
+		await emitUserPromptStart(runner, prompt, {
 			cwd,
 		});
 
@@ -342,7 +360,7 @@ describe("stale-write-guard extension", () => {
 		setMtimeMs(skillPath, 1_000_000);
 
 		const prompt = `<skill name="my-skill" location="${skillPath}">\nReferences are relative to ${skillDir}.\n\nold body\n</skill>`;
-		await runner.emitBeforeAgentStart(prompt, undefined, {
+		await emitUserPromptStart(runner, prompt, {
 			cwd,
 		});
 
@@ -375,7 +393,7 @@ describe("stale-write-guard extension", () => {
 		writeFileSync(agentsPath, "# Agents\n\nrepo rules\n", "utf8");
 		setMtimeMs(agentsPath, 1_000_000);
 
-		await runner.emitBeforeAgentStart("prompt", undefined, {
+		await emitUserPromptStart(runner, "prompt", {
 			cwd,
 			contextFiles: [
 				{ path: agentsPath, content: "# Agents\n\nrepo rules\n" },
@@ -403,7 +421,7 @@ describe("stale-write-guard extension", () => {
 		setMtimeMs(agentsPath, 1_000_000);
 
 		// The system prompt still holds the content loaded at session start.
-		await runner.emitBeforeAgentStart("prompt", undefined, {
+		await emitUserPromptStart(runner, "prompt", {
 			cwd,
 			contextFiles: [
 				{ path: agentsPath, content: "loaded at session start\n" },
@@ -424,6 +442,91 @@ describe("stale-write-guard extension", () => {
 		});
 
 		expect(result?.block).toBe(true);
+	});
+
+	it("records context files for a custom-message run without a prompt", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const agentsPath = join(cwd, "AGENTS.md");
+		writeFileSync(agentsPath, "# Agents\n\nrepo rules\n", "utf8");
+		setMtimeMs(agentsPath, 1_000_000);
+
+		await runner.emitBeforeAgentStart(
+			{
+				messageType: "custom",
+				message: {
+					role: "custom",
+					customType: "test/custom",
+					content: "started by sendMessage",
+					display: true,
+					timestamp: Date.now(),
+				},
+			},
+			{
+				cwd,
+				contextFiles: [
+					{ path: agentsPath, content: "# Agents\n\nrepo rules\n" },
+				],
+			},
+		);
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "edit-agents-custom",
+			toolName: "edit",
+			input: {
+				path: agentsPath,
+				edits: [{ oldText: "rules", newText: "more rules" }],
+			},
+		});
+
+		expect(result).toBeUndefined();
+	});
+
+	it("does not record a skill block carried by a custom message", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const skillDir = join(cwd, "skills", "my-skill");
+		mkdirSync(skillDir, { recursive: true });
+		const skillPath = join(skillDir, "SKILL.md");
+		const body = "# My Skill\n\nDo the thing.";
+		writeFileSync(
+			skillPath,
+			`---\nname: my-skill\ndescription: y\n---\n${body}\n`,
+			"utf8",
+		);
+		setMtimeMs(skillPath, 1_000_000);
+
+		// A custom run carries `message`, not `prompt`. A skill-shaped block in
+		// the message body is not a `/skill:name` expansion, so the guard must
+		// not record it as seen.
+		const skillBlock = `<skill name="my-skill" location="${skillPath}">\nReferences are relative to ${skillDir}.\n\n${body}\n</skill>`;
+		await runner.emitBeforeAgentStart(
+			{
+				messageType: "custom",
+				message: {
+					role: "custom",
+					customType: "test/custom",
+					content: skillBlock,
+					display: true,
+					timestamp: Date.now(),
+				},
+			},
+			{ cwd },
+		);
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "edit-skill-custom",
+			toolName: "edit",
+			input: {
+				path: skillPath,
+				edits: [{ oldText: "thing", newText: "job" }],
+			},
+		});
+
+		expect(result?.block).toBe(true);
+		expect(result?.reason).toContain("Read it again");
 	});
 
 	it("stays consistent when a path-rewriting extension runs before it", async () => {

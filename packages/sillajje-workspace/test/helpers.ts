@@ -55,13 +55,13 @@ export function fakeJj(overrides: Partial<FakeJjState> = {}): {
 		diffFiles: async () => [],
 		version: async () => ({
 			major: 0,
-			minor: 44,
+			minor: 46,
 			patch: 0,
-			raw: "jj 0.44.0",
+			raw: "jj 0.46.0",
 		}),
 		checkVersion: async () => ({
 			status: "validated",
-			version: { major: 0, minor: 44, patch: 0, raw: "jj 0.44.0" },
+			version: { major: 0, minor: 46, patch: 0, raw: "jj 0.46.0" },
 		}),
 		conflicts: async () => [],
 		bookmarks: async () => {

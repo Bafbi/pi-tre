@@ -22,6 +22,7 @@ describe("workspace lifecycle verbs", () => {
 			"sillajje/a",
 			"--revision",
 			"@-",
+			"--no-colocate",
 			"/ws/a",
 			"--color=never",
 		]);

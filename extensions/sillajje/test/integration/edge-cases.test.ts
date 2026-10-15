@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 import {
 	createRunner,
 	describeJj,
+	emitUserPromptStart,
 	makeRunnerCwd,
 	runSillajje,
 	sessionBookmark,
@@ -102,11 +103,11 @@ describeJj("sillajje missing-workspace handling", () => {
 		).toBe(true);
 
 		// before_agent_start no-ops — no dead path is injected.
-		const beforeAgent = await runner.emitBeforeAgentStart(
-			"do something",
-			undefined,
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		const beforeAgent = await emitUserPromptStart(runner, "do something", {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 		expect(beforeAgent.messages).toEqual([]);
 		expect(
 			beforeAgent.systemPromptOptions.forceSystemPrompt,
@@ -119,7 +120,7 @@ describeJj("sillajje missing-workspace handling", () => {
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			messages: [assistantMsg("Done.")] as any[],
 		});
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const bookmarks = execSync("jj bookmark list", {
 			cwd,
@@ -149,7 +150,7 @@ describeJj("sillajje missing-workspace handling", () => {
 		process.env.PATH = `${fakeBin}${delimiter}${originalPath}`;
 		try {
 			await runner.emitInput("Do something", undefined, "interactive");
-			await runner.emitBeforeAgentStart("Do something", undefined, {
+			await emitUserPromptStart(runner, "Do something", {
 				skills: [],
 				contextFiles: [],
 				cwd: "",
@@ -160,7 +161,7 @@ describeJj("sillajje missing-workspace handling", () => {
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				messages: [assistantMsg("Done.")] as any[],
 			});
-			await runner.emit({ type: "agent_settled" });
+			await runner.emit({ type: "agent_settled", aborted: false });
 
 			expect(
 				notifications.some((n) =>

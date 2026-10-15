@@ -6,6 +6,7 @@ import {
 	captureUi,
 	createRunner,
 	describeJj,
+	emitUserPromptStart,
 	getSessionManager,
 	installDefaultSubGeneratorMock,
 	jj,
@@ -73,7 +74,7 @@ async function simulateInteraction(
 ): Promise<void> {
 	await runner.emitInput(prompt, undefined, "interactive");
 	recordInteraction(runner, prompt, response);
-	await runner.emit({ type: "agent_settled" });
+	await runner.emit({ type: "agent_settled", aborted: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -178,11 +179,11 @@ describeJj("sillajje archive / unarchive", () => {
 		await runSillajje(runner, "archive");
 
 		// before_agent_start should not inject anything (no-op).
-		const result = await runner.emitBeforeAgentStart(
-			"do something",
-			undefined,
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		const result = await emitUserPromptStart(runner, "do something", {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 		expect(result.messages).toEqual([]);
 		expect(result.systemPromptOptions.forceSystemPrompt).toBeUndefined();
 	});
@@ -199,11 +200,11 @@ describeJj("sillajje archive / unarchive", () => {
 		await runSillajje(runner, "archive");
 
 		// After archive, before_agent_start injects nothing for archived state.
-		const result = await runner.emitBeforeAgentStart(
-			"do something",
-			undefined,
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		const result = await emitUserPromptStart(runner, "do something", {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 		expect(result.messages).toEqual([]);
 		expect(result.systemPromptOptions.forceSystemPrompt).toBeUndefined();
 	});

@@ -173,6 +173,7 @@ export async function stampInteractionPath(
 		interactionRange: data.range,
 		model: cfg.model,
 		fallbacks,
+		aborted: data.aborted,
 		env: deps.env,
 	});
 	const loop = wants("loop")

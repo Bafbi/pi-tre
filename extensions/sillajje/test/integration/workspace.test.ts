@@ -6,6 +6,7 @@ import { expect, it, vi } from "vitest";
 import {
 	createRunner,
 	describeJj,
+	emitUserPromptStart,
 	getSessionId,
 	makeRunnerCwd,
 	sessionBookmark,
@@ -177,7 +178,7 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		expect(before).not.toContain(sessionBookmark(sessionId));
 
 		// The first interaction creates the bookmark on the session working copy.
-		await runner.emitBeforeAgentStart("do something", undefined, {
+		await emitUserPromptStart(runner, "do something", {
 			skills: [],
 			contextFiles: [],
 			cwd: "",
@@ -216,11 +217,12 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		await runner.emit({ type: "session_start", reason: "startup" });
 
 		const basePrompt = "You are a helpful assistant.";
-		const result = await runner.emitBeforeAgentStart(
-			"do something",
-			undefined,
-			{ customPrompt: basePrompt, skills: [], contextFiles: [], cwd: "" },
-		);
+		const result = await emitUserPromptStart(runner, "do something", {
+			customPrompt: basePrompt,
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 
 		expect(result).toBeDefined();
 		expect(result?.systemPromptOptions.forceSystemPrompt).toBeDefined();
@@ -266,11 +268,11 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const result = await runner.emitBeforeAgentStart(
-			"do something",
-			undefined,
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		const result = await emitUserPromptStart(runner, "do something", {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 
 		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
 			"clean checkout",
@@ -298,11 +300,11 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const result = await runner.emitBeforeAgentStart(
-			"do something",
-			undefined,
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		const result = await emitUserPromptStart(runner, "do something", {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 
 		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
 			"Ask the user before you run any",
@@ -331,17 +333,48 @@ describeJj("sillajje workspace creation and prompt injection", () => {
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 
-		const result = await runner.emitBeforeAgentStart(
-			"do something",
-			undefined,
-			{ skills: [], contextFiles: [], cwd: "" },
-		);
+		const result = await emitUserPromptStart(runner, "do something", {
+			skills: [],
+			contextFiles: [],
+			cwd: "",
+		});
 
 		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
 			"## Sillajje Workspace",
 		);
 		expect(result?.systemPromptOptions.forceSystemPrompt).not.toContain(
 			"jj or git command",
+		);
+	});
+
+	it("injects the workspace block for a custom-message run", async () => {
+		const cwd = makeRunnerCwd();
+		tempDirs.push(cwd);
+
+		execSync("jj git init --config signing.backend=none", {
+			cwd,
+			stdio: "pipe",
+		});
+
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const result = await runner.emitBeforeAgentStart(
+			{
+				messageType: "custom",
+				message: {
+					role: "custom",
+					customType: "test/custom",
+					content: "started by sendMessage",
+					display: true,
+					timestamp: Date.now(),
+				},
+			},
+			{ skills: [], contextFiles: [], cwd: "" },
+		);
+
+		expect(result?.systemPromptOptions.forceSystemPrompt).toContain(
+			"## Sillajje Workspace",
 		);
 	});
 });

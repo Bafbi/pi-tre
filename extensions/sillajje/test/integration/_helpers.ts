@@ -132,6 +132,24 @@ export function getSessionManager(runner: ExtensionRunner): SessionManager {
 }
 
 /**
+ * Emit `before_agent_start` for a submitted user prompt.
+ *
+ * Pi 1.2.0 gives the runner a trigger object (`{ messageType, prompt }`)
+ * instead of a bare prompt string. This wrapper keeps call sites focused on
+ * the values under test.
+ */
+export function emitUserPromptStart(
+	runner: ExtensionRunner,
+	prompt: string,
+	systemPromptOptions: Parameters<ExtensionRunner["emitBeforeAgentStart"]>[1],
+) {
+	return runner.emitBeforeAgentStart(
+		{ messageType: "user", prompt, images: undefined },
+		systemPromptOptions,
+	);
+}
+
+/**
  * Every Record on the branch, optionally filtered to one operation. Test-only:
  * the extension never reads a Record back.
  */

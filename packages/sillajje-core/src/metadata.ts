@@ -53,6 +53,8 @@ export interface StampProvenance {
 	model: string;
 	/** Sub-generator fallbacks that fired, e.g. `["header"]`. */
 	fallbacks: string[];
+	/** Whether the run was aborted, e.g. with Escape. */
+	aborted?: boolean | undefined;
 	env: ProvenanceVersions;
 }
 
@@ -106,8 +108,9 @@ export function deriveSubject(prompt: string): string {
  * Build a stamp's `Meta:` body — the two lines of provenance, without the
  * label. The assembler renders the label.
  *
- * Line 1: the Source that produced the message, then the sub-generator
- * fallbacks that fired, when any.
+ * Line 1: the Source that produced the message, the aborted tag when the
+ * host cancelled the run, then the sub-generator fallbacks that fired, when
+ * any.
  * Line 2: the ids the stamp touched (session key, target rev), then the
  * model and the pi, sillajje, and jj versions. Any field with nothing
  * behind it is omitted.
@@ -119,6 +122,9 @@ export function buildMeta(provenance: StampProvenance): string {
 	const line1: string[] = [`source: ${provenance.source}`];
 	if (provenance.fallbacks.length > 0) {
 		line1.push(`fallback: ${provenance.fallbacks.join(",")}`);
+	}
+	if (provenance.aborted === true) {
+		line1.push("aborted: true");
 	}
 
 	const line2: string[] = [];

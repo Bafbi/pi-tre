@@ -418,6 +418,9 @@ export function createJj(exec: ExecFn, defaults: ExecOptions = {}): Jj {
 				input.name,
 				"--revision",
 				input.revision,
+				// Sillajje workspaces are isolated: never write a Git worktree into
+				// the user's `.git`. jj 0.46 colocates child workspaces by default.
+				"--no-colocate",
 				input.path,
 			],
 			options,

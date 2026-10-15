@@ -43,6 +43,13 @@ export interface InteractionData {
 	 * renders in `Meta:` so a change maps back to the session log.
 	 */
 	range?: InteractionRange | undefined;
+	/**
+	 * Whether the host aborted the run, e.g. the user pressed Escape. The
+	 * adapter attaches it at the stamp site; it is not derived from the
+	 * transcript. It renders in `Meta:` so an aborted Interaction is
+	 * distinguishable from a completed one.
+	 */
+	aborted?: boolean | undefined;
 }
 
 /** Input for the Session stamp: the full seal at a session's working copy. */

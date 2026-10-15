@@ -193,7 +193,7 @@ describeJj("sillajje rev stamp", () => {
 		// Interaction 1 auto-stamps normally.
 		await runner.emitInput("First interaction", undefined, "interactive");
 		recordInteraction(runner, "First interaction", "First done.");
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		// Interaction 2 starts: its prompt is recorded as pending.
 		await runner.emitInput("Pending interaction", undefined, "interactive");
@@ -205,7 +205,7 @@ describeJj("sillajje rev stamp", () => {
 		// Interaction 2 ends — the pending interaction still auto-stamps.
 		writeFileSync(join(cwd, "pending.ts"), "// pending\n");
 		recordAssistantMessage(runner, assistantMsg("Pending done."));
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const log = jj(
 			[

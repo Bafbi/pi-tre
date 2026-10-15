@@ -85,8 +85,12 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
+		// Pi 1.2.0 fires this event for custom-message runs too. Those runs
+		// have no user prompt, so `/skill:name` cannot have expanded; context
+		// files still travel on systemPromptOptions.
+		const prompt = event.messageType === "user" ? event.prompt : "";
 		const injected = extractInjectedContent(
-			event.prompt,
+			prompt,
 			event.systemPromptOptions?.contextFiles,
 		);
 
