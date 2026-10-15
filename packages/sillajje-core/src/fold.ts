@@ -86,7 +86,7 @@ export interface FoldInput {
 	update?: string | undefined;
 	/** Archive the session after a successful fold (session sources only). */
 	archive?: boolean | undefined;
-	/** Push the bookmark the fold advanced to the remotes that track it. */
+	/** Push the Fold's destination bookmark to the remotes that track it. */
 	push?: boolean | undefined;
 	/** `--no-marker`: ignore the Folded source marker and record none. */
 	noMarker?: boolean | undefined;
@@ -374,7 +374,7 @@ function trackedRemotes(bookmarks: Bookmark[], name: string): string[] {
  * `bookmark@remote` labels. The fold is already committed, so a failure warns
  * and never rolls it back.
  */
-async function pushAdvancedBookmark(
+async function pushDestinationBookmark(
 	jj: Jj,
 	bookmark: string,
 	cwd: string,
@@ -602,11 +602,15 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			};
 		}
 
-		if (input.push === true && input.update === undefined) {
+		if (
+			input.push === true &&
+			input.named === undefined &&
+			input.update === undefined
+		) {
 			return {
 				ok: false,
 				reason: "usage",
-				message: "--push requires --update",
+				message: "--push requires --named or --update",
 			};
 		}
 
@@ -767,7 +771,9 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		// The marker destination: a named branch or the bookmark `--update`
 		// advances. An empty `--named` is named after the folded change, which
 		// does not exist before the fold, so `changeId` is undefined there.
-		const markerDestFor = (changeId?: string): string | undefined => {
+		const destinationBookmarkFor = (
+			changeId?: string,
+		): string | undefined => {
 			if (input.named === "") {
 				return changeId === undefined ? undefined : `fold-${changeId}`;
 			}
@@ -775,7 +781,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			if (input.update !== undefined) return updateBookmark;
 			return undefined;
 		};
-		const destPreFold = markerDestFor();
+		const destinationPreFold = destinationBookmarkFor();
 
 		let base: Commit;
 		let delta: Commit[];
@@ -784,9 +790,14 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			| undefined;
 		try {
 			const recorded =
-				input.noMarker === true || destPreFold === undefined
+				input.noMarker === true || destinationPreFold === undefined
 					? undefined
-					: await bestMarkerBase(jj, destPreFold, tip, sourceCwd);
+					: await bestMarkerBase(
+							jj,
+							destinationPreFold,
+							tip,
+							sourceCwd,
+						);
 			if (recorded !== undefined) {
 				base = recorded;
 			} else {
@@ -980,16 +991,16 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			const conflicts = await tx.conflicts(folded.changeId);
 			if (conflicts.length > 0) throw new FoldAbort(conflicts);
 
-			const dest = markerDestFor(folded.changeId);
+			const destinationBookmark = destinationBookmarkFor(folded.changeId);
 
 			// With `--named` the fold also names a review bookmark.
 			if (input.named !== undefined) {
-				if (dest === undefined) {
+				if (destinationBookmark === undefined) {
 					throw new Error("fold: a named destination must resolve");
 				}
 				const named = await tx.apply({
 					kind: "bookmarkSet",
-					name: dest,
+					name: destinationBookmark,
 					rev: folded.changeId,
 				});
 				if (!named.ok) return undefined;
@@ -998,10 +1009,13 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			// Record the folded source tip for the next fold's delta base. The
 			// marker only exists for a stable destination, and is keyed per source,
 			// so it never overwrites another source's.
-			if (input.noMarker !== true && dest !== undefined) {
+			if (input.noMarker !== true && destinationBookmark !== undefined) {
 				const recorded = await tx.apply({
 					kind: "bookmarkSet",
-					name: foldedMarkerName(dest, source.sourceName),
+					name: foldedMarkerName(
+						destinationBookmark,
+						source.sourceName,
+					),
 					rev: tip.changeId,
 				});
 				if (!recorded.ok) return undefined;
@@ -1084,18 +1098,20 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			}
 		}
 
-		// Push the bookmark `--update` advanced, opt-in and best-effort.
-		const advancedBookmark = updateBookmark;
+		// Push the Fold's destination bookmark, opt-in and best-effort: the
+		// review bookmark `--named` set, or the bookmark `--update` advanced.
+		// With neither there is nothing to push.
+		const destinationBookmark = destinationBookmarkFor(folded.changeId);
 		let pushed: readonly string[] = [];
-		if (input.push === true && advancedBookmark !== undefined) {
+		if (input.push === true && destinationBookmark !== undefined) {
 			emitStatus(onStatus, {
 				kind: "phase",
 				code: "pushing",
-				target: advancedBookmark,
+				target: destinationBookmark,
 			});
-			pushed = await pushAdvancedBookmark(
+			pushed = await pushDestinationBookmark(
 				jj,
-				advancedBookmark,
+				destinationBookmark,
 				sourceCwd,
 				onStatus,
 			);
@@ -1116,17 +1132,17 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			}
 		}
 
-		const dest = markerDestFor(folded.changeId);
 		return {
 			ok: true,
 			subject,
 			rev: folded.changeId,
 			ref: `${base.changeId}..${tip.changeId}`,
-			bookmark: input.named === undefined ? undefined : dest,
+			bookmark:
+				input.named === undefined ? undefined : destinationBookmark,
 			marker:
-				input.noMarker === true || dest === undefined
+				input.noMarker === true || destinationBookmark === undefined
 					? undefined
-					: foldedMarkerName(dest, source.sourceName),
+					: foldedMarkerName(destinationBookmark, source.sourceName),
 			sessionKey: source.sessionKey,
 			archived,
 			rebase: input.rebase,
@@ -1179,8 +1195,8 @@ export const FOLD_HELP: CommandHelp = {
 		"  -r, --rev <rev>        fold a single revision",
 		"  -o, --onto <rev>       place the folded change under this revision",
 		"      --named [<branch>] name the folded change; empty names it fold-<change id>",
-		"  -u, --update [<bookmark>] advance the target bookmark, or <bookmark>",
-		"      --push             push the advanced bookmark to its tracked remotes",
+		"  -u, --update [<bookmark>] advance the destination bookmark, or <bookmark>",
+		"      --push             publish the destination bookmark to its tracked remotes",
 		"      --archive          archive the session after a successful fold",
 		"      --exclude <path>   leave paths out of the published change (repeatable)",
 		"      --no-marker        ignore and write no Folded source marker",
