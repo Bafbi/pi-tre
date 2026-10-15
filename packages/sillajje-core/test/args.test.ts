@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type CommandSpec,
 	FOLD_ARGS,
+	FOLD_HELP,
 	parseCommandArgs,
 	renderHelp,
 	renderSessionFailure,
@@ -280,9 +281,33 @@ describe("FOLD_ARGS", () => {
 			},
 		);
 	});
+
+	it("parses --push beside a named destination", () => {
+		expect(
+			parseCommandArgs(
+				"-r feat -o main --named review --push",
+				FOLD_ARGS,
+			),
+		).toEqual({
+			kind: "go",
+			values: {
+				rev: "feat",
+				onto: "main",
+				named: "review",
+				push: true,
+			},
+		});
+	});
 });
 
 describe("renderHelp", () => {
+	it("describes --push as publishing the destination bookmark", () => {
+		const pushLine = renderHelp(FOLD_HELP, "/sillajje:")
+			.split("\n")
+			.find((line) => line.trimStart().startsWith("--push"));
+		expect(pushLine).toContain("destination bookmark");
+	});
+
 	it("renders the usage line, a blank line, then the help lines", () => {
 		expect(renderHelp(STAMP_HELP, "/sillajje:")).toBe(
 			[
