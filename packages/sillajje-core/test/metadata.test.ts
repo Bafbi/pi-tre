@@ -81,6 +81,16 @@ describe("buildMeta", () => {
 		expect(buildMeta(prov())).not.toContain("fallback");
 	});
 
+	it("renders the aborted tag beside the source when the run was aborted", () => {
+		const result = buildMeta(prov({ aborted: true }));
+
+		expect(result).toContain("source: interaction | aborted: true");
+	});
+
+	it("omits the aborted tag for a completed run", () => {
+		expect(buildMeta(prov())).not.toContain("aborted");
+	});
+
 	it("renders a diff stamp's source and session", () => {
 		const result = buildMeta(
 			prov({ source: "diff", sessionKey: "test-session" }),
@@ -125,12 +135,12 @@ describe("buildMeta", () => {
 				env: {
 					piVersion: "test-pi",
 					sillajjeVersion: "test-sillajje",
-					jjVersion: "jj 0.44.0",
+					jjVersion: "jj 0.46.0",
 				},
 			}),
 		);
 		expect(result).toContain(
-			"pi: test-pi | sillajje: test-sillajje | jj: jj 0.44.0",
+			"pi: test-pi | sillajje: test-sillajje | jj: jj 0.46.0",
 		);
 	});
 

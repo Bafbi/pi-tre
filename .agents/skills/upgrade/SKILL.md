@@ -1,6 +1,6 @@
 ---
 name: upgrade
-description: Upgrade the pi agent harness version in this monorepo. Use when the user wants to upgrade pi, update the pi version, bump pi, check for pi updates, migrate to a new pi release, or update pi-coding-agent / pi-ai / pi-tui dependencies.
+description: Upgrade the pi agent harness version in this monorepo. Use when the user wants to upgrade pi, update the pi version, bump pi, check for pi updates, migrate to a new pi release, or update pi-coding-agent / pi-ai / pi-agent-core / pi-tui dependencies.
 disable-model-invocation: true
 ---
 
@@ -12,7 +12,7 @@ Upgrade `@earendil-works/pi-coding-agent` and its sibling packages in this monor
 
 ### 1. Check versions
 
-Read the current version from `pnpm-workspace.yaml` under `catalogs.pi-dev` — it pins `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, and `@earendil-works/pi-tui` to the same semver range.
+Read the current version from `pnpm-workspace.yaml` under `catalogs.pi-dev` — it pins `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`, and `@earendil-works/pi-tui` to the same semver range.
 
 Run `npm view @earendil-works/pi-coding-agent version` for the latest published version.
 
@@ -32,11 +32,11 @@ Extract every version entry between the current version (exclusive) and the late
 
 ### 3. Audit extension APIs
 
-Scan every extension under `extensions/*/src/` for imports from `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, and `@earendil-works/pi-tui`. For each import, check whether the imported symbol is affected by any breaking change from step 2.
+Scan every source file under `extensions/*/src/` and `packages/*/src/` for imports from `@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`, and `@earendil-works/pi-tui`. For each import, check whether the imported symbol is affected by any breaking change from step 2.
 
-Also scan `.pi/extensions/` for any non-shim files (config JSON, direct extension files) that may reference pi APIs.
+Also scan the test trees (`extensions/*/test/`, `packages/*/test/`) and `.pi/extensions/`. Tests construct pi event payloads and call `ExtensionRunner` methods whose signatures change too; a newly **required** event field breaks `tsc` on tests even when `src` is fine. The per-extension `typecheck` covers `src` only, so run the root `typecheck-tests` to surface these.
 
-**Completion criterion**: every import from a pi package is accounted for against the breaking-change checklist — each one marked either "unaffected" or "needs migration" with a note.
+**Completion criterion**: every import from a pi package and every constructed pi event payload is accounted for against the breaking-change checklist — each one marked either "unaffected" or "needs migration" with a note.
 
 ### 4. Plan the migration
 
@@ -55,9 +55,9 @@ Present the plan to the user for approval before touching any code.
 
 Implement each item in the migration plan, working through the list in order. Use the TDD skill (`/tdd`) for any item that changes extension logic — write a failing test first, then implement the fix, then confirm the test passes.
 
-For the version bump itself, update the semver range in `pnpm-workspace.yaml` under `catalogs.pi-dev` for all three packages (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, `@earendil-works/pi-tui`). Then run `mise run install` to update the lockfile.
+For the version bump itself, update the semver range in `pnpm-workspace.yaml` under `catalogs.pi-dev` for all four packages (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-tui`). Then run `mise deps` to update the lockfile.
 
-**Completion criterion**: every item in the migration plan is implemented, tests pass, and `mise run install` succeeds.
+**Completion criterion**: every item in the migration plan is implemented, tests pass, and `mise deps` succeeds.
 
 ### 6. Verify
 
@@ -68,18 +68,19 @@ mise run check
 
 This runs format, lint, typecheck, and tests. Fix any failures.
 
-**Completion criterion**: `mise run check` exits zero.
+**Completion criterion**: `mise run check` exits zero. It includes the root `typecheck-tests` and `typecheck-strict` tasks, which type-check the test trees that per-extension checks skip.
 
 ## Reference
 
 ### Package catalog
 
-All three packages are versioned together under `catalogs.pi-dev` in `pnpm-workspace.yaml`:
+All four packages are versioned together under `catalogs.pi-dev` in `pnpm-workspace.yaml`:
 
 | Package | Catalog key |
 |---|---|
 | `@earendil-works/pi-coding-agent` | `catalog:pi-dev` |
 | `@earendil-works/pi-ai` | `catalog:pi-dev` |
+| `@earendil-works/pi-agent-core` | `catalog:pi-dev` |
 | `@earendil-works/pi-tui` | `catalog:pi-dev` |
 
 Extensions declare these as `peerDependencies` using `"catalog:pi-dev"`.
@@ -94,8 +95,8 @@ The changelog is one file covering `@earendil-works/pi-coding-agent`. Breaking c
 
 ### Version bump mechanics
 
-1. Edit the semver range in `pnpm-workspace.yaml` under `catalogs.pi-dev` — change the `^` range for all three packages.
-2. Run `mise run install` to update `pnpm-lock.yaml`.
+1. Edit the semver range in `pnpm-workspace.yaml` under `catalogs.pi-dev` — change the `^` range for all four packages.
+2. Run `mise deps` to update `pnpm-lock.yaml`. There is no `install` task; `mise deps` runs the configured pnpm provider, and `[deps.pnpm] auto = true` also runs it before any `mise run`.
 3. Run `mise run check` to verify nothing is broken.
 
 The lockfile update is a single `pnpm install` — no per-package `pnpm update` needed since the catalog drives resolution for all workspace members.

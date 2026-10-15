@@ -190,7 +190,7 @@ export function commitIdsAtOpArgv(revset: string, op: string): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse the operation id jj prints for a deferred step. jj 0.44 prints, on
+ * Parse the operation id jj prints for a deferred step. jj 0.46 prints, on
  * stderr:
  *
  *   Operation left uncommitted because --no-integrate-operation was requested: 9c6f4b360d4b

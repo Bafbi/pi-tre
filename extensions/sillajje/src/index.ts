@@ -957,7 +957,12 @@ export default function (pi: ExtensionAPI) {
 	// -----------------------------------------------------------------------
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		debug.event("before_agent_start", { promptLen: event.prompt.length });
+		// Pi 1.2.0 fires this event for custom-message runs too; only user
+		// runs carry a prompt.
+		debug.event("before_agent_start", {
+			messageType: event.messageType,
+			promptLen: event.messageType === "user" ? event.prompt.length : 0,
+		});
 		if (state.isInactive() || state.isArchived()) {
 			debug.event("before_agent_start_skip", {
 				reason: state.isInactive() ? "inactive" : "archived",
@@ -1046,6 +1051,7 @@ export default function (pi: ExtensionAPI) {
 	const stampPending = async (
 		ctx: ExtensionContext,
 		trigger: "auto" | "flush" = "auto",
+		aborted = false,
 	) => {
 		const sessionId = state.getSessionId();
 		const wsPath = state.getWorkspacePath();
@@ -1077,7 +1083,9 @@ export default function (pi: ExtensionAPI) {
 					buildStamp(ctx, undefined, progress, captured).session({
 						target: sessionKey,
 						current: { sessionKey, wsPath },
-						interaction: projected,
+						interaction: aborted
+							? { ...projected, aborted: true }
+							: projected,
 					}),
 				settle: stampSettle(captured),
 			});
@@ -1171,8 +1179,8 @@ export default function (pi: ExtensionAPI) {
 	// agent_settled — the true end of a run; stamp the pending Interaction
 	// -----------------------------------------------------------------------
 
-	pi.on("agent_settled", async (_event, ctx) => {
-		debug.event("agent_settled");
+	pi.on("agent_settled", async (event, ctx) => {
+		debug.event("agent_settled", { aborted: event.aborted });
 		if (state.isInactive()) return;
 
 		// Missing workspace (deleted, or jj gone): don't stamp.
@@ -1189,7 +1197,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		await stampPending(ctx);
+		await stampPending(ctx, "auto", event.aborted);
 	});
 
 	// -----------------------------------------------------------------------

@@ -13,7 +13,7 @@ The boundary grows one read over a `DiffSpec` (a rev, or a from/to range with fi
 ## Considered Options
 
 - **Condense the whole diff string (rejected).** It keeps the current one-read shape, but a monster file is materialized as a JS string before the cap runs. The budget then saves context, not memory.
-- **Per-file reads (chosen).** `--stat` is cheap and never prints file content, and `jj diff -T` returns target paths that never need eliding. The pre-fetch line gate keeps a monster file out of memory. The cost is one jj read per changed file (~12 ms on jj 0.44), which is noise next to the Sub-generator call, and it removes the whole-diff read that could materialize a monster file.
+- **Per-file reads (chosen).** `--stat` is cheap and never prints file content, and `jj diff -T` returns target paths that never need eliding. The pre-fetch line gate keeps a monster file out of memory. The cost is one jj read per changed file (~12 ms each), which is noise next to the Sub-generator call, and it removes the whole-diff read that could materialize a monster file.
 - **Ship no default ignore list (rejected).** A knob nobody sets is dead. Paths are matched in the core with `matchesOmit`, and the matched files stay visible as one-line markers.
 
 ## Consequences

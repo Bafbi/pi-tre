@@ -13,7 +13,7 @@ export interface JjVersion {
 	major: number;
 	minor: number;
 	patch: number;
-	/** The version string jj printed, e.g. `jj 0.44.0-af45d57de716`. */
+	/** The version string jj printed, e.g. `jj 0.46.0-af45d57de716`. */
 	raw: string;
 }
 
@@ -21,14 +21,14 @@ export interface JjVersion {
  * The jj minor series this build's fixtures and tests were captured against.
  * Regenerate the fixtures (and this list) on a deliberate jj bump.
  */
-export const VALIDATED_JJ_SERIES: readonly string[] = ["0.44"];
+export const VALIDATED_JJ_SERIES: readonly string[] = ["0.46"];
 
 export type VersionCheck =
 	| { status: "validated"; version: JjVersion }
 	| { status: "untested"; version: JjVersion }
 	| { status: "unrecognised"; raw: string };
 
-/** Parse `jj 0.44.0-af45d57…` into its numeric parts. */
+/** Parse `jj 0.46.0-af45d57…` into its numeric parts. */
 export function parseJjVersion(output: string): JjVersion | undefined {
 	const match = /^jj\s+(\d+)\.(\d+)\.(\d+)/.exec(output);
 	if (!match) return undefined;

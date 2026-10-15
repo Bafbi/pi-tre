@@ -61,7 +61,7 @@ async function simulateInteraction(
 ): Promise<void> {
 	await runner.emitInput(prompt, undefined, "interactive");
 	recordInteraction(runner, prompt, response);
-	await runner.emit({ type: "agent_settled" });
+	await runner.emit({ type: "agent_settled", aborted: false });
 }
 
 /** Get the registered sync command, throwing if missing. */

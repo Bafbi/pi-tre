@@ -25,6 +25,7 @@ import { lastSeedRecord, SESSION_SEED_TYPE } from "../../src/seed.js";
 import {
 	createRunner,
 	describeJj,
+	emitUserPromptStart,
 	getSessionId,
 	getSessionManager,
 	makeRunnerCwd,
@@ -451,7 +452,7 @@ describeJj("sillajje seed — archive and unarchive", () => {
 		const workspace = wsPath(cwd, getSessionId(runner));
 		// The session bookmark is created on the first agent start; unarchive
 		// rebuilds from it.
-		await runner.emitBeforeAgentStart("seed", undefined, {
+		await emitUserPromptStart(runner, "seed", {
 			skills: [],
 			contextFiles: [],
 			cwd: "",
@@ -485,7 +486,7 @@ describeJj("sillajje seed — archive and unarchive", () => {
 		});
 		// The session bookmark is created on the first agent start; unarchive
 		// rebuilds from it.
-		await runner.emitBeforeAgentStart("seed", undefined, {
+		await emitUserPromptStart(runner, "seed", {
 			skills: [],
 			contextFiles: [],
 			cwd: "",
@@ -514,7 +515,7 @@ describeJj("sillajje seed — archive and unarchive", () => {
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const workspace = wsPath(cwd, getSessionId(runner));
-		await runner.emitBeforeAgentStart("seed", undefined, {
+		await emitUserPromptStart(runner, "seed", {
 			skills: [],
 			contextFiles: [],
 			cwd: "",
@@ -537,7 +538,7 @@ describeJj("sillajje seed — archive and unarchive", () => {
 		const runner = await createRunner(cwd);
 		await runner.emit({ type: "session_start", reason: "startup" });
 		const workspace = wsPath(cwd, getSessionId(runner));
-		await runner.emitBeforeAgentStart("seed", undefined, {
+		await emitUserPromptStart(runner, "seed", {
 			skills: [],
 			contextFiles: [],
 			cwd: "",

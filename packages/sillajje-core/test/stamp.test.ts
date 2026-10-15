@@ -88,7 +88,7 @@ function interactionData(
 
 /**
  * The head operation id the mock `jj op log` reports. Full hex, matching
- * the format jj 0.44 prints for `-T 'id'`.
+ * the format jj 0.46 prints for `-T 'id'`.
  */
 const HEAD_OP_ID =
 	"e2cc9967a9be45acbc064cfb4d8556c530cacafc43f6e18dcf22e8ff754d4c703";
@@ -99,7 +99,7 @@ function mockOpId(n: number): string {
 }
 
 /**
- * The line jj 0.44 prints for a deferred (`--no-integrate-operation`) step,
+ * The line jj 0.46 prints for a deferred (`--no-integrate-operation`) step,
  * captured verbatim in a scratch repo. The seal's parser reads the op id
  * from this line; the test suite pins the format.
  */
@@ -1777,8 +1777,8 @@ describe("seal transaction", () => {
 		).toHaveLength(1);
 	});
 
-	it("parses the op id from jj 0.44's printed line format", async () => {
-		// The mock's deferred line is captured verbatim from jj 0.44; this
+	it("parses the op id from jj 0.46's printed line format", async () => {
+		// The mock's deferred line is captured verbatim from jj 0.46; this
 		// test pins that the parser reads the id from that exact shape and
 		// chains the next step on it.
 		const exec = sealExec();

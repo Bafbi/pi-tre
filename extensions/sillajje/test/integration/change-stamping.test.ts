@@ -44,7 +44,7 @@ async function simulateInteraction(
 ): Promise<void> {
 	await runner.emitInput(prompt, undefined, "interactive");
 	recordInteraction(runner, prompt, response);
-	await runner.emit({ type: "agent_settled" });
+	await runner.emit({ type: "agent_settled", aborted: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ describeJj("sillajje change stamping", () => {
 				],
 			}),
 		);
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		// The bookmark is set on the stamped commit in the repo.
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
@@ -138,6 +138,25 @@ describeJj("sillajje change stamping", () => {
 		expect(bookmarks).toContain(sessionBookmark(sessionId));
 	}, 10_000);
 
+	it("tags an aborted interaction in Meta", async () => {
+		const cwd = initRepo();
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+
+		const sessionId = getSessionId(runner);
+		const workspace = wsPath(cwd, sessionId);
+		writeFileSync(join(workspace, "work.txt"), "partial work\n");
+
+		// The run was cancelled, but the work it produced is real: it still
+		// seals, tagged so a reader can tell it from a completed interaction.
+		await runner.emitInput("Abandon this run", undefined, "interactive");
+		recordInteraction(runner, "Abandon this run", "Stopped partway.");
+		await runner.emit({ type: "agent_settled", aborted: true });
+
+		const show = jj(["show", sessionBookmark(sessionId)], cwd);
+		expect(show).toContain("aborted: true");
+	}, 10_000);
+
 	it("shows Progress for the auto-stamp and clears it when the stamp returns", async () => {
 		const cwd = initRepo();
 		const runner = await createRunner(cwd);
@@ -149,7 +168,7 @@ describeJj("sillajje change stamping", () => {
 		writeFileSync(join(workspace, "work.txt"), "work\n");
 		await runner.emitInput("Do the work", undefined, "interactive");
 		recordInteraction(runner, "Do the work", "Done.");
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const rendered = widgets
 			.map((write) => write.lines)
@@ -215,7 +234,7 @@ describeJj("sillajje change stamping", () => {
 		await runner.emit({ type: "session_start", reason: "reload" });
 
 		// The next settle stamps the recovered Interaction.
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("Lost task");
@@ -305,7 +324,7 @@ describeJj("sillajje change stamping", () => {
 		);
 		recordUserMessage(runner, "Actually, use TypeScript instead");
 		recordAssistantMessage(runner, assistantMsg("Updated."));
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("Do the first thing");
@@ -338,7 +357,7 @@ describeJj("sillajje change stamping", () => {
 		await runner.emitInput("Do more", undefined, "interactive", "followUp");
 		recordUserMessage(runner, "Do more");
 		recordAssistantMessage(runner, assistantMsg("Do more done."));
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("Do something");
@@ -415,7 +434,7 @@ describeJj("sillajje change stamping", () => {
 		);
 		recordUserMessage(runner, "Follow-up task");
 		recordAssistantMessage(runner, assistantMsg("Follow-up done."));
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		expect(show).toContain("First task");
@@ -636,7 +655,7 @@ describeJj("sillajje change stamping", () => {
 		});
 		recordUserMessage(runner, "Use tools to demonstrate meta toggles");
 		recordAssistantMessage(runner, assistantMsg("Used tools."));
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const show = jj(["show", sessionBookmark(sessionId)], cwd);
 		// Tools are not selected → tool names should not appear.
@@ -830,7 +849,7 @@ describeJj("sillajje change stamping", () => {
 		recordAssistantMessage(runner, assistantMsg("Fixed the login bug."));
 
 		// The interaction truly ends here.
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		// The stamp must happen only at the true end: the bookmarked change
 		// contains BOTH files and the final response, and the workspace
@@ -873,7 +892,7 @@ describeJj("sillajje change stamping", () => {
 		writeFileSync(join(workspace, "a.ts"), "// a\n");
 		recordUserMessage(runner, "First task");
 		recordAssistantMessage(runner, errorMsg("provider unavailable"));
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		// Interaction 2 stamps its own change.
 		await runner.emitInput("Next task", undefined, "interactive");
@@ -886,7 +905,7 @@ describeJj("sillajje change stamping", () => {
 		writeFileSync(join(workspace, "b.ts"), "// b\n");
 		recordUserMessage(runner, "Next task");
 		recordAssistantMessage(runner, assistantMsg("Next task done."));
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		// Both interactions were stamped as separate changes.
 		const log = jj(

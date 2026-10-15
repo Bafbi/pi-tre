@@ -257,7 +257,7 @@ describe("gitPushArgv", () => {
 });
 
 describe("parsePrintedOpId", () => {
-	it("pins the jj 0.44 printed-operation-id line format", () => {
+	it("pins the jj 0.46 printed-operation-id line format", () => {
 		const line = fixture("op-id-line.txt");
 		// The id itself is random; the line's shape is the fixture's value.
 		expect(line).toMatch(

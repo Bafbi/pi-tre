@@ -10,6 +10,7 @@ import {
 	assistantMsg,
 	createRunner,
 	describeJj,
+	emitUserPromptStart,
 	getSessionId,
 	initRepo,
 	installDefaultSubGeneratorMock,
@@ -126,7 +127,7 @@ describeJj("sillajje cross-session stamp", () => {
 		// The issuer's interaction still auto-stamps at settle.
 		writeFileSync(join(workspace, "own.ts"), "// own\n");
 		recordAssistantMessage(runner, assistantMsg("Own work done."));
-		await runner.emit({ type: "agent_settled" });
+		await runner.emit({ type: "agent_settled", aborted: false });
 
 		const ownLog = jj(
 			[
@@ -160,7 +161,7 @@ describeJj("sillajje cross-session stamp", () => {
 		// directory gone, bookmark survives).
 		writeFileSync(join(workspace, "wip.ts"), "// wip\n");
 		await runner.emitInput("work", undefined, "interactive");
-		await runner.emitBeforeAgentStart("work", undefined, {
+		await emitUserPromptStart(runner, "work", {
 			skills: [],
 			contextFiles: [],
 			cwd: "",
