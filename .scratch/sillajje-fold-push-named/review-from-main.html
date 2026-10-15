@@ -1,0 +1,206 @@
+<!-- Copy to .scratch/<topic>/<report_name>.html. Replace the title, summary, and sections. Keep the CSS. -->
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Code review: fold --push publishes the destination bookmark</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Code review: fold <code>--push</code> publishes the destination bookmark</h1>
+		<p class="sub">One hard standards finding and one spec gap: the README still calls the pushed bookmark the "advanced bookmark", a term the new glossary tells writers to avoid. The code itself is correct and green.</p>
+		<div class="meta">
+			<span class="chip">2026-10-09</span>
+			<span class="chip">revset: heads(::@ &amp; ::main)..@</span>
+			<span class="chip">axis: standards + spec</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#scope">Scope</a>
+		<a href="#standards">Standards</a>
+		<a href="#spec">Spec</a>
+		<a href="#summary">Summary</a>
+		<a href="#open">Open questions</a>
+	</nav>
+
+	<section id="scope">
+		<h2>Scope</h2>
+		<p>Session workspace, sandbox <code>01a120cb-136c-775a-b18f-47acd0f9c11d</code>. Fixed point: bookmark <code>main</code> = <code>nkxoqpum e63410ba</code>. Diff command:</p>
+		<pre><code>jj diff --from 'heads(::@ &amp; ::main)' --to @
+jj log --no-graph -r 'main..@'</code></pre>
+		<p>Commits in <code>main..@</code>: <code>lrptlzkx</code> (empty working copy), <code>wommruwo</code> (feat: publish destination bookmark under <code>--push</code>), and five planning commits (<code>xmymnlwy</code>, <code>yttznvop</code>, <code>xxrllsmx</code>, <code>sutyrknl</code>, <code>omnsktxs</code>). Nine files, +304 / -26.</p>
+		<p>The sibling <code>home</code> workspace (<code>yqusxrsw</code>) carries a different, docs-and-config-only diff from <code>main</code> and is <strong>not</strong> part of this review.</p>
+	</section>
+
+	<section id="standards">
+		<h2>Standards</h2>
+
+		<h3>Hard violation: the README uses a glossary-avoided term</h3>
+		<p><code>extensions/sillajje/README.md:62</code> still says:</p>
+		<pre><code>`--push` pushes the advanced bookmark to the remotes that track it, best-effort, before `--archive`.</code></pre>
+		<p>The diff adds a <strong>Destination bookmark</strong> entry to <code>extensions/sillajje/CONTEXT.md</code> whose <code>_Avoid_</code> line reads "Advanced bookmark (it names only the <code>--update</code> case)". <code>docs/agents/domain.md</code> ("Use the glossary's vocabulary") says "Don't drift to synonyms the glossary explicitly avoids." The README keeps the exact avoided term, and it is the one doc named for this behaviour that the change did not touch.</p>
+		<div class="callout crit">
+			<p>Fix: replace "the advanced bookmark" with "the destination bookmark" in the README Fold paragraph. That is the only remaining occurrence outside historical scratch notes.</p>
+		</div>
+
+		<h3>Judgement call: the issue's deviation note overstates "once"</h3>
+		<p><code>.scratch/sillajje-fold-push-named/issues/01-push-publishes-destination-bookmark.md</code> ends with "…<code>markerDestFor(folded.changeId)</code> is computed once and drives the review bookmark, the marker, and the push". In <code>packages/sillajje-core/src/fold.ts</code> the closure is evaluated at three sites: <code>destPreFold</code> (line 647, drives the base lookup), <code>dest</code> inside the transaction recipe (line 852, drives the review bookmark and the marker), and <code>destinationBookmark</code> after the transaction (line 927, drives the push and the result). "Computed once" reads as one evaluation; the code shares one <em>concept</em>, not one call. A reader auditing the claim may trip on it.</p>
+
+		<h3>Smell baseline</h3>
+		<p>No <em>Duplicated Code</em>, <em>Mysterious Name</em>, <em>Feature Envy</em>, <em>Repeated Switches</em>, or <em>Shotgun Surgery</em> in the diff. The only candidate is <em>Primitive Obsession</em> — a destination bookmark is a bare <code>string</code> — but the glossary and every existing fold site treat a bookmark as a string, so the repo endorses it; suppressed.</p>
+
+		<h3>Tooling</h3>
+		<p>Verified green after the change:</p>
+		<ul>
+			<li><code>mise run //packages/sillajje-core:test</code> — 281 passed (runs <code>tsc</code> first).</li>
+			<li><code>mise run //extensions/sillajje:test</code> — 332 passed, including the new end-to-end <code>--named --push</code> case.</li>
+		</ul>
+		<p>The auto-formatting <code>check</code> task was not run, so it would not write to the reviewed working copy; Biome/type-aware were not independently run.</p>
+	</section>
+
+	<section id="spec">
+		<h2>Spec</h2>
+		<p>Spec source: <code>.scratch/sillajje-fold-push-named/PRD.md</code> and issues <code>01</code> and <code>02</code>.</p>
+
+		<h3>Missing: issue 02 says "No doc explains --named and --update with separate push wording"</h3>
+		<p>Checklist item, issue 02: "No doc explains <code>--named</code> and <code>--update</code> with separate push wording." The README does exactly that: "pushes the advanced bookmark" names only the <code>--update</code> case and predates the destination-bookmark term. The PRD's Implementation Decisions enumerate <code>FOLD_ARGS.usage</code>, the <code>FOLD_HELP</code> line, <code>CONTEXT.md</code>, and ADR 0006 — the README is not in the list, which is how the miss slipped through. Treat the checklist item, not the enumerated list, as binding.</p>
+
+		<h3>Scope creep: ADR 0006's "Rejected" paragraph was renamed beyond the checklist</h3>
+		<p>Issue 02 asked to retitle the <code>--push</code> amendment and drop the "with neither is a usage error" sentence. The diff also rewrites "the repo requires an explicit override ... and <code>--land</code> and <code>--archive</code> are already explicit" to "<code>--named</code>, <code>--update</code>, and <code>--archive</code>". Issue 02's deviation note records the change, and the ADR's own convention keeps old names only in amendments that predate a rename. Because the push amendment is being retitled anyway, updating its body is defensible; flagging it as a judgement call, not a defect.</p>
+
+		<h3>Requirements that look implemented correctly</h3>
+		<p>All 20 PRD user stories and both issue checklists hold up against the diff:</p>
+		<ul>
+			<li>Guard: <code>--push</code> with neither flag is a usage error naming both (`fold.ts:508-515`); tested.</li>
+			<li>Target selection: <code>destinationBookmark = markerDestFor(folded.changeId)</code> resolves to the <code>--named</code> branch, the auto <code>fold-&lt;change id&gt;</code>, or the <code>--update</code> bookmark; <code>--update --push</code> is behaviourally unchanged.</li>
+			<li>Push before <code>--archive</code> (stories 14), marker still recorded (story 13), best-effort failure (story 9), per-remote and untracked-default push (stories 10-11) are all preserved by the renamed <code>pushDestinationBookmark</code>.</li>
+			<li>One term across help, glossary, and ADR 0006 (story 20) — except the README finding above.</li>
+		</ul>
+	</section>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<div class="grid">
+			<div class="card">
+				<h3>Standards: 1 hard, 1 judgement</h3>
+				<p>Worst: README uses the glossary-avoided "advanced bookmark" (<code>README.md:62</code>), against <code>docs/agents/domain.md</code>.</p>
+			</div>
+			<div class="card">
+				<h3>Spec: 1 gap, 1 scope note</h3>
+				<p>Worst: issue 02's "no doc ... separate push wording" is unmet by the README; plus a recorded ADR rename beyond the checklist.</p>
+			</div>
+		</div>
+		<p>The two axes independently point at the same line: <code>extensions/sillajje/README.md:62</code>. One edit closes both.</p>
+	</section>
+
+	<section id="open">
+		<h2>Open questions</h2>
+		<ul>
+			<li>Should the README Fold paragraph track the glossary term, or be generated from <code>FOLD_HELP</code> so it cannot drift again? The block is a near-copy of the <code>CONTEXT.md</code> Fold entry.</li>
+			<li>Should the issue-01 deviation note drop "computed once" in favour of "one destination concept evaluated at each phase"?</li>
+		</ul>
+	</section>
+
+	<footer>Generated by the agent. Reviewed <code>heads(::@ &amp; ::main)..@</code> at <code>lrptlzkx</code>; fixed point <code>main</code> = <code>nkxoqpum</code>. Revision <code>wommruwo</code> carries the implementation.</footer>
+</main>
+</body>
+</html>

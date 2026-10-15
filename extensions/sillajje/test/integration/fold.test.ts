@@ -1273,6 +1273,35 @@ describeJj("sillajje fold", () => {
 		);
 	}, 30_000);
 
+	it("--named --push publishes the named review branch to the remote", async () => {
+		const cwd = initRepo();
+		const base = baseChangeId(cwd);
+
+		jj(["new", base, "-m", "upstream"], cwd);
+		writeFileSync(join(cwd, "upstream.txt"), "upstream\n");
+		jj(["bookmark", "set", "main", "-r", "@"], cwd);
+
+		jj(["new", base, "-m", "feat"], cwd);
+		writeFileSync(join(cwd, "feat.txt"), "feat\n");
+		jj(["bookmark", "set", "feat", "-r", "@"], cwd);
+
+		const remote = addBareRemote(cwd);
+		const runner = await createRunner(cwd);
+		await runner.emit({ type: "session_start", reason: "startup" });
+		const notifications = captureNotifications(runner);
+
+		await runSillajje(runner, "fold -r feat -o main --named review --push");
+
+		// One command named the review branch and published it.
+		expect(bareRef(remote, "review")).toBe(commitId(cwd, "review"));
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("pushed review"),
+			}),
+		);
+	}, 30_000);
+
 	it("--update --push advances the landed bookmark on the remote", async () => {
 		const cwd = initRepo();
 		const base = baseChangeId(cwd);

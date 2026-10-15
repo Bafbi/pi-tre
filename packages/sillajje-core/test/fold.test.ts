@@ -915,6 +915,65 @@ describe("createFold", () => {
 		if (result.ok) expect(result.pushed).toEqual(["main"]);
 	});
 
+	it("--named --push publishes the review bookmark to its tracking remote", async () => {
+		const fakes = makeJj({
+			bookmarks: [
+				{ name: "main", target: ["main-c"] },
+				{ name: "review/feat", target: ["folded-c"] },
+				{ name: "review/feat", remote: "origin", target: ["folded-c"] },
+			],
+		});
+		const { action, statuses } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			named: "review/feat",
+			push: true,
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.bookmark).toBe("review/feat");
+			expect(result.pushed).toEqual(["review/feat@origin"]);
+		}
+		expect(statuses).toContainEqual({
+			kind: "phase",
+			code: "pushing",
+			target: "review/feat",
+		});
+		expect(fakes.gitPush).toHaveBeenCalledWith(
+			{ bookmark: "review/feat", remote: "origin" },
+			{ cwd: "." },
+		);
+		// The marker still records the folded source, so the next fold is
+		// incremental.
+		expect(fakes.apply).toHaveBeenCalledWith({
+			kind: "bookmarkSet",
+			name: "slj/f/review_2f_feat/tip",
+			rev: "tip",
+		});
+	});
+
+	it("--named with an empty value --push publishes the auto-named bookmark", async () => {
+		const fakes = makeJj();
+		const { action } = fold({ jj: fakes });
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			named: "",
+			push: true,
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.pushed).toEqual(["fold-folded"]);
+		expect(fakes.gitPush).toHaveBeenCalledWith(
+			{ bookmark: "fold-folded" },
+			{ cwd: "." },
+		);
+	});
+
 	it("a failed push warns and leaves the fold successful", async () => {
 		const fakes = makeJj({
 			bookmarks: [
@@ -939,7 +998,7 @@ describe("createFold", () => {
 		);
 	});
 
-	it("rejects --push without --update", async () => {
+	it("rejects --push without a destination flag", async () => {
 		const fakes = makeJj();
 		const { action } = fold({ jj: fakes });
 
@@ -949,11 +1008,12 @@ describe("createFold", () => {
 			push: true,
 		});
 
-		expect(result).toEqual({
-			ok: false,
-			reason: "usage",
-			message: expect.stringContaining("--push"),
-		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.reason).toBe("usage");
+			expect(result.message ?? "").toContain("--named");
+			expect(result.message ?? "").toContain("--update");
+		}
 		expect(fakes.transaction).not.toHaveBeenCalled();
 	});
 
