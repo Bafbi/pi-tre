@@ -559,16 +559,18 @@ export default function (pi: ExtensionAPI) {
 	/**
 	 * Copy the project's `seed` paths from the source checkout into the
 	 * Workspace, and write the Seed record. Non-fatal: a failed copy leaves the
-	 * session usable, it just lacks the local files.
+	 * session usable, it just lacks the local files. Returns `false` when the
+	 * copy failed, so the caller can mark the step instead of letting the next
+	 * one render it as done.
 	 */
 	const runSeed = async (
 		ctx: CommandContext,
 		source: string,
 		workspacePath: string,
 		workspaces: ReturnType<typeof workspacesFor>,
-	): Promise<void> => {
+	): Promise<boolean> => {
 		const paths = activeConfig?.seed ?? [];
-		if (paths.length === 0) return;
+		if (paths.length === 0) return true;
 
 		let outcome: Awaited<ReturnType<typeof workspaces.seed>>;
 		try {
@@ -596,7 +598,7 @@ export default function (pi: ExtensionAPI) {
 					"error",
 				);
 			}
-			return;
+			return false;
 		}
 
 		for (const skip of outcome.skipped) {
@@ -610,7 +612,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const copied = Object.keys(outcome.copied);
-		if (copied.length === 0) return;
+		if (copied.length === 0) return true;
 		pi.appendEntry(SESSION_SEED_TYPE, {
 			source,
 			paths: outcome.copied,
@@ -622,6 +624,7 @@ export default function (pi: ExtensionAPI) {
 				"info",
 			);
 		}
+		return true;
 	};
 
 	// Helper: sync the footer status pill to current state.
@@ -901,12 +904,15 @@ export default function (pi: ExtensionAPI) {
 				// the agent's edits to seeded files.
 				if (result.status === "created") {
 					progress?.step("seeding");
-					await runSeed(
+					const seeded = await runSeed(
 						ctx,
 						repoRoot,
 						info.workspacePath,
 						workspaces,
 					);
+					// A failed copy is non-fatal, so the run continues. Mark the step
+					// skipped rather than letting post-init close it as done.
+					if (!seeded) progress?.skip();
 				}
 
 				// Run post-init commands (non-fatal — session activates regardless).

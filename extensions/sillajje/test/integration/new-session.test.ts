@@ -7,7 +7,7 @@
  * `session_start` reads it back. The tests cover both halves and the errors.
  */
 
-import { existsSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionCommandContextActions } from "@earendil-works/pi-coding-agent";
 import { expect, it } from "vitest";
@@ -141,6 +141,46 @@ describeJj("sillajje new session", () => {
 		expect(rendered).toContain("● creating workspace");
 		expect(rendered).toContain("● running post-init");
 		// The run clears its own widget once setup returns.
+		expect(widgets.at(-1)?.lines).toBeUndefined();
+	}, 15_000);
+
+	it("marks the seed step skipped when the copy fails, and does not freeze", async () => {
+		const repo = initRepo();
+		writeFileSync(join(repo, "base.txt"), "base\n");
+		jj(["describe", "-m", "base work"], repo);
+		const baseId = jj(
+			["log", "-r", "@", "--no-graph", "-T", "commit_id"],
+			repo,
+		);
+		jj(["new"], repo);
+
+		// An unreadable seeded file makes `workspaces.seed` reject, which the
+		// adapter treats as a non-fatal failure.
+		writeFileSync(join(repo, ".gitignore"), ".local\n");
+		mkdirSync(join(repo, ".local"));
+		const secret = join(repo, ".local", "secret.txt");
+		writeFileSync(secret, "x\n");
+		chmodSync(secret, 0o000);
+		mkdirSync(join(repo, ".pi/configs"), { recursive: true });
+		writeFileSync(
+			join(repo, ".pi/configs/sillajje.json"),
+			JSON.stringify({ seed: [".local"] }),
+		);
+
+		const runner = await createRunner(repo);
+		getSessionManager(runner).appendCustomEntry(SESSION_BASE_TYPE, {
+			base: baseId,
+			label: "base",
+		});
+		const { widgets } = captureUi(runner);
+		await runner.emit({ type: "session_start", reason: "new" });
+
+		const rendered = widgets
+			.map((write) => write.lines)
+			.filter((lines): lines is string[] => lines !== undefined)
+			.flat();
+		expect(rendered).toContain("– seeding");
+		// Skipped, not failed: the run is not frozen and clears its own widget.
 		expect(widgets.at(-1)?.lines).toBeUndefined();
 	}, 15_000);
 

@@ -88,6 +88,11 @@ export interface Progress {
 	plan: (codes: readonly ProgressCode[]) => void;
 	/** Advance to an adapter-authored step the core never emits. */
 	step: (code: ProgressCode, target?: string) => void;
+	/**
+	 * Mark the running step skipped when it fails without ending the run, so a
+	 * non-fatal failure never renders as done.
+	 */
+	skip: () => void;
 	/** Freeze the current step on a failure the core did not emit as `error`. */
 	fail: () => void;
 	/** Finish the run: clear the widget unless a step froze. */
@@ -196,6 +201,13 @@ export function createProgress(
 		schedule();
 	};
 
+	const skip = (): void => {
+		if (frozen) return;
+		const current = steps.find((step) => step.state === "running");
+		if (current !== undefined) current.state = "skipped";
+		schedule();
+	};
+
 	const freeze = (): void => {
 		if (frozen) return;
 		cancelTimer();
@@ -221,6 +233,7 @@ export function createProgress(
 		},
 		plan: seed,
 		step: advance,
+		skip,
 		fail: freeze,
 		end() {
 			cancelTimer();

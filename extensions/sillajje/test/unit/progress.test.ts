@@ -307,6 +307,18 @@ describe("createProgress plan", () => {
 		]);
 	});
 
+	it("marks the running step skipped when it fails but the run continues", () => {
+		const { setWidget, calls } = fakeWidget();
+		const progress = makeProgress(setWidget);
+
+		progress.plan(["seeding", "running-post-init"]);
+		progress.step("seeding");
+		progress.skip();
+		progress.step("running-post-init");
+
+		expect(lastLines(calls)).toEqual(["– seeding", "● running post-init"]);
+	});
+
 	it("appends every phase when no plan arrives", () => {
 		const { setWidget, calls } = fakeWidget();
 		const progress = makeProgress(setWidget);
