@@ -16,6 +16,7 @@ import {
 /** A fixture action bound to the ports every host can supply. */
 function createEchoAction(ports: HostPorts): Action<string, string> {
 	return async (input) => {
+		ports.onStatus({ kind: "plan", codes: ["rebasing"] });
 		ports.onStatus({ kind: "phase", code: "rebasing" });
 		return input;
 	};
@@ -51,7 +52,10 @@ describe("the action contract", () => {
 		const result = await action("hello");
 
 		expect(result).toBe("hello");
-		expect(events).toEqual([{ kind: "phase", code: "rebasing" }]);
+		expect(events).toEqual([
+			{ kind: "plan", codes: ["rebasing"] },
+			{ kind: "phase", code: "rebasing" },
+		]);
 	});
 
 	it("cannot build a subagent action from a bare HostPorts value", () => {

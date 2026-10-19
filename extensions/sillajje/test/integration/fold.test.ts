@@ -1708,6 +1708,11 @@ describeJj("sillajje fold", () => {
 
 		await runSillajje(runner, "fold -r feat -o main");
 
-		expect(widgets.at(-1)?.lines).toEqual(["✗ folding onto main"]);
+		expect(widgets.at(-1)?.lines).toEqual([
+			"✓ resolving source",
+			"✓ collecting diff",
+			"✓ generating header",
+			"✗ folding onto main",
+		]);
 	}, 30_000);
 });

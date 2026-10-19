@@ -19,11 +19,22 @@
  * returned as `ok: false` values — the action never throws for them.
  */
 
-import type { HostPorts, SubagentPort } from "../action.js";
+import type { HostPorts, PhaseCode, SubagentPort } from "../action.js";
+import { emitPlan } from "../action.js";
 import { getStampConfig } from "./internal.js";
 import { stampRevPath } from "./rev.js";
 import { stampSessionPath } from "./session.js";
 import type { StampActions, StampDeps } from "./types.js";
+
+/**
+ * Both stamp paths share one shape: fetch the diff, generate the header, then
+ * seal. A rev stamp seals with `jj describe`; a session stamp seals its `@`.
+ */
+const STAMP_PLAN: readonly PhaseCode[] = [
+	"collecting-diff",
+	"generating-header",
+	"sealing-change",
+];
 
 export function createStamp(ports: HostPorts & SubagentPort): StampActions {
 	const deps: StampDeps = {
@@ -37,6 +48,7 @@ export function createStamp(ports: HostPorts & SubagentPort): StampActions {
 
 	return {
 		async session(input) {
+			emitPlan(ports.onStatus, STAMP_PLAN);
 			const resolved = await ports.workspaces.resolveTarget(
 				input.target,
 				input.current ?? {},
@@ -48,6 +60,7 @@ export function createStamp(ports: HostPorts & SubagentPort): StampActions {
 		},
 
 		async rev(input) {
+			emitPlan(ports.onStatus, STAMP_PLAN);
 			return stampRevPath(input.cwd, input.rev, deps);
 		},
 	};

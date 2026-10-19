@@ -10,6 +10,7 @@
 import type { CurrentSession, WorkspaceInfo } from "@pi-tre/sillajje-workspace";
 import {
 	type Action,
+	emitPlan,
 	emitStatus,
 	type StatusPort,
 	type WorkspacePort,
@@ -93,6 +94,8 @@ export function createArchive(
 			return { ok: false, reason: "foreign" };
 		}
 
+		emitPlan(onStatus, ["archiving"]);
+
 		// Only a real sillajje session may be archived. Without this check the
 		// port falls back to the computed path and deletes whatever directory
 		// is there, so `archive -s <junk>` removes an unrelated directory.
@@ -154,6 +157,8 @@ export function createUnarchive(
 		if (workspaces.ownerOf(sessionKey) !== workspaces.owner) {
 			return { ok: false, reason: "foreign" };
 		}
+
+		emitPlan(onStatus, ["unarchiving"]);
 
 		const targetLabel = workspaces.unqualified(sessionKey);
 		emitStatus(onStatus, {

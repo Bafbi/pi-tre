@@ -362,7 +362,10 @@ export default function (pi: ExtensionAPI) {
 	) => {
 		return (s: StatusEvent) => {
 			capture?.push(s);
-			if (s.kind === "phase") {
+			if (s.kind === "plan") {
+				debug.event("action_plan", { steps: s.codes.join(",") });
+				progress?.onStatus(s);
+			} else if (s.kind === "phase") {
 				debug.event(
 					`action_phase_${s.code}`,
 					s.target === undefined ? {} : { target: s.target },
@@ -556,16 +559,18 @@ export default function (pi: ExtensionAPI) {
 	/**
 	 * Copy the project's `seed` paths from the source checkout into the
 	 * Workspace, and write the Seed record. Non-fatal: a failed copy leaves the
-	 * session usable, it just lacks the local files.
+	 * session usable, it just lacks the local files. Returns `false` when the
+	 * copy failed, so the caller can mark the step instead of letting the next
+	 * one render it as done.
 	 */
 	const runSeed = async (
 		ctx: CommandContext,
 		source: string,
 		workspacePath: string,
 		workspaces: ReturnType<typeof workspacesFor>,
-	): Promise<void> => {
+	): Promise<boolean> => {
 		const paths = activeConfig?.seed ?? [];
-		if (paths.length === 0) return;
+		if (paths.length === 0) return true;
 
 		let outcome: Awaited<ReturnType<typeof workspaces.seed>>;
 		try {
@@ -593,7 +598,7 @@ export default function (pi: ExtensionAPI) {
 					"error",
 				);
 			}
-			return;
+			return false;
 		}
 
 		for (const skip of outcome.skipped) {
@@ -607,7 +612,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const copied = Object.keys(outcome.copied);
-		if (copied.length === 0) return;
+		if (copied.length === 0) return true;
 		pi.appendEntry(SESSION_SEED_TYPE, {
 			source,
 			paths: outcome.copied,
@@ -619,6 +624,7 @@ export default function (pi: ExtensionAPI) {
 				"info",
 			);
 		}
+		return true;
 	};
 
 	// Helper: sync the footer status pill to current state.
@@ -820,6 +826,11 @@ export default function (pi: ExtensionAPI) {
 					: createProgress(progressWidget(ctx), {
 							delayMs: progressDelay(),
 						});
+			progress?.plan([
+				"creating-workspace",
+				"seeding",
+				"running-post-init",
+			]);
 			progress?.step("creating-workspace");
 			try {
 				const workspaces = workspacesFor(repoRoot);
@@ -892,12 +903,16 @@ export default function (pi: ExtensionAPI) {
 				// command can read them. Only on a fresh Workspace: a reused one keeps
 				// the agent's edits to seeded files.
 				if (result.status === "created") {
-					await runSeed(
+					progress?.step("seeding");
+					const seeded = await runSeed(
 						ctx,
 						repoRoot,
 						info.workspacePath,
 						workspaces,
 					);
+					// A failed copy is non-fatal, so the run continues. Mark the step
+					// skipped rather than letting post-init close it as done.
+					if (!seeded) progress?.skip();
 				}
 
 				// Run post-init commands (non-fatal — session activates regardless).

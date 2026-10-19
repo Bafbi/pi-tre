@@ -104,6 +104,7 @@ describe("createSync", () => {
 			{ cwd: "/ws" },
 		);
 		expect(statuses).toEqual([
+			{ kind: "plan", codes: ["rebasing"] },
 			{ kind: "phase", code: "rebasing", target: "main" },
 		]);
 	});

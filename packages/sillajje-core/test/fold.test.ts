@@ -228,6 +228,7 @@ function makeWorkspaces(
 	return {
 		sessionKey: (target: string) =>
 			target.includes("/") ? target : `owner/${target}`,
+		unqualified: (key: string) => key.split("/").at(-1) ?? key,
 		bookmarkName: (key: string) => `sillajje/${key}`,
 		resolveTarget: resolve,
 		archive,
@@ -346,6 +347,18 @@ describe("createFold", () => {
 
 		expect(fakes.transaction).toHaveBeenCalledTimes(1);
 		expect(statuses).toEqual([
+			{
+				kind: "plan",
+				codes: [
+					"resolving-source",
+					"collecting-diff",
+					"generating-header",
+					"folding",
+				],
+			},
+			{ kind: "phase", code: "resolving-source" },
+			{ kind: "phase", code: "collecting-diff" },
+			{ kind: "phase", code: "generating-header" },
 			{ kind: "phase", code: "folding", target: "main" },
 		]);
 	});
