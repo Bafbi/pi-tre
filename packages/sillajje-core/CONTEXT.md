@@ -9,8 +9,12 @@ A composed capability the core exposes â€” `stamp`, `sync`, `fold`, `archive` â€
 _Avoid_: Command, operation (a jj operation is the primitive underneath an Action)
 
 **Status event**:
-A typed event an Action emits while it runs, through its status sink. A `phase` names a step and may name the step's target; `info`, `warning`, and `error` carry a message. The core emits events and owns their codes; the adapter renders them.
+A typed event an Action emits while it runs, through its status sink. A `plan` announces the whole ordered run once, before any work; a `phase` names a step and may name the step's target; `info`, `warning`, and `error` carry a message. The core emits events and owns their codes; the adapter renders them.
 _Avoid_: Log line, telemetry (the debug log is a separate sink)
+
+**Plan**:
+The ordered Phase codes an Action announces in its first Status event. Announcing the steps up front lets a renderer draw them all as pending, so a slow first step still shows feedback. A step's target is unknown when the Plan is announced, so a planned step carries its code alone and gains the target when its Phase arrives. A planned step whose condition resolves false is rendered skipped, never done.
+_Avoid_: Checklist, pipeline, queue
 
 **Diff budget**:
 The cap a body-producing Action applies to a diff before the Sub-generator sees it: a per-file line gate, a whole-diff estimated-token ceiling, and a path omit list. A file over the gate, or matching the omit list, keeps its name and change count in the prompt and loses its content.

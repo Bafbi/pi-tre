@@ -362,7 +362,10 @@ export default function (pi: ExtensionAPI) {
 	) => {
 		return (s: StatusEvent) => {
 			capture?.push(s);
-			if (s.kind === "phase") {
+			if (s.kind === "plan") {
+				debug.event("action_plan", { steps: s.codes.join(",") });
+				progress?.onStatus(s);
+			} else if (s.kind === "phase") {
 				debug.event(
 					`action_phase_${s.code}`,
 					s.target === undefined ? {} : { target: s.target },
@@ -820,6 +823,11 @@ export default function (pi: ExtensionAPI) {
 					: createProgress(progressWidget(ctx), {
 							delayMs: progressDelay(),
 						});
+			progress?.plan([
+				"creating-workspace",
+				"seeding",
+				"running-post-init",
+			]);
 			progress?.step("creating-workspace");
 			try {
 				const workspaces = workspacesFor(repoRoot);
@@ -892,6 +900,7 @@ export default function (pi: ExtensionAPI) {
 				// command can read them. Only on a fresh Workspace: a reused one keeps
 				// the agent's edits to seeded files.
 				if (result.status === "created") {
+					progress?.step("seeding");
 					await runSeed(
 						ctx,
 						repoRoot,

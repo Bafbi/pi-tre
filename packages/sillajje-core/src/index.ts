@@ -10,6 +10,7 @@ export type {
 	Action,
 	HostPorts,
 	PhaseCode,
+	PlanEvent,
 	ProvenanceVersions,
 	RunSubagent,
 	StatusEvent,
@@ -17,7 +18,7 @@ export type {
 	SubagentRequest,
 	SubagentResponse,
 } from "./action.js";
-export { emitStatus } from "./action.js";
+export { emitPlan, emitStatus } from "./action.js";
 export {
 	ARCHIVE_ARGS,
 	ARCHIVE_HELP,

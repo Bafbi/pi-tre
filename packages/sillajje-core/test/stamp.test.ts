@@ -444,6 +444,11 @@ describe("stampSession (interaction context)", () => {
 			onStatus: sink,
 		});
 
+		expect(statuses[0]).toEqual({
+			kind: "plan",
+			codes: ["collecting-diff", "generating-header", "sealing-change"],
+		});
+
 		const phases = statuses.filter((s) => s.kind === "phase");
 		expect(phases).toHaveLength(3);
 		expect(phases[0]!.code).toBe("collecting-diff");
@@ -1089,6 +1094,11 @@ describe("stampSession (manual context)", () => {
 			true,
 		);
 
+		expect(statuses[0]).toEqual({
+			kind: "plan",
+			codes: ["collecting-diff", "generating-header", "sealing-change"],
+		});
+
 		// Phase statuses.
 		const phases = statuses.filter((s) => s.kind === "phase");
 		expect(phases).toHaveLength(3);
@@ -1275,6 +1285,10 @@ describe("stampRev", () => {
 		});
 
 		// Value result carries the subject and the rev.
+		expect(statuses[0]).toEqual({
+			kind: "plan",
+			codes: ["collecting-diff", "generating-header", "sealing-change"],
+		});
 		expect(result).toMatchObject({
 			ok: true,
 			subject: "act/feat: test interaction",

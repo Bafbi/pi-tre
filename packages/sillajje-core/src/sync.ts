@@ -11,6 +11,7 @@ import { formatFailure } from "@pi-tre/sillajje-jj";
 import type { CurrentSession } from "@pi-tre/sillajje-workspace";
 import {
 	type Action,
+	emitPlan,
 	emitStatus,
 	type JjPort,
 	type StatusPort,
@@ -52,6 +53,7 @@ export function createSync(
 			input.target === "@"
 				? (input.current?.sessionKey ?? input.target)
 				: input.target;
+		emitPlan(onStatus, ["rebasing"]);
 		const resolved = await workspaces.resolveTarget(
 			target,
 			input.current ?? {},

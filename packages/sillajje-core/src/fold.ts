@@ -36,8 +36,10 @@ import type { CurrentSession } from "@pi-tre/sillajje-workspace";
 import {
 	type Action,
 	type ConfigPort,
+	emitPlan,
 	emitStatus,
 	type JjPort,
+	type PhaseCode,
 	type StatusPort,
 	type SubagentPort,
 	type WorkspacePort,
@@ -623,6 +625,22 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		}
 		const targetRev: string = input.onto;
 
+		// The steps this invocation will run, in order. `--push` always names a
+		// destination: usage validation rejects it without `--named` or `--update`,
+		// and both resolve a bookmark by the time the fold ends.
+		// `resolving-source` covers target and base resolution, so an early failure
+		// is named for what it was.
+		const plan: PhaseCode[] = [
+			"resolving-source",
+			"collecting-diff",
+			"generating-header",
+			"folding",
+			...(input.push === true ? (["pushing"] as const) : []),
+			...(input.archive === true ? (["archiving"] as const) : []),
+		];
+		emitPlan(onStatus, plan);
+		emitStatus(onStatus, { kind: "phase", code: "resolving-source" });
+
 		let source: FoldSource;
 		try {
 			if (sessionTarget !== undefined) {
@@ -843,6 +861,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		let diff = "";
 		let files = 0;
 		let omitted: ReadonlyArray<OmittedFile> = [];
+		emitStatus(onStatus, { kind: "phase", code: "collecting-diff" });
 		try {
 			const collected = await collectDiff(
 				jj,
@@ -880,6 +899,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		let body: string;
 		let subject: string;
 		const fallbacks: string[] = [];
+		emitStatus(onStatus, { kind: "phase", code: "generating-header" });
 		try {
 			const subCtx: SubGeneratorContext = {
 				transcript: "",
@@ -1121,6 +1141,11 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		// archive is reported but never undoes the fold.
 		let archived: boolean | undefined;
 		if (input.archive === true && source.sessionKey !== undefined) {
+			emitStatus(onStatus, {
+				kind: "phase",
+				code: "archiving",
+				target: workspaces.unqualified(source.sessionKey),
+			});
 			const outcome = await workspaces.archive(source.sessionKey);
 			archived = outcome.status !== "failed";
 			if (outcome.status === "failed") {

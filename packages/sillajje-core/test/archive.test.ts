@@ -78,6 +78,7 @@ describe("createArchive", () => {
 		});
 		expect(workspaces.archive).toHaveBeenCalledWith("owner/host/s1");
 		expect(statuses).toEqual([
+			{ kind: "plan", codes: ["archiving"] },
 			{ kind: "phase", code: "archiving", target: "s1" },
 		]);
 	});
@@ -265,6 +266,7 @@ describe("createUnarchive", () => {
 		});
 		expect(workspaces.unarchive).toHaveBeenCalledWith("owner/host/s1");
 		expect(statuses).toEqual([
+			{ kind: "plan", codes: ["unarchiving"] },
 			{ kind: "phase", code: "unarchiving", target: "s1" },
 		]);
 	});

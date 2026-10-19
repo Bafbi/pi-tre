@@ -20,9 +20,8 @@ export interface ProvenanceVersions {
 }
 
 /**
-/**
  * A status event streamed during an action's execution. The adapter renders
- * `phase` as progress, `warning` and `error` as notifications.
+ * `plan` and `phase` as progress, `warning` and `error` as notifications.
  */
 export type PhaseCode =
 	| "collecting-diff"
@@ -32,9 +31,22 @@ export type PhaseCode =
 	| "folding"
 	| "pushing"
 	| "archiving"
-	| "unarchiving";
+	| "unarchiving"
+	| "resolving-source";
+
+/**
+ * The ordered steps an action will run, announced once before the first
+ * phase. The adapter draws the whole list as pending, so a slow step is never
+ * the first thing the user sees. A step's target is unknown until its phase
+ * arrives, so a planned step carries the code alone.
+ */
+export type PlanEvent = {
+	kind: "plan";
+	codes: readonly PhaseCode[];
+};
 
 export type StatusEvent =
+	| PlanEvent
 	| { kind: "phase"; code: PhaseCode; target?: string }
 	| { kind: "info"; code: string; message: string }
 	| { kind: "warning"; code: string; message: string }
@@ -103,6 +115,22 @@ export function emitStatus(
 	} catch {
 		// A throwing sink must never corrupt the action.
 	}
+}
+
+/**
+ * Announce the steps an action will run. Call it once, right before the work
+ * starts and after input validation, so a rejected input shows no plan.
+ *
+ * Every phase the action later emits must name a planned step, in the plan's
+ * order. The converse does not hold: a planned step may be skipped when a
+ * condition resolves false after the plan is announced, and the renderer marks
+ * that step skipped.
+ */
+export function emitPlan(
+	onStatus: (event: StatusEvent) => void,
+	codes: readonly PhaseCode[],
+): void {
+	emitStatus(onStatus, { kind: "plan", codes });
 }
 
 /** The subagent backend. Only a host with a text generator supplies it. */
