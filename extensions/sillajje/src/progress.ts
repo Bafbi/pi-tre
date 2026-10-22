@@ -65,6 +65,7 @@ const PHRASES: Record<ProgressCode, (target: string | undefined) => string> = {
 	pushing: (target) => (target ? `pushing ${target}` : "pushing"),
 	rebasing: (target) => (target ? `rebasing onto ${target}` : "rebasing"),
 	"collecting-diff": () => "collecting diff",
+	checking: (target) => (target ? `checking ${target}` : "checking"),
 	"generating-header": () => "generating header",
 	"sealing-change": (target) => (target ? `sealing ${target}` : "sealing"),
 	"resolving-source": () => "resolving source",

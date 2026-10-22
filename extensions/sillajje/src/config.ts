@@ -20,6 +20,7 @@
 
 import { loadExtensionConfig } from "@pi-tre/pi-config";
 import {
+	getChecksConfig,
 	type SillajjeConfig,
 	SillajjeConfigSchema,
 } from "@pi-tre/sillajje-core";
@@ -71,6 +72,10 @@ export function loadSillajjeConfig(
 		trusted: options.trusted,
 		configDir: options.configDir,
 	});
+
+	// A name is a check's identity in every surface, so a duplicate fails the
+	// load rather than letting a verdict or a waiver become ambiguous.
+	getChecksConfig(config);
 
 	// Env var overrides postInit from file config.
 	const envPostInit = parsePostInitEnv();

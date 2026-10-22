@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-
 import {
+	type AgentBeforeSettleEvent,
 	createLocalBashOperations,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
@@ -13,6 +14,8 @@ import {
 	ARCHIVE_ARGS,
 	ARCHIVE_HELP,
 	type ArgValue,
+	CHECK_ARGS,
+	CHECK_HELP,
 	type CommandHelp,
 	type CommandSpec,
 	createArchive,
@@ -21,13 +24,24 @@ import {
 	createStamp,
 	createSync,
 	createUnarchive,
+	DEFAULT_CHECK_MAX_ATTEMPTS,
+	defaultSillajjeConfig,
+	describeFailingChecks,
 	FOLD_ARGS,
 	FOLD_HELP,
+	failingChecks,
+	type GateInput,
+	type GateResult,
+	type GateVerdict,
+	gateIsRed,
+	gateRanNothing,
+	getChecksConfig,
 	type ProvenanceVersions,
 	parseCommandArgs,
 	type RunSubagent,
 	renderHelp,
 	renderSessionFailure,
+	runGate,
 	SERVE_ARGS,
 	SERVE_HELP,
 	STAMP_ARGS,
@@ -50,6 +64,9 @@ import {
 	directoryExists,
 	isSafeSeedPath,
 } from "@pi-tre/sillajje-workspace";
+import { Type } from "@sinclair/typebox";
+import { buildCheckReport } from "./check-report.js";
+import { createCommandPort } from "./command-port.js";
 import { loadSillajjeConfig } from "./config.js";
 import { createDebugLogger } from "./debug-log.js";
 import {
@@ -65,9 +82,11 @@ import {
 	type SetWidget,
 } from "./progress.js";
 import {
+	checkSettle,
 	foldRecordFields,
 	lastErrorFailure,
 	RECORD_TYPE,
+	recordCheck,
 	recordOperation,
 	type SillajjeRecord,
 	stampSettle,
@@ -134,6 +153,9 @@ async function isJjOnPath(jj: Jj): Promise<boolean> {
  */
 let activeConfig: ReturnType<typeof loadSillajjeConfig> | undefined;
 
+/** Whether this activation has declared the waiver tool. */
+let waiverRegistered = false;
+
 /**
  * @internal The adapter's single test-injection hook.
  *
@@ -151,6 +173,8 @@ interface TestPortOverrides {
 	exec?: ExecFn;
 	progressDelayMs?: number;
 	workspacesRoot?: string;
+	/** The signal the gate sees; a test uses it to simulate Escape. */
+	signal?: AbortSignal;
 }
 
 /** The shared override object, created on first access. */
@@ -230,6 +254,12 @@ export default function (pi: ExtensionAPI) {
 	// One facade for the whole activation. Callers name typed Mutations; the
 	// facade owns argv, transaction chaining, and parsing.
 	const jj: Jj = createJj(exec);
+
+	// The command boundary the check gate runs through. The host owns the
+	// shell and the environment; the core only names the command.
+	const command = createCommandPort({
+		exec: (cmd, args, options) => pi.exec(cmd, args, options),
+	});
 
 	// Session owner (user/host), fixed for the process lifetime.
 	const owner = defaultOwner();
@@ -410,6 +440,7 @@ export default function (pi: ExtensionAPI) {
 			config: activeConfig ?? loadSillajjeConfig(),
 			versions: env,
 			run: resolveRunSubagent(),
+			command,
 			onStatus: createStatusSink(ctx, progress, capture),
 		};
 	};
@@ -427,6 +458,309 @@ export default function (pi: ExtensionAPI) {
 		progress?: Progress,
 		capture?: StatusEvent[],
 	) => createStamp(buildPorts(ctx, repoRoot, progress, capture));
+
+	// -------------------------------------------------------------------
+	// The settle gate — one core run per attempt, looped here
+	// -------------------------------------------------------------------
+
+	/**
+	 * The settle loop's in-memory state. It resets at the start of every run,
+	 * because pi re-enters `agent_before_settle` after each continuation and
+	 * only the adapter knows which Interaction is being checked.
+	 */
+	interface SettleGateState {
+		/** Gate runs this Interaction has spent. */
+		attempts: number;
+		/** The previous attempt's diff digest, for the stall rule. */
+		previousDigest?: string;
+		/** The latest red run, for the waiver tool to validate against. */
+		lastResult?: GateResult;
+		/** The user cancelled the run; the stamp records it as waived. */
+		waived?: { reason: string; names: readonly string[] };
+		/** Whether the latest run's checks moved the working copy. */
+		moved?: boolean;
+		/** The terminal verdict the stamp renders. */
+		verdict?: GateVerdict;
+	}
+
+	let settleGate: SettleGateState = { attempts: 0 };
+
+	/** Start a fresh gate state. Called when a new agent run starts. */
+	const resetSettleGate = (): void => {
+		settleGate = { attempts: 0 };
+	};
+
+	/**
+	 * The declared checks and loop budget. A config that fails validation (a
+	 * duplicate name) logs and runs no checks rather than half a gate.
+	 */
+	const checksConfig = (): ReturnType<typeof getChecksConfig> => {
+		try {
+			return getChecksConfig(activeConfig ?? loadSillajjeConfig());
+		} catch (err) {
+			debug.error("checks_config_invalid", err);
+			return { checks: [], maxAttempts: DEFAULT_CHECK_MAX_ATTEMPTS };
+		}
+	};
+
+	/** The working copy's changed paths and diff text, for filtering and the digest. */
+	const readWorktreeDiff = async (
+		wsPath: string,
+	): Promise<{ paths: string[]; text: string }> => {
+		const files = await jj.diffFiles({ rev: "@" }, { cwd: wsPath });
+		const text = await jj.diff("@", { cwd: wsPath });
+		return { paths: files.map((file) => file.path), text };
+	};
+
+	/** Bind the command port once; every adapter gate site shares it. */
+	const runWorkspaceGate = (
+		onStatus: (event: StatusEvent) => void,
+		input: GateInput,
+	): Promise<GateResult> => runGate({ command, onStatus }, input);
+
+	/** The content identity the stall rule compares across attempts. */
+	const diffDigest = (text: string): string =>
+		createHash("sha256").update(text).digest("hex");
+
+	/** The outcome log directory: a sibling of the workspace, outside its tree. */
+	const checkLogDir = (wsPath: string): string => `${wsPath}.checks`;
+
+	/**
+	 * Run the settle gate once and decide whether the Interaction may settle.
+	 *
+	 * A green gate is silent. A red gate appends the Check report, then either
+	 * continues the run, settles on a stall, or settles at the attempt cap.
+	 */
+	const runSettleGate = async (
+		event: AgentBeforeSettleEvent,
+		ctx: ExtensionContext,
+	): Promise<
+		| { entries: AgentBeforeSettleEvent["entries"]; continue: boolean }
+		| undefined
+	> => {
+		if (state.isInactive() || state.isArchived()) return undefined;
+		if (state.isMissingWorkspace()) return undefined;
+		if (event.outcome === "aborted") return undefined;
+
+		const wsPath = state.getWorkspacePath();
+		if (wsPath === undefined) return undefined;
+		if (isWorkspaceGone()) return undefined;
+
+		const cfg = checksConfig();
+		const settleChecks = cfg.checks.filter((check) =>
+			check.triggers.includes("settle"),
+		);
+		if (settleChecks.length === 0) return undefined;
+
+		// A waiver already ended the loop; the stamp reads its verdict.
+		if (settleGate.waived !== undefined) return undefined;
+		if (settleGate.verdict !== undefined) return undefined;
+
+		let before: { paths: string[]; text: string };
+		try {
+			before = await readWorktreeDiff(wsPath);
+		} catch (err) {
+			debug.error("check_diff_failed", err);
+			return undefined;
+		}
+		// A question answered with no edits costs nothing, and nothing stamps.
+		if (before.paths.length === 0) return undefined;
+
+		const digest = diffDigest(before.text);
+		const previousDigest = settleGate.previousDigest;
+		settleGate.previousDigest = digest;
+		const attempt = settleGate.attempts + 1;
+		settleGate.attempts = attempt;
+
+		const progress = createProgress(progressWidget(ctx), {
+			delayMs: progressDelay(),
+		});
+		const onStatus = createStatusSink(ctx, progress);
+		const session =
+			state.getSessionKey() ?? state.getSessionId() ?? "unknown";
+
+		let result: GateResult;
+		try {
+			result = await recordOperation(writeRecord, "check", {
+				fields: {
+					trigger: "settle",
+					session,
+					attempt,
+					digest,
+					checks: [],
+				},
+				run: () =>
+					runWorkspaceGate(onStatus, {
+						checks: cfg.checks,
+						trigger: "settle",
+						cwd: wsPath,
+						changedPaths: before.paths,
+						signal: testPorts().signal ?? ctx.signal,
+					}),
+				settle: checkSettle,
+			});
+		} catch (err) {
+			debug.error("check_gate_failed", err);
+			return undefined;
+		} finally {
+			progress.end();
+		}
+
+		// A writing check moves the tree; the stamp then contains edits no turn
+		// made, and the `Checks:` line says so.
+		let moved = false;
+		try {
+			const after = await readWorktreeDiff(wsPath);
+			moved = after.text !== before.text;
+		} catch {
+			// The verdict is already known; a failed re-read only loses the note.
+		}
+
+		settleGate.lastResult = result;
+		settleGate.moved = moved;
+
+		if (!gateIsRed(result) || gateRanNothing(result)) {
+			settleGate.verdict = { results: result.results, moved };
+			return undefined;
+		}
+
+		const report = buildCheckReport(
+			failingChecks(result),
+			checkLogDir(wsPath),
+		);
+		const entries = [
+			...event.entries,
+			{
+				type: "custom_message" as const,
+				customType: "sillajje/check-report",
+				content: report.message,
+				display: true,
+			},
+		];
+
+		const stalled =
+			previousDigest !== undefined && previousDigest === digest;
+		const capped = attempt >= cfg.maxAttempts;
+		if (stalled || capped) {
+			settleGate.verdict = { results: result.results, moved };
+			onStatus({
+				kind: "error",
+				code: "checks-failed",
+				message: `check failed: ${describeFailingChecks(result)}`,
+			});
+			createStatusSink(ctx)({
+				kind: "warning",
+				code: stalled ? "checks-stalled" : "checks-gave-up",
+				message: stalled
+					? "check gate stopped: the tree did not change since the last attempt"
+					: `check gate gave up after ${attempt} attempts`,
+			});
+			return { entries, continue: false };
+		}
+
+		return { entries, continue: true };
+	};
+
+	/**
+	 * Declare `waive_checks` when the config declares at least one check.
+	 *
+	 * The tool is declared from the first request of a session rather than
+	 * activated on demand: a mid-run tool change costs a full prefix checkpoint
+	 * on most providers, and the interesting failure mode — the model calling
+	 * the tool to escape a loop — is handled by the refusal, not by hiding it.
+	 */
+	const registerWaiverTool = (): void => {
+		if (waiverRegistered) return;
+		if (checksConfig().checks.length === 0) return;
+		waiverRegistered = true;
+
+		pi.registerTool({
+			name: "waive_checks",
+			label: "Waive checks",
+			description:
+				"Waive one or more failing checks with a reason, ending the check gate for this interaction. Refused unless a check is currently failing.",
+			parameters: Type.Object({
+				reason: Type.String({
+					description:
+						"Why the failing check cannot be fixed here. Required and non-empty.",
+					minLength: 1,
+				}),
+				checks: Type.Optional(
+					Type.Array(Type.String(), {
+						description:
+							"The failing check names to waive. Defaults to every failing check.",
+					}),
+				),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+				const reason = params.reason.trim();
+				if (reason.length === 0) {
+					throw new Error("waive_checks needs a non-empty reason");
+				}
+
+				const last = settleGate.lastResult;
+				if (last === undefined || !gateIsRed(last)) {
+					throw new Error(
+						"no check is failing; waive_checks only waives the current failure",
+					);
+				}
+
+				const failing = failingChecks(last);
+				const failingNames = failing.map((check) => check.name);
+				const requested = (params.checks ?? []).filter(
+					(name) => name.length > 0,
+				);
+				const names = requested.length > 0 ? requested : failingNames;
+				const notFailing = names.filter(
+					(name) => !failingNames.includes(name),
+				);
+				if (notFailing.length > 0) {
+					throw new Error(
+						`cannot waive ${notFailing.join(", ")}: not failing. Currently failing: ${failingNames.join(", ")}`,
+					);
+				}
+
+				const results = last.results.map((check) =>
+					(check.status === "failed" ||
+						check.status === "timed-out") &&
+					names.includes(check.name)
+						? { ...check, status: "waived" as const, reason }
+						: check,
+				);
+				settleGate.waived = { reason, names };
+				settleGate.verdict = {
+					results,
+					moved: settleGate.moved === true,
+				};
+
+				writeRecord({
+					v: 1,
+					operation: "check",
+					stage: "done",
+					trigger: "settle",
+					session: state.getSessionKey(),
+					attempt: settleGate.attempts,
+					checks: results.map(recordCheck),
+				});
+				createStatusSink(ctx)({
+					kind: "warning",
+					code: "checks-waived",
+					message: `checks waived (${reason})`,
+				});
+				debug.event("checks_waived", { names, reason });
+
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Waived ${names.join(", ")}: ${reason}`,
+						},
+					],
+					details: { names, reason },
+				};
+			},
+		});
+	};
 
 	/**
 	 * The command spelling the adapter owns. The core renders the usage line
@@ -797,11 +1131,24 @@ export default function (pi: ExtensionAPI) {
 		// Load sillajje config (project `<repo>/.pi/configs/sillajje.json` or
 		// global `~/.pi/agent/configs/sillajje.json`). Used for debug logging,
 		// workspace root, and sub-generator model.
-		activeConfig = loadSillajjeConfig({
-			repoRoot,
-			trusted: ctx.isProjectTrusted(),
-		});
+		try {
+			activeConfig = loadSillajjeConfig({
+				repoRoot,
+				trusted: ctx.isProjectTrusted(),
+			});
+		} catch (err) {
+			// An invalid config (a duplicate check name) runs no checks; the
+			// rest of the extension still works with defaults.
+			activeConfig = defaultSillajjeConfig();
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] config ignored: ${String(err)}`,
+					"warning",
+				);
+			}
+		}
 		debug = createDebugLogger({ enabled: activeConfig.debug ?? false });
+		registerWaiverTool();
 
 		const sessionId = ctx.sessionManager.getSessionId();
 		if (sessionId !== undefined) {
@@ -978,6 +1325,9 @@ export default function (pi: ExtensionAPI) {
 			messageType: event.messageType,
 			promptLen: event.messageType === "user" ? event.prompt.length : 0,
 		});
+		// A new run starts a fresh gate state; the settle loop is per Interaction.
+		resetSettleGate();
+
 		if (state.isInactive() || state.isArchived()) {
 			debug.event("before_agent_start_skip", {
 				reason: state.isInactive() ? "inactive" : "archived",
@@ -1101,6 +1451,7 @@ export default function (pi: ExtensionAPI) {
 						interaction: aborted
 							? { ...projected, aborted: true }
 							: projected,
+						gate: settleGate.verdict,
 					}),
 				settle: stampSettle(captured),
 			});
@@ -1121,6 +1472,9 @@ export default function (pi: ExtensionAPI) {
 			// found no changes, so the next Interaction starts after it.
 			markStamped(ctx, result.ok ? result.rev : null);
 		});
+		// The verdict belongs to the tree just stamped. Drop it so a later
+		// manual stamp cannot attach these results to a different tree.
+		resetSettleGate();
 	};
 
 	// -----------------------------------------------------------------------
@@ -1142,6 +1496,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const sessionKey = state.getSessionKey() ?? sessionId;
+		const gate = settleGate.verdict;
 
 		debug.event("stamp_manual_start");
 
@@ -1153,6 +1508,7 @@ export default function (pi: ExtensionAPI) {
 					buildStamp(ctx, undefined, progress, captured).session({
 						target: sessionKey,
 						current: { sessionKey, wsPath },
+						gate,
 					}),
 				settle: stampSettle(captured),
 			});
@@ -1188,7 +1544,22 @@ export default function (pi: ExtensionAPI) {
 				);
 			}
 		});
+		// A manual stamp consumes the pending Interaction's verdict. It must
+		// not be reused for a later tree.
+		delete settleGate.verdict;
 	};
+
+	// -----------------------------------------------------------------------
+	// agent_before_settle — the settle gate
+	// -----------------------------------------------------------------------
+
+	pi.on("agent_before_settle", async (event, ctx) => {
+		debug.event("agent_before_settle", {
+			outcome: event.outcome,
+			attempts: settleGate.attempts,
+		});
+		return runSettleGate(event, ctx);
+	});
 
 	// -----------------------------------------------------------------------
 	// agent_settled — the true end of a run; stamp the pending Interaction
@@ -1294,6 +1665,7 @@ export default function (pi: ExtensionAPI) {
 				"seed",
 				"new",
 				"stamp",
+				"check",
 				"archive",
 				"unarchive",
 				"sync",
@@ -1302,7 +1674,7 @@ export default function (pi: ExtensionAPI) {
 			].includes(subcommand ?? "");
 			const suggestion = known
 				? `/sillajje:${subcommand}`
-				: "/sillajje:<status|seed|new|stamp|archive|unarchive|sync|fold|serve>";
+				: "/sillajje:<status|seed|new|stamp|check|archive|unarchive|sync|fold|serve>";
 			debug.event("input_old_form_guard", { text: event.text });
 			await recordGuard(
 				{ command: event.text },
@@ -2608,6 +2980,7 @@ export default function (pi: ExtensionAPI) {
 		const push = values.push === true;
 		const archive = values.archive === true;
 		const noMarker = values.noMarker === true;
+		const noCheck = values.noCheck === true;
 		const rebase =
 			typeof values.rebase === "string" ? values.rebase : undefined;
 
@@ -2630,6 +3003,7 @@ export default function (pi: ExtensionAPI) {
 			exclude,
 			update,
 			noMarker,
+			noCheck,
 			rebase,
 		});
 		await withProgress(ctx, async (progress) => {
@@ -2650,6 +3024,7 @@ export default function (pi: ExtensionAPI) {
 						push,
 						archive,
 						noMarker,
+						noCheck,
 						rebase,
 					},
 				},
@@ -2664,6 +3039,7 @@ export default function (pi: ExtensionAPI) {
 						push,
 						archive,
 						noMarker,
+						noCheck,
 						rebase,
 						current: {
 							sessionKey: state.getSessionKey(),
@@ -2708,6 +3084,25 @@ export default function (pi: ExtensionAPI) {
 											resolved: foldResult.resolved,
 										},
 			});
+
+			// One Record per publish gate run, like the settle gate. A red
+			// publish gate carries its verdicts on the failed result, so the
+			// session log can answer why the fold was refused.
+			const publishChecks = result.ok
+				? result.diagnostics.checks
+				: result.checks;
+			if (publishChecks !== undefined && publishChecks.length > 0) {
+				writeRecord({
+					v: 1,
+					operation: "check",
+					stage: result.ok ? "done" : "failed",
+					trigger: "publish",
+					session: result.ok
+						? result.sessionKey
+						: (session ?? state.getSessionKey()),
+					checks: publishChecks.map(recordCheck),
+				});
+			}
 
 			const targetLabel = onto ?? "the target";
 			if (result.ok) {
@@ -2797,6 +3192,167 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// -----------------------------------------------------------------------
+	// handleCheck — /sillajje:check runs the gate on demand
+	// -----------------------------------------------------------------------
+
+	const handleCheck = async (
+		args: string,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const values = parseOrReport(
+			ctx,
+			sessionDefault(args),
+			CHECK_ARGS,
+			CHECK_HELP,
+			"check",
+		);
+		if (values === undefined) return;
+
+		const target =
+			typeof values.session === "string" ? values.session : "@";
+		const requestedTrigger =
+			typeof values.trigger === "string" ? values.trigger : undefined;
+		if (
+			requestedTrigger !== undefined &&
+			requestedTrigger !== "settle" &&
+			requestedTrigger !== "publish"
+		) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] --trigger must be settle or publish, not "${requestedTrigger}"`,
+					"warning",
+				);
+			}
+			return;
+		}
+
+		const repoRoot = state.getRepoRoot() ?? findJjRepoRoot(ctx.cwd);
+		if (!repoRoot) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"[sillajje] cannot check: no jj repo detected",
+					"error",
+				);
+			}
+			return;
+		}
+
+		const workspaces = workspacesFor(repoRoot);
+		const sessionTarget =
+			target === "@" ? (state.getSessionKey() ?? target) : target;
+		const resolved = await workspaces.resolveTarget(sessionTarget, {
+			sessionKey: state.getSessionKey(),
+			wsPath: state.getWorkspacePath(),
+		});
+		if (!resolved.ok) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`[sillajje] cannot check: ${renderSessionFailure(resolved.reason, sessionTarget)} — no live workspace to run checks in`,
+					"error",
+				);
+			}
+			return;
+		}
+
+		const cfg = checksConfig();
+		const selected =
+			requestedTrigger === undefined
+				? cfg.checks
+				: cfg.checks.filter((check) =>
+						check.triggers.includes(requestedTrigger),
+					);
+		if (selected.length === 0) {
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					requestedTrigger === undefined
+						? "[sillajje] no checks are declared"
+						: `[sillajje] no check is declared for the ${requestedTrigger} gate`,
+					"info",
+				);
+			}
+			return;
+		}
+
+		let changedPaths: readonly string[] | undefined;
+		try {
+			changedPaths = (
+				await jj.diffFiles({ rev: "@" }, { cwd: resolved.wsPath })
+			).map((file) => file.path);
+		} catch {
+			changedPaths = undefined;
+		}
+
+		const session = resolved.sessionKey;
+		debug.event("check_start", {
+			session,
+			trigger: requestedTrigger ?? "all",
+		});
+
+		await withProgress(ctx, async (progress) => {
+			const onStatus = createStatusSink(ctx, progress);
+			let result: GateResult;
+			try {
+				result = await recordOperation(writeRecord, "check", {
+					fields: {
+						trigger: "manual",
+						session,
+						checks: [],
+					},
+					run: () =>
+						runWorkspaceGate(onStatus, {
+							checks: cfg.checks,
+							trigger: requestedTrigger ?? "all",
+							cwd: resolved.wsPath,
+							changedPaths,
+						}),
+					settle: checkSettle,
+				});
+			} catch (err) {
+				debug.error("check_command_failed", err);
+				progress.fail();
+				return;
+			}
+
+			const ran = result.results.filter(
+				(check) => check.status !== "skipped",
+			);
+			const totalMs = ran.reduce(
+				(sum, check) => sum + check.durationMs,
+				0,
+			);
+
+			if (gateIsRed(result)) {
+				const report = buildCheckReport(
+					failingChecks(result),
+					checkLogDir(resolved.wsPath),
+				);
+				pi.sendMessage({
+					customType: "sillajje/check-report",
+					content: report.message,
+					display: true,
+				});
+				progress.fail();
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`[sillajje] check failed: ${describeFailingChecks(result)}`,
+						"warning",
+					);
+				}
+				return;
+			}
+
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					ran.length === 0
+						? "[sillajje] checks: nothing ran (every check was skipped)"
+						: `[sillajje] checks: ${ran.map((check) => check.name).join(", ")} passed (${(totalMs / 1000).toFixed(1)}s)`,
+					"info",
+				);
+			}
+		});
+	};
+
+	// -----------------------------------------------------------------------
 	// /sillajje:<subcommand> commands
 	// -----------------------------------------------------------------------
 
@@ -2819,6 +3375,13 @@ export default function (pi: ExtensionAPI) {
 		description: "Stamp a change with a generated commit message",
 		handler: async (args, ctx) => {
 			await handleStamp(args, ctx);
+		},
+	});
+
+	pi.registerCommand("sillajje:check", {
+		description: "Run the workspace's declared checks now",
+		handler: async (args, ctx) => {
+			await handleCheck(args, ctx);
 		},
 	});
 

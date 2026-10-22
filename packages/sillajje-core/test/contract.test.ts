@@ -39,6 +39,15 @@ function hostPorts(onStatus: (event: StatusEvent) => void): HostPorts {
 		config: defaultSillajjeConfig(),
 		versions: { piVersion: "0.0.0", sillajjeVersion: "0.0.0" },
 		onStatus,
+		command: {
+			exec: async () => ({
+				code: 0,
+				stdout: "",
+				stderr: "",
+				killed: false,
+				durationMs: 1,
+			}),
+		},
 	};
 }
 

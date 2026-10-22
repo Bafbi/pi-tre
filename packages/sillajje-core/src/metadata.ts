@@ -10,6 +10,7 @@
 
 import type { ProvenanceVersions } from "./action.js";
 import { assembleDescription, type Section } from "./body.js";
+import type { CheckResult } from "./check.js";
 import {
 	FOLD_BODY_SECTIONS,
 	type FoldBodySection,
@@ -73,6 +74,8 @@ export interface CommitBodyData {
 	 * Optional — empty string omits the section.
 	 */
 	trace: string;
+	/** The gate's one-line verdict. Empty or absent omits the section. */
+	checks?: string | undefined;
 	prompt: string;
 	metadata: string;
 	/** Interaction observability. Empty string omits the section. */
@@ -289,6 +292,44 @@ function wordWrapLine(line: string, maxWidth: number): string {
 	return result.join("\n");
 }
 
+/**
+ * Build the `Checks:` line: every check that ran, with its verdict and
+ * duration. Only checks the gate ran appear; a gate that ran nothing (or only
+ * skipped checks) renders nothing. `moved` says the gate itself rewrote the
+ * working copy, so the stamp contains edits no conversational turn made.
+ */
+export function buildChecksLine(
+	results: readonly CheckResult[],
+	moved = false,
+): string {
+	if (results.length === 0) return "";
+	if (results.every((check) => check.status === "skipped")) return "";
+
+	const parts = results.map((check) => {
+		const duration = `${(check.durationMs / 1000).toFixed(1)}s`;
+		switch (check.status) {
+			case "passed":
+				return `${check.name} passed (${duration})`;
+			case "failed":
+				return check.exitCode === undefined
+					? `${check.name} failed (${check.reason ?? "no exit code"}, ${duration})`
+					: `${check.name} failed (exit ${check.exitCode}, ${duration})`;
+			case "timed-out":
+				return `${check.name} timed-out (${duration})`;
+			case "waived":
+				return `${check.name} waived (${check.reason ?? "waived"})`;
+			case "skipped":
+				return `${check.name} skipped`;
+			default:
+				return check.name;
+		}
+	});
+
+	return moved
+		? `${parts.join("; ")}; gate modified the working copy`
+		: parts.join("; ");
+}
+
 // ---------------------------------------------------------------------------
 // buildCommitBody
 // ---------------------------------------------------------------------------
@@ -307,6 +348,7 @@ export function buildCommitBody(
 ): string {
 	const sections: Record<StampBodySection, Section> = {
 		trace: { label: "Trace", body: data.trace },
+		checks: { label: "Checks", body: data.checks ?? "", inline: true },
 		meta: { label: "Meta", body: data.metadata, inline: true },
 		loop: { label: "Loop", body: data.loop, inline: true },
 		prompt: { label: "Prompt", body: data.prompt },
@@ -324,6 +366,8 @@ export interface FoldBodyData {
 	summary: string;
 	/** `Ref: <base>..<tip>`, using change ids. */
 	ref: string;
+	/** The publish gate's one-line verdict. Empty or absent omits the section. */
+	checks?: string | undefined;
 	/** Paths the fold left out of the published change. */
 	skipped: readonly string[];
 }
@@ -340,6 +384,7 @@ export function buildFoldBody(
 	const sections: Record<FoldBodySection, Section> = {
 		summary: { label: "Summary", body: data.summary },
 		ref: { label: "Ref", body: data.ref, inline: true },
+		checks: { label: "Checks", body: data.checks ?? "", inline: true },
 		skipped: {
 			label: "Skipped",
 			body: data.skipped.join(", "),
