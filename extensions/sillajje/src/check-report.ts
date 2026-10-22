@@ -19,9 +19,9 @@ const REPORT_MAX_LINES = 2000;
 /** The bash tool's byte cap. */
 const REPORT_MAX_BYTES = 50 * 1024;
 
-/** A command's combined output: stdout, then stderr. */
+/** A command's reportable output: stdout, stderr, then why it could not run. */
 function checkOutput(check: CheckResult): string {
-	return [check.stdout ?? "", check.stderr ?? ""]
+	return [check.stdout ?? "", check.stderr ?? "", check.reason ?? ""]
 		.filter((part) => part.length > 0)
 		.join("\n");
 }

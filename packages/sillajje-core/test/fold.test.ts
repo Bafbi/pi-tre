@@ -192,9 +192,11 @@ function makeJj(opts?: {
 	);
 	const workspaceUpdateStale = vi.fn(async () => {});
 	const diffRange = vi.fn(async () => "diff --git a/f b/f\n+added");
-	const diffFiles = vi.fn(async () => [
-		{ path: "f", status: "modified" as const, changes: 1 },
-	]);
+	const diffFiles = vi.fn(async (spec: { from?: string; to?: string }) =>
+		spec.to === "@"
+			? []
+			: [{ path: "f", status: "modified" as const, changes: 1 }],
+	);
 	const jj = {
 		log,
 		diff: vi.fn(async () => "diff --git a/f b/f\n+added"),

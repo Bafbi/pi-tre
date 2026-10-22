@@ -881,69 +881,25 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			target: targetRev,
 		};
 
-		// The publish gate runs once, against the source workspace's working
-		// copy, before the transaction opens. A red check publishes nothing. A
-		// source with no live workspace cannot run a check, so it refuses unless
-		// the user passes `--no-check`.
+		// A source with no live workspace cannot run a publish check, so it
+		// refuses unless the user passes `--no-check`. A session source waits
+		// for the empty-delta checks below: a no-op fold must stay a no-op.
 		const publishChecks = cfg.checks.filter((check) =>
 			check.triggers.includes("publish"),
 		);
-		let gate: GateResult | undefined;
-		if (publishChecks.length > 0) {
-			if (input.noCheck === true) {
-				gate = {
-					trigger: "publish",
-					results: publishChecks.map((check) => ({
-						name: check.name,
-						status: "waived" as const,
-						durationMs: 0,
-						reason: "--no-check",
-					})),
-				};
-			} else if (source.workspacePath === undefined) {
-				const names = publishChecks
-					.map((check) => check.name)
-					.join(", ");
-				return fail(
-					`publish check ${names} needs a live session workspace; pass --no-check to publish unverified`,
-					resolvedRef,
-				);
-			} else {
-				let changedPaths: readonly string[] | undefined;
-				if (publishChecks.some((check) => check.paths.length > 0)) {
-					try {
-						changedPaths = (
-							await jj.diffFiles(
-								{
-									from: base.commitId,
-									to: tip.commitId,
-								},
-								{ cwd: sourceCwd },
-							)
-						).map((file) => file.path);
-					} catch {
-						changedPaths = undefined;
-					}
-				}
-				gate = await runGate(
-					{ command: ports.command, onStatus },
-					{
-						checks: cfg.checks,
-						trigger: "publish",
-						cwd: source.workspacePath,
-						changedPaths,
-					},
-				);
-				if (gateIsRed(gate)) {
-					return fail(
-						`publish check failed: ${describeFailingChecks(gate)} — pass --no-check to publish unverified`,
-						resolvedRef,
-						gate.results,
-					);
-				}
-			}
+		const gateCwd = source.workspacePath;
+		if (
+			publishChecks.length > 0 &&
+			input.noCheck !== true &&
+			gateCwd === undefined
+		) {
+			const names = publishChecks.map((check) => check.name).join(", ");
+			return fail(
+				`publish check ${names} needs a live session workspace; pass --no-check to publish unverified`,
+				resolvedRef,
+			);
 		}
-		const gateResults = gate?.results ?? [];
+		let gate: GateResult | undefined;
 
 		// An empty delta is a designed no-op, before any mutation.
 		if (delta.length === 0) {
@@ -982,6 +938,81 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		if (diff.trim().length === 0) {
 			return { ok: false, reason: "no-changes" };
 		}
+
+		// The publish gate runs once, against the source workspace's working
+		// copy, before the transaction opens. A red check publishes nothing.
+		if (publishChecks.length > 0) {
+			if (input.noCheck === true) {
+				gate = {
+					trigger: "publish",
+					results: publishChecks.map((check) => ({
+						name: check.name,
+						status: "waived" as const,
+						durationMs: 0,
+						reason: "--no-check",
+					})),
+				};
+			} else if (gateCwd !== undefined) {
+				// A passing verdict must describe what the fold publishes. The
+				// working copy is the checked tree, so an unsealed edit would
+				// validate content the fold leaves behind.
+				let workspaceDiff: Awaited<ReturnType<Jj["diffFiles"]>>;
+				try {
+					workspaceDiff = await jj.diffFiles(
+						{ from: tip.commitId, to: "@" },
+						{ cwd: gateCwd },
+					);
+				} catch (err) {
+					return fail(
+						`publish check could not compare the workspace to ${tip.changeId}: ${String(err)}`,
+						resolvedRef,
+					);
+				}
+				if (workspaceDiff.length > 0) {
+					const names = publishChecks
+						.map((check) => check.name)
+						.join(", ");
+					return fail(
+						`publish check ${names} would validate uncommitted workspace edits that the fold does not publish; stamp them first or pass --no-check`,
+						resolvedRef,
+					);
+				}
+
+				let changedPaths: readonly string[] | undefined;
+				if (publishChecks.some((check) => check.paths.length > 0)) {
+					try {
+						changedPaths = (
+							await jj.diffFiles(
+								{
+									from: base.commitId,
+									to: tip.commitId,
+								},
+								{ cwd: sourceCwd },
+							)
+						).map((file) => file.path);
+					} catch {
+						changedPaths = undefined;
+					}
+				}
+				gate = await runGate(
+					{ command: ports.command, onStatus },
+					{
+						checks: cfg.checks,
+						trigger: "publish",
+						cwd: gateCwd,
+						changedPaths,
+					},
+				);
+				if (gateIsRed(gate)) {
+					return fail(
+						`publish check failed: ${describeFailingChecks(gate)} — pass --no-check to publish unverified`,
+						resolvedRef,
+						gate.results,
+					);
+				}
+			}
+		}
+		const gateResults = gate?.results ?? [];
 
 		if (fileset !== undefined) {
 			emitStatus(onStatus, {

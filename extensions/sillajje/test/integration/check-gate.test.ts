@@ -126,6 +126,28 @@ describeJj("sillajje settle check gate", () => {
 		expect(show).toContain("Checks: check passed");
 	}, 30_000);
 
+	it("does not reuse a verdict after the stamped change", async () => {
+		const cwd = initRepo();
+		writeConfig(cwd, [{ name: "check", command: "true" }]);
+		const { runner, workspace, sessionId } = await startSession(cwd);
+		writeFileSync(join(workspace, "work.txt"), "work\n");
+		await beginInteraction(runner);
+
+		expect((await emitBoundary(runner, "completed")).continue).toBe(false);
+		await runner.emit({ type: "agent_settled", aborted: false });
+		expect(jj(["show", sessionBookmark(sessionId)], cwd)).toContain(
+			"Checks: check passed",
+		);
+
+		// A later tree nobody checked is stamped without the old verdict.
+		writeFileSync(join(workspace, "later.txt"), "later\n");
+		await runSillajje(runner, "stamp -s @");
+
+		expect(jj(["show", sessionBookmark(sessionId)], cwd)).not.toContain(
+			"Checks:",
+		);
+	}, 30_000);
+
 	it("runs every settle check in declared order and reports every failure", async () => {
 		const cwd = initRepo();
 		writeConfig(cwd, [

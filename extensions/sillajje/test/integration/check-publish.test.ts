@@ -173,6 +173,68 @@ describeJj("sillajje publish check gate", () => {
 		);
 	}, 30_000);
 
+	it("refuses to check a workspace that differs from the sealed source", async () => {
+		const cwd = initRepo();
+		writeConfig(cwd, [
+			{ name: "ci", command: "true", triggers: ["publish"] },
+		]);
+		const { runner, workspace } = await start(cwd);
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
+		await interact(runner);
+		advanceMain(cwd);
+		// An unsealed edit would be checked but not published.
+		writeFileSync(join(workspace, "unsealed.txt"), "not stamped\n");
+		const before = childrenOf(cwd, "main").length;
+		const { notifications } = captureUi(runner);
+
+		await runSillajje(runner, "fold -s @ -o main");
+
+		expect(childrenOf(cwd, "main")).toHaveLength(before);
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "error",
+				msg: expect.stringContaining("uncommitted workspace edits"),
+			}),
+		);
+
+		await runSillajje(runner, "fold -s @ -o main --no-check");
+		expect(childrenOf(cwd, "main")).toHaveLength(before + 1);
+	}, 30_000);
+
+	it("returns no-changes for a no-op fold before running the publish check", async () => {
+		const cwd = initRepo();
+		writeConfig(cwd, [
+			{ name: "ci", command: "false", triggers: ["publish"] },
+		]);
+		const { runner, workspace } = await start(cwd);
+		writeFileSync(join(workspace, "session.txt"), "session work\n");
+		await interact(runner);
+		advanceMain(cwd);
+
+		await runSillajje(
+			runner,
+			"fold -s @ -o main --named review --no-check",
+		);
+		const { notifications } = captureUi(runner);
+
+		await runSillajje(runner, "fold -s @ -o main --named review");
+
+		expect(notifications).toContainEqual(
+			expect.objectContaining({
+				type: "info",
+				msg: expect.stringContaining("nothing to fold"),
+			}),
+		);
+		expect(
+			notifications.some((entry) =>
+				entry.msg.includes("publish check failed"),
+			),
+		).toBe(false);
+		expect(
+			recordsIn(getSessionManager(runner).getBranch(), "check"),
+		).toHaveLength(1);
+	}, 30_000);
+
 	it("refuses a revision source when a publish check exists", async () => {
 		const cwd = initRepo();
 		writeConfig(cwd, [

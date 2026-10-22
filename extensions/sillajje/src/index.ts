@@ -1472,6 +1472,9 @@ export default function (pi: ExtensionAPI) {
 			// found no changes, so the next Interaction starts after it.
 			markStamped(ctx, result.ok ? result.rev : null);
 		});
+		// The verdict belongs to the tree just stamped. Drop it so a later
+		// manual stamp cannot attach these results to a different tree.
+		resetSettleGate();
 	};
 
 	// -----------------------------------------------------------------------
@@ -1493,6 +1496,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const sessionKey = state.getSessionKey() ?? sessionId;
+		const gate = settleGate.verdict;
 
 		debug.event("stamp_manual_start");
 
@@ -1504,7 +1508,7 @@ export default function (pi: ExtensionAPI) {
 					buildStamp(ctx, undefined, progress, captured).session({
 						target: sessionKey,
 						current: { sessionKey, wsPath },
-						gate: settleGate.verdict,
+						gate,
 					}),
 				settle: stampSettle(captured),
 			});
@@ -1540,6 +1544,9 @@ export default function (pi: ExtensionAPI) {
 				);
 			}
 		});
+		// A manual stamp consumes the pending Interaction's verdict. It must
+		// not be reused for a later tree.
+		delete settleGate.verdict;
 	};
 
 	// -----------------------------------------------------------------------
