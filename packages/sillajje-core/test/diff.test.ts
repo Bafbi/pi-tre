@@ -12,7 +12,7 @@ import {
 	collectDiff,
 	emitDiffCondensed,
 	estimateTokens,
-	matchesOmit,
+	matchesGlob,
 } from "../src/diff.js";
 import type { StatusEvent } from "../src/index.js";
 
@@ -67,30 +67,30 @@ describe("estimateTokens", () => {
 	});
 });
 
-describe("matchesOmit", () => {
+describe("matchesGlob", () => {
 	it("matches a basename at any depth", () => {
-		expect(matchesOmit("yarn.lock", ["**/*.lock"])).toBe(true);
-		expect(matchesOmit("a/b/uv.lock", ["**/*.lock"])).toBe(true);
-		expect(matchesOmit("yarn.lock.bak", ["**/*.lock"])).toBe(false);
-		expect(matchesOmit("yarnlock", ["**/*.lock"])).toBe(false);
+		expect(matchesGlob("yarn.lock", ["**/*.lock"])).toBe(true);
+		expect(matchesGlob("a/b/uv.lock", ["**/*.lock"])).toBe(true);
+		expect(matchesGlob("yarn.lock.bak", ["**/*.lock"])).toBe(false);
+		expect(matchesGlob("yarnlock", ["**/*.lock"])).toBe(false);
 	});
 
 	it("matches an exact basename", () => {
-		expect(matchesOmit("go.sum", ["**/go.sum"])).toBe(true);
-		expect(matchesOmit("x/go.sum", ["**/go.sum"])).toBe(true);
-		expect(matchesOmit("go.sums", ["**/go.sum"])).toBe(false);
+		expect(matchesGlob("go.sum", ["**/go.sum"])).toBe(true);
+		expect(matchesGlob("x/go.sum", ["**/go.sum"])).toBe(true);
+		expect(matchesGlob("go.sums", ["**/go.sum"])).toBe(false);
 	});
 
 	it("matches a directory subtree", () => {
-		expect(matchesOmit("vendor/a/b.ts", ["**/vendor/**"])).toBe(true);
-		expect(matchesOmit("x/vendor/a.ts", ["**/vendor/**"])).toBe(true);
-		expect(matchesOmit("vendor", ["**/vendor/**"])).toBe(false);
+		expect(matchesGlob("vendor/a/b.ts", ["**/vendor/**"])).toBe(true);
+		expect(matchesGlob("x/vendor/a.ts", ["**/vendor/**"])).toBe(true);
+		expect(matchesGlob("vendor", ["**/vendor/**"])).toBe(false);
 	});
 
 	it("anchors the whole path", () => {
-		expect(matchesOmit("a.generated.ts", ["**/*.generated.*"])).toBe(true);
-		expect(matchesOmit("a.generated", ["**/*.generated.*"])).toBe(false);
-		expect(matchesOmit("pnpm-lock.yaml", ["**/*-lock.yaml"])).toBe(true);
+		expect(matchesGlob("a.generated.ts", ["**/*.generated.*"])).toBe(true);
+		expect(matchesGlob("a.generated", ["**/*.generated.*"])).toBe(false);
+		expect(matchesGlob("pnpm-lock.yaml", ["**/*-lock.yaml"])).toBe(true);
 	});
 });
 

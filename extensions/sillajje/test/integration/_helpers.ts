@@ -46,6 +46,7 @@ afterEach(async () => {
 		run: undefined,
 		exec: undefined,
 		progressDelayMs: undefined,
+		signal: undefined,
 	});
 	for (const dir of tempDirs.splice(0)) {
 		await rm(dir, { recursive: true, force: true });
@@ -91,6 +92,16 @@ export async function createRunner(
 	// Stamp marker write works.
 	loaded.runtime.appendEntry = (customType, data) =>
 		sessionManager.appendCustomEntry(customType, data);
+	// Bind the custom-message sink the manual check command reports through,
+	// so a test can read the report from the session log.
+	loaded.runtime.sendMessage = (message) => {
+		sessionManager.appendCustomMessageEntry(
+			message.customType,
+			message.content,
+			message.display ?? true,
+			message.details,
+		);
+	};
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(cwd, "auth.json"),
 		allowModelNetwork: false,
@@ -129,6 +140,27 @@ export function getSessionManager(runner: ExtensionRunner): SessionManager {
 		);
 	}
 	return sessionManager;
+}
+
+/**
+ * Emit the `agent_before_settle` boundary the settle gate binds to. The
+ * context preview is inert: the extension never reads it.
+ */
+export function emitBoundary(
+	runner: ExtensionRunner,
+	outcome: "completed" | "aborted" | "error",
+) {
+	const preview = {
+		contextEntries: [],
+		contextMessages: [],
+		llmMessages: [],
+		pendingMessages: [],
+		canContinue: true,
+	};
+	return runner.emitBoundary(
+		{ type: "agent_before_settle", outcome },
+		() => preview as never,
+	);
 }
 
 /**

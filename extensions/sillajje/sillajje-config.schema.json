@@ -32,6 +32,58 @@
 				"type": "string"
 			}
 		},
+		"checks": {
+			"default": [],
+			"type": "array",
+			"items": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": ["name", "command"],
+				"properties": {
+					"name": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"command": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"triggers": {
+						"default": ["settle"],
+						"uniqueItems": true,
+						"type": "array",
+						"items": {
+							"anyOf": [
+								{
+									"const": "settle",
+									"type": "string"
+								},
+								{
+									"const": "publish",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"timeoutMs": {
+						"default": 300000,
+						"minimum": 1,
+						"type": "integer"
+					},
+					"paths": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				}
+			}
+		},
+		"maxAttempts": {
+			"default": 5,
+			"minimum": 1,
+			"type": "integer"
+		},
 		"actions": {
 			"default": {},
 			"additionalProperties": false,
@@ -45,6 +97,7 @@
 						"body": {
 							"default": [
 								"trace",
+								"checks",
 								"meta",
 								"loop",
 								"prompt",
@@ -56,6 +109,10 @@
 								"anyOf": [
 									{
 										"const": "trace",
+										"type": "string"
+									},
+									{
+										"const": "checks",
 										"type": "string"
 									},
 									{
@@ -157,7 +214,7 @@
 					"type": "object",
 					"properties": {
 						"body": {
-							"default": ["summary", "ref", "skipped"],
+							"default": ["summary", "ref", "checks", "skipped"],
 							"uniqueItems": true,
 							"type": "array",
 							"items": {
@@ -168,6 +225,10 @@
 									},
 									{
 										"const": "ref",
+										"type": "string"
+									},
+									{
+										"const": "checks",
 										"type": "string"
 									},
 									{

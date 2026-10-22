@@ -17,6 +17,7 @@ import type {
 	StatusEvent,
 } from "../action.js";
 import type { SessionFailure } from "../args.js";
+import type { GateVerdict } from "../check.js";
 import type { DiffBudget, NarrativeDetail } from "../config.js";
 import type { OmittedFile } from "../diff.js";
 import type {
@@ -67,6 +68,11 @@ export interface SessionStampInput {
 	 * the diff alone.
 	 */
 	interaction?: InteractionData;
+	/**
+	 * The settle gate's terminal verdict for this Interaction. A stamp never
+	 * re-runs a check; it renders the verdict the gate already produced.
+	 */
+	gate?: GateVerdict | undefined;
 }
 
 /** Input for the Rev stamp: describe one revision, nothing else. */

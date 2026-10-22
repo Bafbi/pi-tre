@@ -103,7 +103,7 @@ _Avoid_: Trigger (the old term conflated the stamp mechanics with the Source)
 The full jj description: the subject line (the Header) plus the Commit body.
 
 **Commit body**:
-The ordered labelled sections after the subject line. A stamp contributes trace, change metadata, interaction loop, user prompt, and agent response; a Fold contributes a summary, a `Ref:` line, and a `Skipped:` line. Everything reviewable in `jj show`. `actions.<action>.body` selects the sections and their order.
+The ordered labelled sections after the subject line. A stamp contributes trace, the gate's `Checks:` line, change metadata, interaction loop, user prompt, and agent response; a Fold contributes a summary, a `Ref:` line, its publish gate's `Checks:` line, and a `Skipped:` line. Everything reviewable in `jj show`. `actions.<action>.body` selects the sections and their order.
 
 **Sub-generator**:
 Two tool-less pi subagents invoked in parallel by the extension through `@pi-tre/pi-subagent`'s in-process backend (no child process) — one produces the dual-prefix subject line (header), the other produces the compressed agent-loop narrative (trace). Inputs: session transcript (user messages + extracted assistant text), the diff, and previous change descriptions.
@@ -137,6 +137,26 @@ _Avoid_: Checkpoint, cursor (the Stamp marker is the cursor, but not every Marke
 **Record**:
 A persisted session-log entry that records one sillajje operation and its outcome, for after-the-fact diagnosis and retro. It is observational — the extension never reads it back — and each operation invocation writes two: a start record naming the input and resolved refs, then a terminal done, failed, or noop record. The start record survives a crash mid-operation.
 _Avoid_: Log line, telemetry, Status event (a Status event is the live core event; a Record is its persisted form)
+
+**Check**:
+A named shell command declared in project config, run at one or more Triggers. Its name is its identity — in Status events, Records, the commit's `Checks:` section, and the Check report. It runs in the session workspace, and its exit code is its verdict.
+_Avoid_: Hook, pre-commit (jj has no hooks), validation, lint (that is one Check a repo may declare)
+
+**Gate**:
+The set of Checks a Trigger selects, run together as one unit — the settle Gate, the publish Gate, the on-demand Gate. It is red if any Check in it is red. The Gate is what reports, loops, and records, not the individual Check.
+_Avoid_: Suite, batch, pipeline
+
+**Trigger**:
+What selects a Gate: `settle` at `agent_before_settle`, or `publish` before a Fold's transaction. A Check declares its Triggers; a Check with none defaults to `settle`, and a Check with an empty list runs only when asked for. There is no `manual` Trigger: asking for a Check is not a Trigger, it is the user running the check command.
+_Avoid_: Hook, phase, stage, manual
+
+**Check report**:
+What a red Gate hands the agent: the raw output of every failing Check, truncated the way a bash tool call truncates, with the full output left in a log file outside the workspace. Not the commit's `Checks:` line, which is the one-line verdict that outlives the session.
+_Avoid_: Error message, failure output
+
+**Waiver**:
+The recorded reason a red Gate did not block. One term, two surfaces: the agent at settle gives a reason that ends the loop, and the user at publish passes `--no-check`.
+_Avoid_: Bypass, skip, `--no-verify`
 
 ## Concurrency
 

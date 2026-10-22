@@ -8,6 +8,9 @@
 
 export type {
 	Action,
+	CommandPort,
+	CommandRequest,
+	CommandResult,
 	HostPorts,
 	PhaseCode,
 	PlanEvent,
@@ -33,6 +36,8 @@ export {
 } from "./archive.js";
 export {
 	type ArgValue,
+	CHECK_ARGS,
+	CHECK_HELP,
 	type CommandHelp,
 	type CommandSpec,
 	type FlagDef,
@@ -47,11 +52,31 @@ export {
 } from "./args.js";
 export { assembleDescription, type Section } from "./body.js";
 export {
+	type CheckResult,
+	type CheckStatus,
+	checkPathSelected,
+	checkSelected,
+	describeFailingChecks,
+	failingChecks,
+	type GateInput,
+	type GateResult,
+	type GateSelector,
+	type GateVerdict,
+	gateIsRed,
+	gateRanNothing,
+	runGate,
+} from "./check.js";
+export {
+	type CheckDefinition,
+	type ChecksConfig,
+	type CheckTrigger,
+	DEFAULT_CHECK_MAX_ATTEMPTS,
 	DEFAULT_DIFF_MAX_LINES_PER_FILE,
 	DEFAULT_DIFF_MAX_TOKENS,
 	DEFAULT_DIFF_OMIT,
 	type DiffBudget,
 	defaultSillajjeConfig,
+	getChecksConfig,
 	type SillajjeConfig,
 	SillajjeConfigSchema,
 } from "./config.js";
@@ -66,6 +91,7 @@ export {
 	getFoldConfig,
 } from "./fold.js";
 export {
+	buildChecksLine,
 	buildCommitBody,
 	buildFoldBody,
 	buildLoop,

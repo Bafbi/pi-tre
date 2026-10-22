@@ -10,11 +10,19 @@ import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_DIFF_OMIT,
 	defaultSillajjeConfig,
+	getChecksConfig,
 	type SillajjeConfig,
 	SillajjeConfigSchema,
 } from "../src/index.js";
 
-const DEFAULT_STAMP_BODY = ["trace", "meta", "loop", "prompt", "response"];
+const DEFAULT_STAMP_BODY = [
+	"trace",
+	"checks",
+	"meta",
+	"loop",
+	"prompt",
+	"response",
+];
 const DEFAULT_LOOP = ["tools", "call_count", "elapsed", "thinking_blocks"];
 
 /** Apply the schema's defaults to a raw value, as the loader does. */
@@ -39,6 +47,7 @@ describe("SillajjeConfigSchema", () => {
 		expect(config.actions?.fold?.body).toEqual([
 			"summary",
 			"ref",
+			"checks",
 			"skipped",
 		]);
 		expect(config.actions?.fold?.summary?.detail).toBe("high");
@@ -134,6 +143,74 @@ describe("SillajjeConfigSchema", () => {
 
 	it("rejects a non-boolean debug value", () => {
 		expect(Check(SillajjeConfigSchema, { debug: "yes" })).toBe(false);
+	});
+
+	it("defaults checks to an empty list and the budget to five", () => {
+		const config = populate({});
+		expect(config.checks).toEqual([]);
+		expect(config.maxAttempts).toBe(5);
+	});
+
+	it("defaults a check's triggers, timeout, and paths", () => {
+		const config = populate({
+			checks: [{ name: "check", command: "mise run check" }],
+		});
+		expect(getChecksConfig(config).checks).toEqual([
+			{
+				name: "check",
+				command: "mise run check",
+				triggers: ["settle"],
+				timeoutMs: 300_000,
+				paths: [],
+			},
+		]);
+	});
+
+	it("keeps empty triggers as on demand only", () => {
+		const config = populate({
+			checks: [{ name: "check", command: "true", triggers: [] }],
+		});
+		expect(getChecksConfig(config).checks[0]?.triggers).toEqual([]);
+	});
+
+	it("rejects an unknown trigger value instead of falling through", () => {
+		expect(
+			Check(SillajjeConfigSchema, {
+				checks: [
+					{
+						name: "check",
+						command: "true",
+						triggers: ["manual"],
+					},
+				],
+			}),
+		).toBe(false);
+	});
+
+	it("rejects a second check with the same name", () => {
+		const config = populate({
+			checks: [
+				{ name: "check", command: "true" },
+				{ name: "check", command: "false" },
+			],
+		});
+		expect(() => getChecksConfig(config)).toThrow(/duplicate check name/);
+	});
+
+	it("accepts both trigger values", () => {
+		const config = populate({
+			checks: [
+				{
+					name: "check",
+					command: "true",
+					triggers: ["settle", "publish"],
+				},
+			],
+		});
+		expect(getChecksConfig(config).checks[0]?.triggers).toEqual([
+			"settle",
+			"publish",
+		]);
 	});
 });
 

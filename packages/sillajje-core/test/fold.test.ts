@@ -12,8 +12,11 @@ import type {
 } from "@pi-tre/sillajje-workspace";
 import { describe, expect, it, vi } from "vitest";
 import {
+	type CommandPort,
+	type CommandRequest,
 	createFold,
 	defaultSillajjeConfig,
+	type SillajjeConfig,
 	type StatusEvent,
 } from "../src/index.js";
 
@@ -245,6 +248,16 @@ function collectingSink(): {
 
 const RUN = async () => ({ text: "test subject\ntrace narrative" });
 
+const PASS: CommandPort = {
+	exec: async () => ({
+		code: 0,
+		stdout: "",
+		stderr: "",
+		killed: false,
+		durationMs: 1,
+	}),
+};
+
 function fold(opts?: {
 	jj?: Fakes;
 	resolve?: (
@@ -252,6 +265,8 @@ function fold(opts?: {
 		current: CurrentSession,
 	) => Promise<SessionTargetResolution>;
 	archive?: () => Promise<ArchiveOutcome>;
+	config?: SillajjeConfig;
+	command?: CommandPort;
 }) {
 	const fakes = opts?.jj ?? makeJj();
 	const archive = vi.fn(
@@ -271,9 +286,10 @@ function fold(opts?: {
 	const action = createFold({
 		jj: fakes.jj,
 		workspaces,
-		config: defaultSillajjeConfig(),
+		config: opts?.config ?? defaultSillajjeConfig(),
 		onStatus,
 		run: RUN,
+		command: opts?.command ?? PASS,
 	});
 	return { action, fakes, statuses, archive };
 }
@@ -1317,7 +1333,7 @@ describe("createFold", () => {
 			rebase: "boom",
 		});
 
-		expect(result).toEqual({ ok: false, reason: "failed" });
+		expect(result).toMatchObject({ ok: false, reason: "failed" });
 		expect(statuses).toContainEqual(
 			expect.objectContaining({ kind: "error", code: "fold_failed" }),
 		);
@@ -1426,5 +1442,161 @@ describe("createFold", () => {
 				code: "update_stale_failed",
 			}),
 		);
+	});
+
+	it("runs the publish gate against the source workspace before the transaction", async () => {
+		const requests: CommandRequest[] = [];
+		const command: CommandPort = {
+			exec: async (request) => {
+				requests.push(request);
+				return {
+					code: 0,
+					stdout: "ok",
+					stderr: "",
+					killed: false,
+					durationMs: 25,
+				};
+			},
+		};
+		const config = defaultSillajjeConfig();
+		config.checks = [
+			{
+				name: "ci",
+				command: "mise run ci",
+				triggers: ["publish"],
+				timeoutMs: 1000,
+				paths: [],
+			},
+		];
+		const { action, fakes } = fold({ command, config });
+
+		const result = await action({
+			session: "@",
+			current: CURRENT,
+			onto: "main",
+		});
+
+		expect(result.ok).toBe(true);
+		expect(requests[0]).toMatchObject({
+			command: "mise run ci",
+			cwd: "/ws",
+			timeoutMs: 1000,
+		});
+		const squash = fakes.apply.mock.calls.find(
+			(c) => (c[0] as { kind: string }).kind === "squash",
+		)?.[0] as { message: string };
+		expect(squash.message).toContain("Checks: ci passed");
+	});
+
+	it("blocks the fold when a publish check is red", async () => {
+		const config = defaultSillajjeConfig();
+		config.checks = [
+			{
+				name: "ci",
+				command: "false",
+				triggers: ["publish"],
+				timeoutMs: 1000,
+				paths: [],
+			},
+		];
+		const { action, fakes, statuses } = fold({
+			config,
+			command: {
+				exec: async () => ({
+					code: 1,
+					stdout: "",
+					stderr: "boom",
+					killed: false,
+					durationMs: 5,
+				}),
+			},
+		});
+
+		const result = await action({
+			session: "@",
+			current: CURRENT,
+			onto: "main",
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "failed",
+			message: expect.stringContaining("publish check failed: ci"),
+		});
+		// Nothing is published: the recipe never opened a transaction operation.
+		expect(fakes.apply).not.toHaveBeenCalled();
+		expect(statuses).toContainEqual(
+			expect.objectContaining({ kind: "error", code: "fold_failed" }),
+		);
+	});
+
+	it("records --no-check as a waiver and publishes anyway", async () => {
+		const config = defaultSillajjeConfig();
+		config.checks = [
+			{
+				name: "ci",
+				command: "false",
+				triggers: ["publish"],
+				timeoutMs: 1000,
+				paths: [],
+			},
+		];
+		const { action, fakes } = fold({
+			config,
+			command: {
+				exec: async () => ({
+					code: 1,
+					stdout: "",
+					stderr: "boom",
+					killed: false,
+					durationMs: 5,
+				}),
+			},
+		});
+
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			noCheck: true,
+		});
+
+		expect(result.ok).toBe(true);
+		const squash = fakes.apply.mock.calls.find(
+			(c) => (c[0] as { kind: string }).kind === "squash",
+		)?.[0] as { message: string };
+		expect(squash.message).toContain("ci waived (--no-check)");
+	});
+
+	it("refuses a rev source when a publish check exists and has no workspace", async () => {
+		const config = defaultSillajjeConfig();
+		config.checks = [
+			{
+				name: "ci",
+				command: "true",
+				triggers: ["publish"],
+				timeoutMs: 1000,
+				paths: [],
+			},
+		];
+		const { action, fakes } = fold({ config });
+
+		const result = await action({ rev: "feat", onto: "main" });
+
+		expect(result).toMatchObject({
+			ok: false,
+			reason: "failed",
+			message: expect.stringContaining("--no-check"),
+		});
+		expect(fakes.apply).not.toHaveBeenCalled();
+	});
+
+	it("treats --no-check as a no-op when no publish check exists", async () => {
+		const { action } = fold();
+		const result = await action({
+			rev: "feat",
+			onto: "main",
+			noCheck: true,
+		});
+		expect(result.ok).toBe(true);
 	});
 });

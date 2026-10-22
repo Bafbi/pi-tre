@@ -55,7 +55,7 @@ const GLOB_CACHE = new Map<string, RegExp>();
  * `**\/` matches zero or more leading segments, so `**\/*.lock` matches both
  * `yarn.lock` and `vendor/yarn.lock`.
  */
-export function matchesOmit(
+export function matchesGlob(
 	path: string,
 	patterns: readonly string[],
 ): boolean {
@@ -221,7 +221,7 @@ export async function collectDiff(
 
 	const ignored = new Set(
 		files
-			.filter((file) => matchesOmit(file.path, budget.omit))
+			.filter((file) => matchesGlob(file.path, budget.omit))
 			.map((file) => file.path),
 	);
 
