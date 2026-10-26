@@ -132,7 +132,7 @@
 			<p>This removes every observed edit block without adding a parser case. It also closes an existing hole: today a <code>head -n 5</code> or a partial <code>read</code> lets the agent overwrite the rest of the file.</p>
 		</div>
 		<div class="callout info">
-			<p><strong>Implemented 2026-10-24.</strong> <code>edit</code> is no longer gated; <code>write</code> requires a full read; the bash parser accepts only a bare <code>cat</code>, resolves operands literally, and drops paths after a <code>cd</code>/<code>pushd</code>/<code>popd</code> segment. <code>mise run //extensions/stale-write-guard:check</code> passes 68 tests, and the per-extension <code>ci</code> scan is clean.</p>
+			<p><strong>Implemented 2026-10-24.</strong> <code>edit</code> is no longer gated; <code>write</code> requires a full read; the bash parser accepts only a bare <code>cat</code>, resolves operands literally, skips tilde-prefixed operands, and drops paths after a <code>cd</code>/<code>pushd</code>/<code>popd</code> segment. <code>mise run //extensions/stale-write-guard:check</code> passes 70 tests, and the per-extension <code>ci</code> scan is clean.</p>
 		</div>
 	</section>
 
@@ -163,7 +163,7 @@
 		<h3>What counts as a full read for <code>write</code></h3>
 		<ul>
 			<li><code>read</code> with no <code>offset</code>, no <code>limit</code>, and no truncation. The read tool caps at 2,000 lines or 50&nbsp;KB; a truncated result is not full.</li>
-			<li><code>cat</code> with no pipeline, no redirect, no command substitution, no flag, and no truncated bash output. Operands resolve literally: a leading <code>@</code> stays and <code>~</code> is not expanded. A <code>cd</code>/<code>pushd</code>/<code>popd</code> before the <code>cat</code> drops every later path.</li>
+			<li><code>cat</code> with no pipeline, no redirect, no command substitution, no flag, and no truncated bash output. Operands resolve literally: a leading <code>@</code> stays and <code>~</code> is not expanded; tilde-prefixed operands are skipped. A <code>cd</code>/<code>pushd</code>/<code>popd</code> before the <code>cat</code> drops every later path.</li>
 			<li>A <code>/skill:name</code> block or a session context file whose disk content still matches the injected content.</li>
 		</ul>
 

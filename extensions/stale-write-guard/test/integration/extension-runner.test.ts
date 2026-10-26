@@ -449,6 +449,38 @@ describe("stale-write-guard extension", () => {
 		expect(atWrite).toBeUndefined();
 	});
 
+	it("does not record a tilde-prefixed operand", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const literalDir = join(cwd, "~");
+		const literalPath = join(literalDir, "note.txt");
+
+		mkdirSync(literalDir, { recursive: true });
+		writeFileSync(literalPath, "literal tilde file\n", "utf8");
+		setMtimeMs(literalPath, 1_000_000);
+
+		// Bash expands `~` to home, so this cat never prints the literal
+		// `<cwd>/~/note.txt` file.
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-tilde",
+			toolName: "bash",
+			input: { command: "cat ~/note.txt" },
+			content: [{ type: "text", text: "home file" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-tilde",
+			toolName: "write",
+			input: { path: "./~/note.txt", content: "new\n" },
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
 	it("allows a second write after a successful write", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);

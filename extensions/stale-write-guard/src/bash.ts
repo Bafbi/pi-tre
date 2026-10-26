@@ -92,7 +92,11 @@ function segmentPaths(segment: string): string[] {
 		// A flag changes the view (`-s` drops lines, `-n`/`-A` rewrite them)
 		// or adds options. Only a bare `cat file` proves the whole content.
 		if (operands.some((token) => token.startsWith("-"))) return [];
-		return operands;
+		// The shell expands a leading `~` before `cat` sees the path. The
+		// tokenizer drops quote information, so the guard cannot tell an
+		// expanded `~/x` from a literal `~/x`. Skip it; a record for the
+		// literal `<cwd>/~/x` would authorize a file the shell never read.
+		return operands.filter((token) => !token.startsWith("~"));
 	}
 	return [];
 }

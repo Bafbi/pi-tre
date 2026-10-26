@@ -21,6 +21,15 @@ describe("extractFullReadPaths", () => {
 		expect(extractFullReadPaths("cat -A notes.txt")).toEqual([]);
 	});
 
+	it("skips tilde-prefixed operands", () => {
+		expect(extractFullReadPaths("cat ~/notes.txt")).toEqual([]);
+		expect(extractFullReadPaths("cat ~")).toEqual([]);
+		expect(extractFullReadPaths("cat ~/notes.txt other.txt")).toEqual([
+			"other.txt",
+		]);
+		expect(extractFullReadPaths("cat ./~file")).toEqual(["./~file"]);
+	});
+
 	it("ignores partial readers", () => {
 		expect(extractFullReadPaths("head -n 5 notes.txt")).toEqual([]);
 		expect(extractFullReadPaths("tail -f log.txt")).toEqual([]);

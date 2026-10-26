@@ -29,10 +29,10 @@ later `write` then needs a fresh full read.
   caps at 2,000 lines or 50 KB; a truncated result is not full.
 - `cat` with no pipe, no redirect, no command substitution, no flag,
   and no truncated bash output. The path resolves literally: a leading
-  `@` is part of the filename and `~` is not expanded, so `cat ~/file`
-  does not count. A `cd`/`pushd`/`popd` before it makes later relative
-  paths ambiguous: paths after that segment do not count. Use `read` or
-  an absolute path.
+  `@` is part of the filename, and `~` is not expanded. Operands starting
+  with `~` are skipped, so `cat ~/file` does not count. A
+  `cd`/`pushd`/`popd` before it makes later relative paths ambiguous:
+  paths after that segment do not count. Use `read` or an absolute path.
 - A `/skill:name` block or a session context file whose disk content
   still matches the injected content.
 - A successful `write`. The agent authored the whole file.
@@ -69,8 +69,8 @@ On a successful `bash` tool result, the guard parses the command
 - Only a bare `cat` (no flags) qualifies. A flag (`-n`, `-A`, `-s`,
   `--number`) changes the view or adds options, so it does not count.
 - Bash operands are resolved literally: a leading `@` stays, and `~` is
-  not expanded. `cat ~/file` records nothing; use `read` or an absolute
-  path.
+  not expanded. Operands starting with `~` are skipped, so `cat ~/file`
+  records nothing; use `read` or an absolute path.
 - Commands with pipes, redirects, command substitution, variables, or
   backgrounding record nothing: the parser cannot tell what the agent
   actually saw.
