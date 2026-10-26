@@ -9,8 +9,14 @@
  */
 
 import { emitStatus } from "../action.js";
+import type { GateVerdict } from "../check.js";
 import { collectDiff, type OmittedFile } from "../diff.js";
-import { buildCommitBody, buildMeta, type StampSource } from "../metadata.js";
+import {
+	buildChecksLine,
+	buildCommitBody,
+	buildMeta,
+	type StampSource,
+} from "../metadata.js";
 import { generateManualHeader } from "../sub-generator.js";
 import { queryFailureDetail } from "./internal.js";
 import type { StampDeps, StampDiagnostics } from "./types.js";
@@ -47,6 +53,7 @@ export async function buildDiffOnlyBody(
 	jjDir: string,
 	rev: string,
 	facts: DiffOnlyFacts,
+	gate?: GateVerdict | undefined,
 ): Promise<DiffOnlyBody> {
 	const cfg = deps.cfg;
 	emitStatus(deps.onStatus, { kind: "phase", code: "collecting-diff" });
@@ -116,6 +123,10 @@ export async function buildDiffOnlyBody(
 		{
 			subject,
 			trace: "",
+			checks:
+				gate === undefined
+					? ""
+					: buildChecksLine(gate.results, gate.moved === true),
 			prompt: "",
 			metadata,
 			loop: "",

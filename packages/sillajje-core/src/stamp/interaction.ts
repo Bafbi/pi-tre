@@ -8,8 +8,10 @@
  */
 
 import { emitStatus } from "../action.js";
+import type { GateVerdict } from "../check.js";
 import { collectDiff, type OmittedFile } from "../diff.js";
 import {
+	buildChecksLine,
 	buildCommitBody,
 	buildLoop,
 	buildMeta,
@@ -57,6 +59,7 @@ export async function stampInteractionPath(
 	workspace: { sessionKey: string; wsPath: string },
 	interaction: InteractionData,
 	deps: StampDeps,
+	gate?: GateVerdict | undefined,
 ): Promise<StampResult> {
 	const { wsPath, sessionKey } = workspace;
 	const data = interaction;
@@ -184,6 +187,10 @@ export async function stampInteractionPath(
 		{
 			subject,
 			trace: wants("trace") ? smartWrap(trace.text, 72) : "",
+			checks:
+				wants("checks") && gate !== undefined
+					? buildChecksLine(gate.results, gate.moved === true)
+					: "",
 			prompt: wants("prompt") ? data.prompt : "",
 			metadata,
 			loop,

@@ -26,6 +26,7 @@ export interface ProvenanceVersions {
 export type PhaseCode =
 	| "collecting-diff"
 	| "generating-header"
+	| "checking"
 	| "sealing-change"
 	| "rebasing"
 	| "folding"
@@ -138,6 +139,40 @@ export interface SubagentPort {
 	run: RunSubagent;
 }
 
+/** One shell command the gate asks the host to run. */
+export interface CommandRequest {
+	/** A shell command line, run with `sh -c` by the host. */
+	command: string;
+	/** The working directory: the session workspace root. */
+	cwd: string;
+	/** The per-check timeout. */
+	timeoutMs: number;
+	/** The turn's abort signal; Escape cancels the check. */
+	signal?: AbortSignal | undefined;
+}
+
+/** What one command run observed. */
+export interface CommandResult {
+	code: number;
+	stdout: string;
+	stderr: string;
+	/** Whether the host killed the process, as on a timeout or abort. */
+	killed: boolean;
+	/** Wall time as measured by the host. */
+	durationMs: number;
+}
+
+/**
+ * The command boundary. The core never learns how the host spawns a process;
+ * the adapter binds this to its own process execution and owns `sh -c`, the
+ * environment, and `CI=1`.
+ */
+export interface CommandPort {
+	/** Named `exec`, not `run`: `SubagentPort` already owns `run`, and a Fold
+	 * binds both. */
+	exec: (input: CommandRequest) => Promise<CommandResult>;
+}
+
 /**
  * Every port a host can supply. A factory takes the intersection of the ports
  * it uses, so this is the union, not a minimum.
@@ -146,7 +181,10 @@ export type HostPorts = JjPort &
 	WorkspacePort &
 	ConfigPort &
 	VersionsPort &
-	StatusPort;
+	StatusPort & {
+		/** Present when the host can run a declared check. */
+		command: CommandPort;
+	};
 
 /** An action: its ports are bound, its input is the only parameter. */
 export type Action<Input, Result> = (input: Input) => Promise<Result>;

@@ -35,6 +35,7 @@ import {
 import type { CurrentSession } from "@pi-tre/sillajje-workspace";
 import {
 	type Action,
+	type CommandPort,
 	type ConfigPort,
 	emitPlan,
 	emitStatus,
@@ -46,13 +47,23 @@ import {
 } from "./action.js";
 import type { CommandHelp, CommandSpec, SessionFailure } from "./args.js";
 import {
+	type CheckResult,
+	describeFailingChecks,
+	type GateResult,
+	gateIsRed,
+	runGate,
+} from "./check.js";
+import {
+	type CheckDefinition,
 	type DiffBudget,
+	getChecksConfig,
 	type NarrativeDetail,
 	type SillajjeConfig,
 	subGeneratorDefaults,
 } from "./config.js";
 import { collectDiff, type OmittedFile } from "./diff.js";
 import {
+	buildChecksLine,
 	buildFoldBody,
 	FOLD_BODY_SECTIONS,
 	type FoldBodySection,
@@ -92,6 +103,8 @@ export interface FoldInput {
 	push?: boolean | undefined;
 	/** `--no-marker`: ignore the Folded source marker and record none. */
 	noMarker?: boolean | undefined;
+	/** `--no-check`: publish even when a publish check is red; recorded as a waiver. */
+	noCheck?: boolean | undefined;
 	/** `--rebase <rev>`: move this revision and its descendants onto the folded change. */
 	rebase?: string | undefined;
 }
@@ -107,6 +120,8 @@ interface FoldDiagnostics {
 	};
 	model: string;
 	fallbacks: string[];
+	/** The publish gate's per-check verdicts. Empty when no publish check ran. */
+	checks: readonly CheckResult[];
 }
 
 /** The fold outcome. Conflicts carry the files for the adapter to render. */
@@ -145,12 +160,16 @@ export type FoldResult =
 			resolved?:
 				| { base: string; tip: string; target: string }
 				| undefined;
+			/** The publish gate's per-check verdicts, when it ran. */
+			checks?: readonly CheckResult[] | undefined;
 	  };
 
 /** The fold's extracted configuration. */
 export interface FoldConfig {
 	body: readonly FoldBodySection[];
 	summaryDetail: NarrativeDetail;
+	/** Every declared check; the publish gate selects by Trigger. */
+	checks: readonly CheckDefinition[];
 	model: string;
 	maxAttempts: number;
 	timeoutMs: number;
@@ -176,6 +195,7 @@ export function getFoldConfig(cfg: SillajjeConfig): FoldConfig {
 	return {
 		body: fold?.body ?? FOLD_BODY_SECTIONS,
 		summaryDetail: fold?.summary?.detail ?? "high",
+		checks: getChecksConfig(cfg).checks,
 		...generator,
 	};
 }
@@ -193,6 +213,8 @@ interface FoldSource {
 	sourceName: string;
 	/** The directory jj runs in. */
 	cwd: string;
+	/** The live session workspace, when the source has one. */
+	workspacePath?: string | undefined;
 }
 
 /** A revset that resolved to zero revisions or many, never exactly one. */
@@ -562,7 +584,13 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
  * Bind the fold action's ports and return the action. It needs jj, the
  * workspace port, the config, the status sink, and the sub-generator.
  */ export function createFold(
-	ports: JjPort & WorkspacePort & ConfigPort & StatusPort & SubagentPort,
+	ports: JjPort &
+		WorkspacePort &
+		ConfigPort &
+		StatusPort &
+		SubagentPort & {
+			command: CommandPort;
+		},
 ): Action<FoldInput, FoldResult> {
 	const { jj, workspaces, onStatus } = ports;
 	const cfg = getFoldConfig(ports.config);
@@ -570,6 +598,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 	const fail = (
 		message: string,
 		resolved?: { base: string; tip: string; target: string },
+		checks?: readonly CheckResult[],
 	): FoldResult => {
 		emitStatus(onStatus, {
 			kind: "error",
@@ -579,7 +608,9 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		return {
 			ok: false,
 			reason: "failed",
+			message,
 			...(resolved ? { resolved } : {}),
+			...(checks ? { checks } : {}),
 		};
 	};
 
@@ -676,6 +707,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 						sessionKey: resolved.sessionKey,
 						sourceName: resolved.sessionKey,
 						cwd: resolved.wsPath,
+						workspacePath: resolved.wsPath,
 					};
 				} else if (resolved.reason === "archived") {
 					const sessionKey = workspaces.sessionKey(target);
@@ -849,6 +881,26 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 			target: targetRev,
 		};
 
+		// A source with no live workspace cannot run a publish check, so it
+		// refuses unless the user passes `--no-check`. A session source waits
+		// for the empty-delta checks below: a no-op fold must stay a no-op.
+		const publishChecks = cfg.checks.filter((check) =>
+			check.triggers.includes("publish"),
+		);
+		const gateCwd = source.workspacePath;
+		if (
+			publishChecks.length > 0 &&
+			input.noCheck !== true &&
+			gateCwd === undefined
+		) {
+			const names = publishChecks.map((check) => check.name).join(", ");
+			return fail(
+				`publish check ${names} needs a live session workspace; pass --no-check to publish unverified`,
+				resolvedRef,
+			);
+		}
+		let gate: GateResult | undefined;
+
 		// An empty delta is a designed no-op, before any mutation.
 		if (delta.length === 0) {
 			return { ok: false, reason: "no-changes" };
@@ -886,6 +938,81 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 		if (diff.trim().length === 0) {
 			return { ok: false, reason: "no-changes" };
 		}
+
+		// The publish gate runs once, against the source workspace's working
+		// copy, before the transaction opens. A red check publishes nothing.
+		if (publishChecks.length > 0) {
+			if (input.noCheck === true) {
+				gate = {
+					trigger: "publish",
+					results: publishChecks.map((check) => ({
+						name: check.name,
+						status: "waived" as const,
+						durationMs: 0,
+						reason: "--no-check",
+					})),
+				};
+			} else if (gateCwd !== undefined) {
+				// A passing verdict must describe what the fold publishes. The
+				// working copy is the checked tree, so an unsealed edit would
+				// validate content the fold leaves behind.
+				let workspaceDiff: Awaited<ReturnType<Jj["diffFiles"]>>;
+				try {
+					workspaceDiff = await jj.diffFiles(
+						{ from: tip.commitId, to: "@" },
+						{ cwd: gateCwd },
+					);
+				} catch (err) {
+					return fail(
+						`publish check could not compare the workspace to ${tip.changeId}: ${String(err)}`,
+						resolvedRef,
+					);
+				}
+				if (workspaceDiff.length > 0) {
+					const names = publishChecks
+						.map((check) => check.name)
+						.join(", ");
+					return fail(
+						`publish check ${names} would validate uncommitted workspace edits that the fold does not publish; stamp them first or pass --no-check`,
+						resolvedRef,
+					);
+				}
+
+				let changedPaths: readonly string[] | undefined;
+				if (publishChecks.some((check) => check.paths.length > 0)) {
+					try {
+						changedPaths = (
+							await jj.diffFiles(
+								{
+									from: base.commitId,
+									to: tip.commitId,
+								},
+								{ cwd: sourceCwd },
+							)
+						).map((file) => file.path);
+					} catch {
+						changedPaths = undefined;
+					}
+				}
+				gate = await runGate(
+					{ command: ports.command, onStatus },
+					{
+						checks: cfg.checks,
+						trigger: "publish",
+						cwd: gateCwd,
+						changedPaths,
+					},
+				);
+				if (gateIsRed(gate)) {
+					return fail(
+						`publish check failed: ${describeFailingChecks(gate)} — pass --no-check to publish unverified`,
+						resolvedRef,
+						gate.results,
+					);
+				}
+			}
+		}
+		const gateResults = gate?.results ?? [];
 
 		if (fileset !== undefined) {
 			emitStatus(onStatus, {
@@ -945,6 +1072,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 					subject,
 					summary: smartWrap(summary.text, 72),
 					ref,
+					checks: buildChecksLine(gateResults),
 					skipped: input.exclude ?? [],
 				},
 				cfg.body,
@@ -1179,6 +1307,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 				diff: { files, omitted },
 				model: cfg.model,
 				fallbacks,
+				checks: [...gateResults],
 			},
 		};
 	};
@@ -1187,7 +1316,7 @@ function copyRange(copies: Commit[]): { root: Commit; head: Commit } {
 /** The fold subcommand — publish a source range under a target. */
 export const FOLD_ARGS: CommandSpec = {
 	name: "fold",
-	usage: "fold (-s <id|@> | -r <rev>) -o <rev> [--named [<branch>]] [--update [<bookmark>]] [--push] [--archive] [--exclude <path>] [--no-marker] [--rebase <rev>]",
+	usage: "fold (-s <id|@> | -r <rev>) -o <rev> [--named [<branch>]] [--update [<bookmark>]] [--push] [--archive] [--exclude <path>] [--no-marker] [--no-check] [--rebase <rev>]",
 	flags: [
 		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
 		{ key: "rev", aliases: ["-r", "--rev"], takesValue: true },
@@ -1197,6 +1326,7 @@ export const FOLD_ARGS: CommandSpec = {
 		{ key: "push", aliases: ["--push"], takesValue: false },
 		{ key: "archive", aliases: ["--archive"], takesValue: false },
 		{ key: "noMarker", aliases: ["--no-marker"], takesValue: false },
+		{ key: "noCheck", aliases: ["--no-check"], takesValue: false },
 		{ key: "rebase", aliases: ["--rebase"], takesValue: true },
 		{
 			key: "exclude",
@@ -1225,6 +1355,7 @@ export const FOLD_HELP: CommandHelp = {
 		"      --archive          archive the session after a successful fold",
 		"      --exclude <path>   leave paths out of the published change (repeatable)",
 		"      --no-marker        ignore and write no Folded source marker",
+		"      --no-check         publish even when the publish check is red",
 		"      --rebase <rev>     move <rev> and its descendants onto the folded change",
 		"  -h, --help             show this help",
 		"",

@@ -39,6 +39,7 @@ export const LOOP_FIELDS: readonly LoopField[] = [
 /** A stamp's body section, in config order. */
 export type StampBodySection =
 	| "trace"
+	| "checks"
 	| "meta"
 	| "loop"
 	| "prompt"
@@ -47,6 +48,7 @@ export type StampBodySection =
 /** Every section a stamp body can carry, in default order. */
 export const STAMP_BODY_SECTIONS: readonly StampBodySection[] = [
 	"trace",
+	"checks",
 	"meta",
 	"loop",
 	"prompt",
@@ -54,12 +56,13 @@ export const STAMP_BODY_SECTIONS: readonly StampBodySection[] = [
 ];
 
 /** A fold's body section, in config order. */
-export type FoldBodySection = "summary" | "ref" | "skipped";
+export type FoldBodySection = "summary" | "ref" | "checks" | "skipped";
 
 /** Every section a fold body can carry, in default order. */
 export const FOLD_BODY_SECTIONS: readonly FoldBodySection[] = [
 	"summary",
 	"ref",
+	"checks",
 	"skipped",
 ];
 
@@ -234,6 +237,60 @@ const SubGeneratorSchema = Type.Object(
 );
 
 // ---------------------------------------------------------------------------
+// Checks
+// ---------------------------------------------------------------------------
+
+/** Where a check runs automatically. */
+export type CheckTrigger = "settle" | "publish";
+
+const CheckTriggerSchema = Type.Union([
+	Type.Literal("settle"),
+	Type.Literal("publish"),
+]);
+
+/** A check declaration as the config writes it and the gate reads it. */
+export interface CheckDefinition {
+	/** The check's identity in status events, Records, and the `Checks:` line. */
+	name: string;
+	/** A shell command line, run with `sh -c` in the session workspace. */
+	command: string;
+	/** The gates the check runs with; empty means on demand only. */
+	triggers: readonly CheckTrigger[];
+	/** The per-check timeout, in milliseconds. */
+	timeoutMs: number;
+	/** Globs the interaction's diff must match; empty means always run. */
+	paths: readonly string[];
+}
+
+/** The checks the gate reads, plus the loop budget. */
+export interface ChecksConfig {
+	checks: readonly CheckDefinition[];
+	maxAttempts: number;
+}
+
+/** One check in the config file. */
+const CheckSchema = Type.Object(
+	{
+		name: Type.String({ minLength: 1 }),
+		command: Type.String({ minLength: 1 }),
+		triggers: Type.Optional(
+			Type.Array(CheckTriggerSchema, {
+				default: ["settle"],
+				uniqueItems: true,
+			}),
+		),
+		timeoutMs: Type.Optional(
+			Type.Integer({ default: 300_000, minimum: 1 }),
+		),
+		paths: Type.Optional(Type.Array(Type.String())),
+	},
+	{ additionalProperties: false },
+);
+
+/** Default attempt budget for the settle gate. */
+export const DEFAULT_CHECK_MAX_ATTEMPTS = 5;
+
+// ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
 
@@ -274,6 +331,21 @@ export const SillajjeConfigSchema = Type.Object(
 		 * directory entry copies recursively.
 		 */
 		seed: Type.Optional(Type.Array(Type.String(), { default: [] })),
+		/**
+		 * Named shell commands the check gate runs. Absent means no checks and the
+		 * extension behaves as it did before the gate existed.
+		 */
+		checks: Type.Optional(Type.Array(CheckSchema, { default: [] })),
+		/**
+		 * The settle gate's attempt budget. A red gate continues the interaction
+		 * at most this many times before it settles with the failure recorded.
+		 */
+		maxAttempts: Type.Optional(
+			Type.Integer({
+				default: DEFAULT_CHECK_MAX_ATTEMPTS,
+				minimum: 1,
+			}),
+		),
 		/**
 		 * Per-action body and section configuration.
 		 */
@@ -343,5 +415,38 @@ export function subGeneratorDefaults(
 				DEFAULT_DIFF_MAX_LINES_PER_FILE,
 			omit: cfg.subGenerator?.diff?.omit ?? [...DEFAULT_DIFF_OMIT],
 		},
+	};
+}
+
+/**
+ * Extract the checks and the loop budget from a fully-populated config.
+ *
+ * The schema defaults `triggers`, `timeoutMs`, and `paths` per check, but a
+ * caller that builds a config by hand gets the same values here. Duplicate
+ * names are rejected: a name is the check's identity in every surface, so two
+ * checks sharing one would make a verdict and a waiver ambiguous.
+ */
+export function getChecksConfig(cfg: SillajjeConfig): ChecksConfig {
+	const checks = (cfg.checks ?? []).map(
+		(check): CheckDefinition => ({
+			name: check.name,
+			command: check.command,
+			triggers: check.triggers ?? ["settle"],
+			timeoutMs: check.timeoutMs ?? 300_000,
+			paths: check.paths ?? [],
+		}),
+	);
+
+	const seen = new Set<string>();
+	for (const check of checks) {
+		if (seen.has(check.name)) {
+			throw new Error(`duplicate check name "${check.name}"`);
+		}
+		seen.add(check.name);
+	}
+
+	return {
+		checks,
+		maxAttempts: cfg.maxAttempts ?? DEFAULT_CHECK_MAX_ATTEMPTS,
 	};
 }

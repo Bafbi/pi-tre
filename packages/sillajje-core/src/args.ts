@@ -267,3 +267,32 @@ export const SERVE_HELP: CommandHelp = {
 		"  -h, --help          show this help",
 	],
 };
+
+// ---------------------------------------------------------------------------
+// The check subcommand
+// ---------------------------------------------------------------------------
+
+/**
+ * The check subcommand — run the workspace's declared checks on demand. It is
+ * an adapter capability: it runs the same gate the settle and publish Triggers
+ * run, reports into the transcript, and starts no turn.
+ */
+export const CHECK_ARGS: CommandSpec = {
+	name: "check",
+	usage: "check [-s|--session <id|@>] [--trigger settle|publish]",
+	flags: [
+		{ key: "session", aliases: ["-s", "--session"], takesValue: true },
+		{ key: "trigger", aliases: ["--trigger"], takesValue: true },
+	],
+};
+
+/** The check subcommand's help. */
+export const CHECK_HELP: CommandHelp = {
+	usage: CHECK_ARGS.usage,
+	lines: [
+		"Runs the checks this workspace declares and reports the result.",
+		"  -s, --session <id>       run another session's checks; @ means this session (default)",
+		"      --trigger <gate>     run only the settle or publish gate",
+		"  -h, --help               show this help",
+	],
+};

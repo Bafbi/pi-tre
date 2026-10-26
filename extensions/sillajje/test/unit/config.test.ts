@@ -7,7 +7,14 @@ import { loadSillajjeConfig } from "../../src/config.js";
 const tempDirs: string[] = [];
 const ENV_VAR = "SILLAJJE_POST_INIT";
 
-const DEFAULT_STAMP_BODY = ["trace", "meta", "loop", "prompt", "response"];
+const DEFAULT_STAMP_BODY = [
+	"trace",
+	"checks",
+	"meta",
+	"loop",
+	"prompt",
+	"response",
+];
 const DEFAULT_LOOP = ["tools", "call_count", "elapsed", "thinking_blocks"];
 
 function cleanUp() {
@@ -203,6 +210,7 @@ describe("loadSillajjeConfig", () => {
 		expect(config.actions?.fold?.body).toEqual([
 			"summary",
 			"ref",
+			"checks",
 			"skipped",
 		]);
 		expect(config.actions?.fold?.summary?.detail).toBe("high");

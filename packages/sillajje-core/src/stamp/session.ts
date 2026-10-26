@@ -8,6 +8,7 @@
  */
 
 import { emitStatus } from "../action.js";
+import type { GateVerdict } from "../check.js";
 import { buildDiffOnlyBody } from "./diff-only.js";
 import { stampInteractionPath } from "./interaction.js";
 import { sealWorkingCopy } from "./internal.js";
@@ -21,19 +22,23 @@ export async function stampSessionPath(
 	workspace: { sessionKey: string; wsPath: string },
 	interaction: InteractionData | undefined,
 	deps: StampDeps,
+	gate?: GateVerdict | undefined,
 ): Promise<StampResult> {
 	const { wsPath, sessionKey } = workspace;
 
 	if (interaction !== undefined) {
-		return stampInteractionPath(workspace, interaction, deps);
+		return stampInteractionPath(workspace, interaction, deps, gate);
 	}
 
 	// Manual context: the message generates from the diff alone.
 	try {
-		const built = await buildDiffOnlyBody(deps, wsPath, "@", {
-			source: "diff",
-			sessionKey,
-		});
+		const built = await buildDiffOnlyBody(
+			deps,
+			wsPath,
+			"@",
+			{ source: "diff", sessionKey },
+			gate,
+		);
 		if (!built.ok) {
 			return built;
 		}

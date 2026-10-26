@@ -280,6 +280,15 @@ function ports(deps: TestDeps) {
 		versions: deps.env,
 		onStatus: deps.onStatus,
 		workspaces: deps.workspaces ?? ws(),
+		command: {
+			exec: async () => ({
+				code: 0,
+				stdout: "",
+				stderr: "",
+				killed: false,
+				durationMs: 1,
+			}),
+		},
 	};
 }
 

@@ -56,7 +56,12 @@ export function createStamp(ports: HostPorts & SubagentPort): StampActions {
 			if (!resolved.ok) {
 				return { ok: false, reason: resolved.reason };
 			}
-			return stampSessionPath(resolved, input.interaction, deps);
+			return stampSessionPath(
+				resolved,
+				input.interaction,
+				deps,
+				input.gate,
+			);
 		},
 
 		async rev(input) {

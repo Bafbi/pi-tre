@@ -9,11 +9,14 @@
  */
 
 import type {
+	CheckResult,
 	FoldResult,
+	GateResult,
 	OmittedFile,
 	StampResult,
 	StatusEvent,
 } from "@pi-tre/sillajje-core";
+import { describeFailingChecks, gateIsRed } from "@pi-tre/sillajje-core";
 
 /** The custom type of a Record entry. */
 export const RECORD_TYPE = "sillajje/record";
@@ -29,7 +32,9 @@ type RecordTrigger =
 	| "shutdown"
 	| "copy"
 	| "push"
-	| "pull";
+	| "pull"
+	| "settle"
+	| "publish";
 
 /** Where in its life an operation is. */
 type RecordStage = "start" | "done" | "failed" | "noop";
@@ -55,6 +60,9 @@ interface RecordGenerator {
 	fallbacks: readonly string[];
 }
 
+/** One check's verdict in a gate Record. Output stays out of the log. */
+type RecordCheck = Omit<CheckResult, "stdout" | "stderr">;
+
 /** The fields every Record can carry. */
 interface RecordBase {
 	v: 1;
@@ -65,6 +73,8 @@ interface RecordBase {
 	error?: RecordError | undefined;
 	diff?: RecordDiff | undefined;
 	generator?: RecordGenerator | undefined;
+	/** The gate's per-check verdicts, when the operation ran one. */
+	checks?: readonly RecordCheck[] | undefined;
 }
 
 /** The Workspace lifecycle. */
@@ -137,6 +147,7 @@ interface FoldRecord extends RecordBase {
 				push?: boolean | undefined;
 				archive?: boolean | undefined;
 				noMarker?: boolean | undefined;
+				noCheck?: boolean | undefined;
 				rebase?: string | undefined;
 		  }
 		| undefined;
@@ -151,6 +162,7 @@ interface FoldRecord extends RecordBase {
 				pushed: readonly string[];
 				archived?: boolean | undefined;
 				rebase?: string | undefined;
+				checks?: readonly RecordCheck[] | undefined;
 		  }
 		| { reason: string; files?: readonly string[] | undefined }
 		| undefined;
@@ -190,6 +202,17 @@ interface UnarchiveRecord extends RecordBase {
 		| undefined;
 }
 
+/** One gate run: the settle loop, a Fold's publish gate, or an on-demand run. */
+interface CheckRecord extends RecordBase {
+	operation: "check";
+	trigger?: "settle" | "publish" | "manual" | undefined;
+	/** The settle loop's attempt number, starting at 1. */
+	attempt?: number | undefined;
+	/** The working copy's diff digest for the attempt, for the stall rule. */
+	digest?: string | undefined;
+	checks?: readonly RecordCheck[] | undefined;
+}
+
 /** A blocked tool call or a corrected command form. */
 interface GuardRecord extends RecordBase {
 	operation: "guard";
@@ -207,6 +230,7 @@ export type SillajjeRecord =
 	| SyncRecord
 	| ArchiveRecord
 	| UnarchiveRecord
+	| CheckRecord
 	| GuardRecord;
 
 /** The operation a Record observes. */
@@ -321,6 +345,15 @@ const stampRecordFields = (
 	...manifestFields(result.diagnostics),
 });
 
+/** Map a gate result to the Record shape, dropping command output. */
+export const recordCheck = (check: CheckResult): RecordCheck => ({
+	name: check.name,
+	status: check.status,
+	exitCode: check.exitCode,
+	durationMs: check.durationMs,
+	reason: check.reason,
+});
+
 /** The terminal Record fields a successful FoldResult contributes. */
 export const foldRecordFields = (
 	result: Extract<FoldResult, { ok: true }>,
@@ -336,6 +369,7 @@ export const foldRecordFields = (
 		pushed: [...result.pushed],
 		archived: result.archived,
 		rebase: result.rebase,
+		checks: result.diagnostics.checks.map(recordCheck),
 	},
 	resolved: {
 		base: result.diagnostics.base,
@@ -343,6 +377,22 @@ export const foldRecordFields = (
 		target: result.diagnostics.target,
 	},
 	...manifestFields(result.diagnostics),
+});
+
+/** The terminal Record fields a gate run contributes. */
+export const checkSettle = (
+	result: GateResult,
+): { stage: RecordTerminalStage } & RecordFieldsFor<"check"> => ({
+	stage: gateIsRed(result) ? "failed" : "done",
+	checks: result.results.map(recordCheck),
+	...(gateIsRed(result)
+		? {
+				error: {
+					code: "checks-failed",
+					message: `check failed: ${describeFailingChecks(result)}`,
+				},
+			}
+		: {}),
 });
 
 /** The settle every stamp path shares: done, noop, or the captured failure. */

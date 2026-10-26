@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { assembleDescription } from "../src/index.js";
+import { assembleDescription, buildChecksLine } from "../src/index.js";
 
 describe("assembleDescription", () => {
 	it("renders labelled sections in order", () => {
@@ -49,5 +49,63 @@ describe("assembleDescription", () => {
 			{ label: "Prompt", body: "" },
 		]);
 		expect(body).toBe("feat: add login");
+	});
+});
+
+describe("buildChecksLine", () => {
+	it("names each check with its verdict and duration", () => {
+		const line = buildChecksLine([
+			{ name: "check", status: "passed", durationMs: 12_400 },
+			{ name: "ci", status: "failed", exitCode: 1, durationMs: 182_000 },
+		]);
+		expect(line).toBe("check passed (12.4s); ci failed (exit 1, 182.0s)");
+	});
+
+	it("renders a waived check with its reason", () => {
+		const line = buildChecksLine([
+			{
+				name: "ci",
+				status: "waived",
+				durationMs: 0,
+				reason: "--no-check",
+			},
+		]);
+		expect(line).toBe("ci waived (--no-check)");
+	});
+
+	it("renders a timed-out check as red", () => {
+		const line = buildChecksLine([
+			{ name: "check", status: "timed-out", durationMs: 300_000 },
+		]);
+		expect(line).toBe("check timed-out (300.0s)");
+	});
+
+	it("says when the gate moved the working copy", () => {
+		const line = buildChecksLine(
+			[{ name: "check", status: "passed", durationMs: 1000 }],
+			true,
+		);
+		expect(line).toContain("gate modified the working copy");
+	});
+
+	it("renders nothing when no check ran", () => {
+		expect(buildChecksLine([])).toBe("");
+	});
+
+	it("renders nothing when every check was skipped", () => {
+		expect(
+			buildChecksLine([
+				{ name: "check", status: "skipped", durationMs: 0 },
+			]),
+		).toBe("");
+	});
+
+	it("renders a skipped check alongside a check that ran", () => {
+		expect(
+			buildChecksLine([
+				{ name: "check", status: "passed", durationMs: 1000 },
+				{ name: "ci", status: "skipped", durationMs: 0 },
+			]),
+		).toBe("check passed (1.0s); ci skipped");
 	});
 });
