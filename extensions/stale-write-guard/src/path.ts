@@ -30,3 +30,21 @@ export function resolveCanonicalPath(path: string, cwd: string): string {
 		return absolute;
 	}
 }
+
+/**
+ * Resolve a bash file operand the way the shell sees it.
+ *
+ * Pi's tool path resolver strips a leading '@' and expands '~' because the
+ * read/write/edit tools do that. The shell does not: a quoted '@name' or
+ * '~/x' is a literal filename. The command tokenizer drops quote information,
+ * so expanding '~' here could record a different file than the shell read.
+ * Resolve literally; a '~' operand records nothing, which fails safe.
+ */
+export function resolveBashPath(path: string, cwd: string): string {
+	const absolute = resolve(cwd, path);
+	try {
+		return realpathSync.native(absolute);
+	} catch {
+		return absolute;
+	}
+}

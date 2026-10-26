@@ -1,17 +1,17 @@
 const DEFAULT_MTIME_TOLERANCE_MS = 2;
 
 /**
- * Returns true when mutating an existing file is unsafe because the
- * extension has no read record for the file's current version.
+ * Returns true when a whole-file write is unsafe because the extension has
+ * no full-read record for the file's current version.
  *
- * The filesystem records when a file changed (mtime), but not whether
- * the agent has read that version. So we compare the current mtime
- * against the mtime recorded the last time the agent saw the file.
+ * The filesystem records when a file changed (mtime), but not whether the
+ * agent has seen the whole current version. So we compare the current mtime
+ * against the mtime recorded when the whole file last reached context.
  */
-export function requiresReadBeforeMutation(
+export function requiresFullReadBeforeWrite(
 	currentMtimeMs: number,
-	lastSeenMtimeMs: number | undefined,
+	fullReadMtimeMs: number | undefined,
 ): boolean {
-	if (lastSeenMtimeMs === undefined) return true;
-	return currentMtimeMs - lastSeenMtimeMs > DEFAULT_MTIME_TOLERANCE_MS;
+	if (fullReadMtimeMs === undefined) return true;
+	return currentMtimeMs - fullReadMtimeMs > DEFAULT_MTIME_TOLERANCE_MS;
 }

@@ -3,16 +3,15 @@ import { readFileSync, statSync } from "node:fs";
 import {
 	type ExtensionAPI,
 	isBashToolResult,
-	isEditToolResult,
 	isReadToolResult,
 	isToolCallEventType,
 	isWriteToolResult,
 } from "@earendil-works/pi-coding-agent";
 
-import { extractReadPaths } from "./bash.js";
-import { requiresReadBeforeMutation } from "./guard.js";
+import { extractFullReadPaths } from "./bash.js";
+import { requiresFullReadBeforeWrite } from "./guard.js";
 import { diskMatchesInjected, extractInjectedContent } from "./injected.js";
-import { resolveCanonicalPath } from "./path.js";
+import { resolveBashPath, resolveCanonicalPath } from "./path.js";
 
 function getPathFromInput(input: Record<string, unknown>): string | undefined {
 	const path = input.path;
@@ -22,6 +21,11 @@ function getPathFromInput(input: Record<string, unknown>): string | undefined {
 	if (typeof filePath === "string" && filePath.length > 0) return filePath;
 
 	return undefined;
+}
+
+/** A read result is a full read only when it asked for the whole file. */
+function readCoversWholeFile(input: Record<string, unknown>): boolean {
+	return input.offset === undefined && input.limit === undefined;
 }
 
 function getFileMtimeMs(canonicalPath: string): number | undefined {
@@ -34,7 +38,7 @@ function getFileMtimeMs(canonicalPath: string): number | undefined {
 
 /**
  * Stat before read: any change landing between the two calls leaves a stale
- * mtime on record, which fails safe (the next edit is blocked and the agent
+ * mtime on record, which fails safe (the next write is blocked and the agent
  * re-reads). Stat after read could record a newer mtime than the content the
  * agent saw, which would silently whitelist an unseen version.
  */
@@ -57,31 +61,39 @@ function formatMtime(mtimeMs: number | undefined): string {
 /**
  * stale-write-guard
  *
- * Blocks write/edit when a file changed externally after the agent last
- * saw it, unless the agent has re-read the latest file version.
+ * Blocks a whole-file write when the agent has not seen the file's current
+ * version in full. `edit` is deliberately not gated: the edit tool re-reads
+ * the file and requires every oldText to match a unique region, so its own
+ * exact-match check is the freshness check for the edited region.
  *
  * The filesystem records when a file changed (mtime), but not whether the
- * agent has read that version. A read leaves no filesystem trace, so this
- * map is the only state: canonical path -> mtime the agent last saw.
+ * agent has seen that version. A read leaves no filesystem trace, so this
+ * map is the only state: canonical path -> mtime of the last full read.
  *
- * A successful write/edit also updates the map: after the tool result the
- * file on disk is exactly what the agent has in context.
+ * A full read is a `read` with no offset/limit and no truncation, a bare
+ * `cat` with no pipe, redirect, flag, or truncated bash output, or injected
+ * content whose disk file still matches. Partial readers (head, tail, sed,
+ * grep, rg) and pipelines do not qualify. A successful write also records a
+ * full read: after the tool result the file on disk is exactly what the agent
+ * wrote.
  *
- * Some content reaches the context without a read tool_result: `/skill:name`
- * expansion injects a skill file block into the prompt, session-start
- * context files (AGENTS.md, CLAUDE.md) land in the system prompt, and the
- * agent may print files with cat/grep-style bash commands. The
- * before_agent_start handler records the injected files, but only after
- * verifying the disk file still holds the injected content. The
- * tool_result handler records bash-read files, but only for commands that
- * provably print file content (see src/bash.ts); anything ambiguous
- * records nothing, which fails safe.
+ * The before_agent_start handler records injected files only after verifying
+ * the disk file still holds the injected content. The tool_result handler
+ * records bash-read files, but only for commands that provably print a whole
+ * file (see src/bash.ts); anything ambiguous records nothing, which fails
+ * safe for the write gate.
  */
 export default function (pi: ExtensionAPI) {
-	const lastSeenMtimeMs = new Map<string, number>();
+	const fullyReadMtimeMs = new Map<string, number>();
+
+	const recordFullRead = (canonicalPath: string): void => {
+		const mtimeMs = getFileMtimeMs(canonicalPath);
+		if (mtimeMs === undefined) return;
+		fullyReadMtimeMs.set(canonicalPath, mtimeMs);
+	};
 
 	pi.on("session_start", async () => {
-		lastSeenMtimeMs.clear();
+		fullyReadMtimeMs.clear();
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
@@ -101,17 +113,14 @@ export default function (pi: ExtensionAPI) {
 			const disk = statThenRead(canonicalPath);
 			if (disk === undefined) continue;
 			if (!diskMatchesInjected(entry, disk.content)) continue;
-			lastSeenMtimeMs.set(canonicalPath, disk.mtimeMs);
+			fullyReadMtimeMs.set(canonicalPath, disk.mtimeMs);
 		}
 
 		return undefined;
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
-		if (
-			!isToolCallEventType("write", event) &&
-			!isToolCallEventType("edit", event)
-		) {
+		if (!isToolCallEventType("write", event)) {
 			return undefined;
 		}
 
@@ -124,62 +133,69 @@ export default function (pi: ExtensionAPI) {
 		if (currentMtimeMs === undefined) return undefined;
 
 		if (
-			!requiresReadBeforeMutation(
+			!requiresFullReadBeforeWrite(
 				currentMtimeMs,
-				lastSeenMtimeMs.get(canonicalPath),
+				fullyReadMtimeMs.get(canonicalPath),
 			)
 		) {
 			return undefined;
 		}
 
-		return {
-			block: true,
-			reason: `File '${toolPath}' has no fresh read for its current version. Read it again before mutating.`,
-		};
+		const fullReadMtimeMs = fullyReadMtimeMs.get(canonicalPath);
+		const reason =
+			fullReadMtimeMs === undefined
+				? `No full read of '${toolPath}' exists at its current version. A write replaces the whole file, and a partial read (offset/limit or truncated), a cat with flags, head/tail/sed/grep/rg, a pipe, or a path after a cd does not count. Read the whole file with the read tool (no offset/limit), or use edit for targeted changes.`
+				: `'${toolPath}' changed after your last full read, so a write would replace content you have not seen. Read the whole current file with the read tool (no offset/limit), or use edit for targeted changes.`;
+
+		return { block: true, reason };
 	});
 
 	pi.on("tool_result", async (event, ctx) => {
 		if (event.isError) return undefined;
 
 		if (isBashToolResult(event)) {
-			// The agent often inspects files with cat, grep & co instead of the
-			// read tool. That content is as good as a read result, so record it —
-			// otherwise the next edit blocks although the context is current.
+			// Only `cat` proves the whole file reached context. A truncated bash
+			// result proves nothing, because the cut may fall inside any file.
+			if (event.details?.truncation?.truncated === true) return undefined;
+
 			const command = event.input.command;
 			if (typeof command !== "string") return undefined;
 
-			for (const rawPath of extractReadPaths(command)) {
-				const canonicalPath = resolveCanonicalPath(rawPath, ctx.cwd);
-				const mtimeMs = getFileMtimeMs(canonicalPath);
-				if (mtimeMs === undefined) continue;
-				lastSeenMtimeMs.set(canonicalPath, mtimeMs);
+			for (const rawPath of extractFullReadPaths(command)) {
+				recordFullRead(resolveBashPath(rawPath, ctx.cwd));
 			}
 			return undefined;
 		}
 
-		const isTrackedTool =
-			isReadToolResult(event) ||
-			isWriteToolResult(event) ||
-			isEditToolResult(event);
-		if (!isTrackedTool) return undefined;
+		if (isReadToolResult(event)) {
+			if (!readCoversWholeFile(event.input)) return undefined;
+			if (event.details?.truncation?.truncated === true) return undefined;
 
-		const toolPath = getPathFromInput(event.input);
-		if (!toolPath) return undefined;
+			const toolPath = getPathFromInput(event.input);
+			if (!toolPath) return undefined;
 
-		const canonicalPath = resolveCanonicalPath(toolPath, ctx.cwd);
-		const mtimeMs = getFileMtimeMs(canonicalPath);
-		if (mtimeMs === undefined) return undefined;
+			recordFullRead(resolveCanonicalPath(toolPath, ctx.cwd));
+			return undefined;
+		}
 
-		lastSeenMtimeMs.set(canonicalPath, mtimeMs);
+		if (isWriteToolResult(event)) {
+			// The agent authored the whole file, so the written version is fully
+			// known even when it had no full read before the write.
+			const toolPath = getPathFromInput(event.input);
+			if (!toolPath) return undefined;
+
+			recordFullRead(resolveCanonicalPath(toolPath, ctx.cwd));
+		}
 		return undefined;
 	});
 
 	pi.registerCommand("stale-write-guard-dump", {
-		description: "Dump stale-write-guard state (tracked files + decisions)",
+		description:
+			"Dump stale-write-guard state (full reads + write decisions)",
 		handler: async (_args, ctx) => {
 			const lines: string[] = ["# stale-write-guard dump", ""];
 
-			const paths = [...lastSeenMtimeMs.keys()].sort();
+			const paths = [...fullyReadMtimeMs.keys()].sort();
 			lines.push(`tracked files: ${paths.length}`);
 			lines.push("");
 
@@ -192,29 +208,27 @@ export default function (pi: ExtensionAPI) {
 				const shouldBlock =
 					currentMtimeMs === undefined
 						? false
-						: requiresReadBeforeMutation(
+						: requiresFullReadBeforeWrite(
 								currentMtimeMs,
-								lastSeenMtimeMs.get(canonicalPath),
+								fullyReadMtimeMs.get(canonicalPath),
 							);
 
 				let reason: string;
 				if (currentMtimeMs === undefined) {
 					reason = "file missing on disk";
-				} else if (lastSeenMtimeMs.get(canonicalPath) === undefined) {
-					reason = "no read record";
 				} else if (shouldBlock) {
-					reason = "file changed after last read";
+					reason = "file changed after last full read";
 				} else {
-					reason = "read up to date";
+					reason = "full read up to date";
 				}
 
 				lines.push(`### ${canonicalPath}`);
 				lines.push(`- currentMtime: ${formatMtime(currentMtimeMs)}`);
 				lines.push(
-					`- lastSeenMtime: ${formatMtime(lastSeenMtimeMs.get(canonicalPath))}`,
+					`- fullReadMtime: ${formatMtime(fullyReadMtimeMs.get(canonicalPath))}`,
 				);
 				lines.push(
-					`- decision: ${shouldBlock ? "BLOCK write/edit" : "ALLOW write/edit"}`,
+					`- decision: ${shouldBlock ? "BLOCK write" : "ALLOW write"}`,
 				);
 				lines.push(`- reason: ${reason}`);
 				lines.push("");

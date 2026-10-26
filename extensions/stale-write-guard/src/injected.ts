@@ -7,8 +7,8 @@
  * - Session-start context files (AGENTS.md, AGENTS.override.md, CLAUDE.md)
  *   land in the system prompt via `systemPromptOptions.contextFiles`.
  *
- * The guard must treat this content as "seen" or it blocks edits of files
- * the agent demonstrably has in context.
+ * The guard must treat this content as a full read or it blocks writes to
+ * files the agent demonstrably has in context.
  */
 export interface InjectedContent {
 	/** How the content reached the context. */

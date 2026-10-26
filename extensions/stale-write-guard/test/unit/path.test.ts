@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveCanonicalPath } from "../../src/path.js";
+import { resolveBashPath, resolveCanonicalPath } from "../../src/path.js";
 
 const tempDirs: string[] = [];
 
@@ -51,5 +51,25 @@ describe("resolveCanonicalPath", () => {
 		const cwd = "/tmp/project";
 		const canonical = resolveCanonicalPath("does-not-exist.txt", cwd);
 		expect(canonical).toBe(resolve(cwd, "does-not-exist.txt"));
+	});
+});
+
+describe("resolveBashPath", () => {
+	it("resolves relative paths from cwd", () => {
+		expect(resolveBashPath("src/file.ts", "/work/project")).toBe(
+			resolve("/work/project", "src/file.ts"),
+		);
+	});
+
+	it("does not strip the '@' prefix", () => {
+		const cwd = "/work/project";
+		expect(resolveBashPath("@name", cwd)).toBe(resolve(cwd, "@name"));
+	});
+
+	it("does not expand '~'", () => {
+		const cwd = "/work/project";
+		expect(resolveBashPath("~/notes.txt", cwd)).toBe(
+			resolve(cwd, "~/notes.txt"),
+		);
 	});
 });

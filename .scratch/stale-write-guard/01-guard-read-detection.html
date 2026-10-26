@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Guard the whole-file write, not the edit</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Guard the whole-file write, not the edit</h1>
+		<p class="sub">The guard should stop blocking <code>edit</code>. Its exact-text match is the freshness check; only <code>write</code> needs a read record.</p>
+		<div class="meta">
+			<span class="chip">2026-10-24</span>
+			<span class="chip">stale-write-guard</span>
+			<span class="chip">research</span>
+			<span class="chip">session 01a162b9</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#summary">Summary</a>
+		<a href="#recommendation">Recommendation</a>
+		<a href="#evidence">Evidence</a>
+		<a href="#answers">Research answers</a>
+		<a href="#tradeoffs">Trade-offs</a>
+		<a href="#tests">Test cases</a>
+		<a href="#followups">Follow-ups</a>
+	</nav>
+
+	<section id="summary">
+		<h2>Summary</h2>
+		<p>The guard's read detection is not the root cause of the session's 82% bash-write bypass. The root cause is that the guard applies an mtime rule to <code>edit</code>, a tool that already re-reads the file and refuses to apply an edit unless every <code>oldText</code> matches a unique region. Widening the parser to accept <code>sed</code> and pipes would hide more of the symptom, but it would also record partial reads as full reads and keep the same false blocks for the next command shape it does not understand.</p>
+		<p><strong>Recommendation:</strong> split the contract. <code>edit</code> never blocks. <code>write</code> blocks until the agent has read the whole current file. Shrink the bash reader to <code>cat</code> only, because only a full file view qualifies for a whole-file overwrite. Treat bash writes as outside the guard and say so in the README.</p>
+		<div class="callout ok">
+			<p>This removes every observed edit block without adding a parser case. It also closes an existing hole: today a <code>head -n 5</code> or a partial <code>read</code> lets the agent overwrite the rest of the file.</p>
+		</div>
+		<div class="callout info">
+			<p><strong>Implemented 2026-10-24.</strong> <code>edit</code> is no longer gated; <code>write</code> requires a full read; the bash parser accepts only a bare <code>cat</code>, resolves operands literally, skips tilde-prefixed operands, and drops paths after a <code>cd</code>/<code>pushd</code>/<code>popd</code> segment. <code>mise run //extensions/stale-write-guard:check</code> passes 70 tests, and the per-extension <code>ci</code> scan is clean.</p>
+		</div>
+	</section>
+
+	<section id="recommendation">
+		<h2>Recommendation</h2>
+
+		<h3>The new contract</h3>
+		<table>
+			<thead>
+				<tr><th>Tool</th><th>Today</th><th>Proposed</th><th>Why</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td><code>edit</code></td>
+					<td>Blocked without a read record for the current mtime.</td>
+					<td>Never blocked by this guard.</td>
+					<td>The edit tool reads the file, matches every <code>oldText</code> exactly or fuzzily, and errors on a missing or duplicate match. The match proves the edited region is current.</td>
+				</tr>
+				<tr>
+					<td><code>write</code></td>
+					<td>Blocked unless any read record matches the current mtime.</td>
+					<td>Blocked unless a <em>full-content</em> read record matches the current mtime.</td>
+					<td><code>write</code> replaces the whole file and has no content check. A partial read does not prove the unseen part is current.</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<h3>What counts as a full read for <code>write</code></h3>
+		<ul>
+			<li><code>read</code> with no <code>offset</code>, no <code>limit</code>, and no truncation. The read tool caps at 2,000 lines or 50&nbsp;KB; a truncated result is not full.</li>
+			<li><code>cat</code> with no pipeline, no redirect, no command substitution, no flag, and no truncated bash output. Operands resolve literally: a leading <code>@</code> stays and <code>~</code> is not expanded; tilde-prefixed operands are skipped. A <code>cd</code>/<code>pushd</code>/<code>popd</code> before the <code>cat</code> drops every later path.</li>
+			<li>A <code>/skill:name</code> block or a session context file whose disk content still matches the injected content.</li>
+		</ul>
+
+		<h3>What does not count</h3>
+		<p><code>sed -n</code>, <code>awk</code>, <code>head</code>, <code>tail</code>, <code>grep</code>, <code>rg</code>, <code>rg -A/-B</code>, <code>jj diff</code>, <code>git diff</code>, and any reader-side pipe. They show part of the file, a transformed view, or a diff. They do not prove the whole current file reached context. Under the split they do not need to count for <code>edit</code>, because <code>edit</code> is not gated.</p>
+
+		<h3>Block reason</h3>
+		<p>Replace the current message, which names neither the tool nor the missing condition:</p>
+		<pre><code>File 'X' was not fully read at its current version. A write replaces the
+whole file, so read it first with the read tool (no offset/limit). For
+targeted changes, use edit, which checks the exact text.</code></pre>
+
+		<h3>Implementation sketch</h3>
+		<pre><code>// state: canonical path -&gt; mtime of the last full-content read
+const fullyReadMtimeMs = new Map&lt;string, number&gt;();
+
+pi.on("tool_call", async (event, ctx) =&gt; {
+  if (!isToolCallEventType("write", event)) return undefined;
+  // ... resolve path, stat current mtime ...
+  if (requiresFullRead(currentMtimeMs, fullyReadMtimeMs.get(canonicalPath))) {
+    return { block: true, reason: ... };
+  }
+});
+
+pi.on("tool_result", async (event, ctx) =&gt; {
+  if (event.isError) return undefined;
+  // read: record only when full
+  // write: record (the agent authored the whole file)
+  // edit: do not record; the mtime check will invalidate the old full read
+  // bash: record cat only, and only when the output was not truncated
+});</code></pre>
+		<p>An <code>edit</code> changes the mtime, so any previous full-read record becomes stale automatically. A later <code>write</code> then needs a fresh full read. This is conservative and needs no extra state.</p>
+
+		<div class="callout warn">
+			<p>Do not widen the parser to <code>sed</code>, <code>awk</code>, or pipes while keeping the edit block. That direction treats a 40-line <code>sed</code> range as a full read, keeps the false block for the next unparsed shape, and weakens the <code>write</code> gate it claims to protect.</p>
+		</div>
+	</section>
+
+	<section id="evidence">
+		<h2>Evidence</h2>
+
+		<h3>Session numbers</h3>
+		<p>The ticket's snapshot is reproducible from the session transcript at call 252:</p>
+		<table>
+			<thead>
+				<tr><th>Metric</th><th>At call 252</th><th>Final transcript</th></tr>
+			</thead>
+			<tbody>
+				<tr><td>Tool calls</td><td>252</td><td>326</td></tr>
+				<tr><td><code>bash</code></td><td>229</td><td>303</td></tr>
+				<tr><td><code>edit</code> + <code>write</code></td><td>8 + 8</td><td>8 + 8</td></tr>
+				<tr><td><code>read</code></td><td>7</td><td>7</td></tr>
+				<tr><td>Python heredocs</td><td>72 (71 under source/test)</td><td>86</td></tr>
+				<tr><td>Source/test Python writes with neither an anchor assert nor a print</td><td>61 of 71</td><td>70 of 85</td></tr>
+			</tbody>
+		</table>
+		<p>One of the 72 heredocs at call 252 writes only <code>.scratch</code> notes. Excluding it gives the ticket's 71 source/test Python writes and 61 silent ones. The 61 scripts that neither assert nor print can silently no-op.</p>
+
+		<h3>All three edit blocks were false positives</h3>
+		<table>
+			<thead>
+				<tr><th>File</th><th>What preceded the block</th><th>How the retry succeeded</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td><code>packages/sillajje-core/src/action.ts</code></td>
+					<td><code>sed -n 20,60p</code> and <code>sed -n 108,130p</code></td>
+					<td><code>read</code> with <code>offset: 1, limit: 130</code>; the edit then succeeded. The file is 190 lines at the transcript's end, so this was a partial read.</td>
+				</tr>
+				<tr>
+					<td><code>packages/sillajje-core/src/metadata.ts</code></td>
+					<td><code>sed -n</code> chunks and <code>grep ... -A 20 | head</code></td>
+					<td><code>read</code> with <code>offset: 1, limit: 410</code>; the edit then succeeded. The file is 398 lines at the transcript's end, so this happened to cover it, but the guard did not verify that.</td>
+				</tr>
+				<tr>
+					<td><code>packages/sillajje-core/src/stamp/types.ts</code></td>
+					<td>The agent's own <code>python3</code> heredoc write to the same file</td>
+					<td><code>read</code> with <code>offset: 1, limit: 75</code>; the edit then succeeded. The file is 154 lines at the transcript's end, so this was a partial read.</td>
+				</tr>
+			</tbody>
+		</table>
+		<div class="callout crit">
+			<p>Two retries used partial <code>read</code> calls: 130 lines of a 190-line file, and 75 lines of a 154-line file. That is the same partial content the <code>sed</code> calls provided. The third retry asked for 410 lines of a 398-line file, so it covered the file by accident; the guard did not check the file length. The guard is not testing freshness; it is testing which tool produced the lines. That is why the agent's inference "the tool wants full read" is wrong, and why it moved to bash.</p>
+		</div>
+		<p>The third block had no external change at all: the agent wrote the file with Python, the mtime moved, and the guard saw no read record. A bash write is invisible to the guard in both directions.</p>
+
+		<h3>Code facts</h3>
+		<ul>
+			<li><code>src/index.ts</code> records every successful <code>read</code> result, including results with <code>offset</code>/<code>limit</code> and truncated results. It never inspects <code>details.truncation</code>. (<code>src/index.ts:160-175</code>)</li>
+			<li><code>src/bash.ts</code> accepts <code>cat</code>, <code>head</code>, <code>tail</code>, <code>tac</code>, <code>nl</code>, <code>bat</code>, <code>grep</code>, and <code>rg</code>, and returns nothing for any segment containing <code>|</code>, <code>&lt;</code>, <code>&gt;</code>, or <code>&amp;</code>. (<code>src/bash.ts:11-21, 75</code>)</li>
+			<li>The edit tool reads the file, tries exact <code>oldText</code> match, then a fuzzy match, and throws when the text is missing or non-unique. It never overwrites an unseen region outside the matched text. (<code>@earendil-works/pi-coding-agent/dist/core/tools/edit.js</code>, <code>edit-diff.js</code>)</li>
+			<li>The read tool supports <code>offset</code>/<code>limit</code> and truncates at 2,000 lines or 50&nbsp;KB. The ticket cites a 2,866-line file; a full read of that file is not one call. (<code>dist/core/tools/read.d.ts</code>, <code>truncate.d.ts</code>)</li>
+			<li>The existing tests codify the false block: <code>blocks edit on existing file when no read record exists</code>, <code>blocks edit when file changed externally after last agent edit</code>, and the sed/pipe cases in <code>test/unit/bash.test.ts</code>.</li>
+		</ul>
+	</section>
+
+	<section id="answers">
+		<h2>Research answers</h2>
+		<table>
+			<thead>
+				<tr><th>Question</th><th>Answer</th></tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Which command shapes should count as a read?</td>
+					<td>For <code>write</code>, only full-content views: <code>read</code> with no offset/limit and no truncation, <code>cat</code> with no pipe or redirect and no truncation, and injected content whose disk file still matches. <code>sed -n</code>, <code>awk</code>, <code>head</code>/<code>tail</code> ranges, <code>grep</code>/<code>rg</code>, diffs, and reader-side pipes do not count. They are partial or transformed. They do not need to count for <code>edit</code>.</td>
+				</tr>
+				<tr>
+					<td>Is a partial read enough to permit an edit?</td>
+					<td>Yes. The edit tool re-reads the file and matches <code>oldText</code> uniquely. The match proves the edited region is current; a partial read is enough because the tool verifies the exact region. The guard's mtime check adds no information for <code>edit</code>.</td>
+				</tr>
+				<tr>
+					<td>Should <code>edit</code> and <code>write</code> have different strictness?</td>
+					<td>Yes. <code>write</code> replaces the whole file with no content check, so it needs a full read. <code>edit</code> has its own exact-match check, so it needs none. This is the core of the recommendation.</td>
+				</tr>
+				<tr>
+					<td>What is the false-positive cost of recording a read when the content was printed through a pipe?</td>
+					<td>Under the old model, the cost is a stale whole-file write: the pipe may filter or transform, so the file's current content did not fully reach context, but the guard records it as a full read. Under the split, the cost is zero because <code>edit</code> does not use records and <code>write</code> does not accept piped output.</td>
+				</tr>
+				<tr>
+					<td>Can a bash write to a source file be surfaced without blocking legitimate bulk edits?</td>
+					<td>Yes, without parsing the command: snapshot tracked mtimes at bash <code>tool_call</code>, stat again at <code>tool_result</code>, and append a short note for each tracked file whose mtime changed. This does not block. It is a useful follow-up, but not the primary fix. Blocking bash writes would break bulk edits and invite another bypass.</td>
+				</tr>
+				<tr>
+					<td>If the guard records more reads, does it still prevent the stale overwrite it was built for?</td>
+					<td>For <code>write</code>, only if the record is a truthful full read. Recording more partial reads weakens the gate because a parser mistake can whitelist a whole-file overwrite over an external change. For <code>edit</code>, the tool's exact match prevents the overwrite regardless of what the guard records.</td>
+				</tr>
+			</tbody>
+		</table>
+	</section>
+
+	<section id="tradeoffs">
+		<h2>Trade-offs</h2>
+		<div class="grid">
+			<div class="card">
+				<h3><code>edit</code> loses the mtime gate</h3>
+				<p>The guard no longer catches a stale edit before the tool runs. The edit tool still catches it: a changed region fails the <code>oldText</code> match. Fuzzy matching can overwrite an external whitespace or quote normalization change inside the edited region. That is a cosmetic risk, not a whole-file overwrite.</p>
+			</div>
+			<div class="card">
+				<h3>Large-file writes stay blocked</h3>
+				<p>The read tool caps at 2,000 lines or 50&nbsp;KB, so a file above that cap cannot get a full-read record in one call. The agent must use <code>edit</code> or read in a way the guard can verify. Range-coverage tracking is the follow-up if full rewrites of huge files become a real workflow.</p>
+			</div>
+			<div class="card">
+				<h3>Bash writes remain outside the guard</h3>
+				<p><code>python3</code>, <code>perl -i</code>, <code>sed -i</code>, and <code>cat &gt;</code> are not gated. That was already true. The guard cannot parse arbitrary write scripts reliably. Document the boundary instead of pretending the guard covers them.</p>
+			</div>
+			<div class="card">
+				<h3>The guard gets smaller</h3>
+				<p><code>bash.ts</code> shrinks to <code>cat</code> only. The reader set, the pattern-reader rule, and the ambiguity around pipes and redirects go away. Fewer records mean fewer chances a parser bug whitelists a stale write.</p>
+			</div>
+		</div>
+		<div class="callout warn">
+			<p><strong>Residual race.</strong> The <code>write</code> gate stats the file at <code>tool_call</code> and the tool writes later. An external change that lands between the stat and the write is not caught. The edit tool has the same read-match-write window. No mtime check can close it without a lock. The 2&nbsp;ms tolerance also means a change within 2&nbsp;ms of the read can be missed. Both are small windows, but they are not covered by the tests above.</p>
+		</div>
+	</section>
+
+	<section id="tests">
+		<h2>Test cases that would prove it</h2>
+		<p>All integration tests use the extension runner in <code>test/integration/extension-runner.test.ts</code> and set mtimes with <code>utimesSync</code> far enough apart to clear the 2&nbsp;ms tolerance.</p>
+
+		<h3>Flip the existing edit tests</h3>
+		<table>
+			<thead>
+				<tr><th>Current test</th><th>New expectation</th></tr>
+			</thead>
+			<tbody>
+				<tr><td><code>blocks edit on existing file when no read record exists</code></td><td><code>allows edit on existing file when no read record exists</code>: <code>result</code> is <code>undefined</code>.</td></tr>
+				<tr><td><code>blocks edit when file changed externally after last agent edit</code></td><td><code>allows edit when file changed externally after last agent edit</code>: <code>result</code> is <code>undefined</code>. The edit tool, not the guard, preserves the external change outside <code>oldText</code>.</td></tr>
+				<tr><td><code>blocks edit when the file changed after the bash cat</code></td><td><code>allows edit when the file changed after the bash cat</code>.</td></tr>
+				<tr><td><code>blocks edit when the skill file changed after /skill:name injection</code></td><td><code>allows edit when the skill file changed after /skill:name injection</code>.</td></tr>
+				<tr><td><code>blocks edit of a context file whose disk content diverged since session start</code></td><td><code>allows edit of a context file whose disk content diverged since session start</code>.</td></tr>
+				<tr><td><code>does not record a read from a piped bash command</code></td><td>Keep the parser assertion, but make it a <code>write</code> test: after <code>cat file | head</code>, a <code>write</code> to the file blocks.</td></tr>
+			</tbody>
+		</table>
+
+		<h3>New write-gate tests</h3>
+		<table>
+			<thead>
+				<tr><th>#</th><th>Setup</th><th>Expected</th></tr>
+			</thead>
+			<tbody>
+				<tr><td>1</td><td>Existing file, no read record, <code>write</code>.</td><td>Block. Reason names the <code>read</code> tool and says no offset/limit.</td></tr>
+				<tr><td>2</td><td>Existing file, full <code>read</code>, <code>write</code>.</td><td>Allow.</td></tr>
+				<tr><td>3</td><td>Full <code>read</code>, external change, <code>write</code>.</td><td>Block.</td></tr>
+				<tr><td>4</td><td><code>read</code> with <code>offset: 1, limit: 10</code>, <code>write</code>.</td><td>Block; a partial read is not a full read.</td></tr>
+				<tr><td>5</td><td><code>read</code> with no offset/limit that the read tool truncates, <code>write</code>.</td><td>Block; truncated output is not a full read.</td></tr>
+				<tr><td>6</td><td><code>cat file</code> with no truncation, <code>write</code>.</td><td>Allow.</td></tr>
+				<tr><td>7</td><td><code>cat file | head</code>, <code>write</code>.</td><td>Block.</td></tr>
+				<tr><td>8</td><td><code>sed -n '1,40p' file</code>, <code>write</code>.</td><td>Block.</td></tr>
+				<tr><td>9</td><td><code>grep x file</code> or <code>rg -A 3 x file</code>, <code>write</code>.</td><td>Block.</td></tr>
+				<tr><td>10</td><td><code>jj diff</code> or <code>git diff</code> shows the file, <code>write</code>.</td><td>Block; a diff is not a full file view.</td></tr>
+				<tr><td>11</td><td>New file, <code>write</code>.</td><td>Allow.</td></tr>
+				<tr><td>12</td><td>Injected skill or context file matches disk, <code>write</code>.</td><td>Allow; the full file reached context.</td></tr>
+				<tr><td>13</td><td>Injected context file diverged on disk, <code>write</code>.</td><td>Block.</td></tr>
+				<tr><td>14</td><td>Full <code>read</code>, then a <code>python3</code> heredoc writes the file, then <code>write</code>.</td><td>Block; the bash write changed the mtime and left no full-read record.</td></tr>
+				<tr><td>15</td><td>Full <code>read</code>, then a <code>python3</code> heredoc writes the file, then <code>edit</code>.</td><td>Allow; <code>edit</code> is not gated.</td></tr>
+				<tr><td>16</td><td>Path-rewriting extension before the guard; full read of the rewritten path, then <code>write</code>.</td><td>Allow; the load-order contract still holds for <code>write</code>.</td></tr>
+				<tr><td>17</td><td>Run <code>/stale-write-guard-dump</code> after a full read and after an edit.</td><td>Shows the full-read mtime and the allow/block decision for <code>write</code>.</td></tr>
+			</tbody>
+		</table>
+
+		<h3>Parser unit tests</h3>
+		<table>
+			<thead>
+				<tr><th>Command</th><th>Expected paths</th></tr>
+			</thead>
+			<tbody>
+				<tr><td><code>cat notes.txt</code></td><td><code>["notes.txt"]</code></td></tr>
+				<tr><td><code>cat a.txt b.txt</code></td><td><code>["a.txt", "b.txt"]</code></td></tr>
+				<tr><td><code>cat 'my file.txt'</code></td><td><code>["my file.txt"]</code></td></tr>
+				<tr><td><code>LC_ALL=C cat notes.txt</code></td><td><code>["notes.txt"]</code></td></tr>
+				<tr><td><code>cat notes.txt | head</code></td><td><code>[]</code></td></tr>
+				<tr><td><code>cat notes.txt &gt; copy.txt</code></td><td><code>[]</code></td></tr>
+				<tr><td><code>cat notes.txt 2&gt;/dev/null</code></td><td><code>[]</code> (conservative; a redirect of any fd bails)</td></tr>
+				<tr><td><code>cat $(find . -name x)</code></td><td><code>[]</code></td></tr>
+				<tr><td><code>sed -n '1p' notes.txt</code></td><td><code>[]</code></td></tr>
+				<tr><td><code>head -n 5 notes.txt</code></td><td><code>[]</code></td></tr>
+				<tr><td><code>grep x notes.txt</code></td><td><code>[]</code></td></tr>
+				<tr><td><code>cat 'notes.txt</code> (unterminated quote)</td><td><code>[]</code></td></tr>
+			</tbody>
+		</table>
+		<p>For the “edit preserves an external change” guarantee, the guard test only proves that the guard does not block. The preservation itself is pi's edit behavior: <code>oldText</code> must match the current file, and unchanged lines outside the replacement are copied back. A separate end-to-end test can call the real edit tool if the guard repo wants to pin that guarantee.</p>
+	</section>
+
+	<section id="followups">
+		<h2>Follow-ups</h2>
+		<ul>
+			<li><strong>Update the docs.</strong> <code>README.md</code> and <code>AGENTS.md</code> currently say the guard blocks both tools and that a missing record “only costs an extra read.” Change them to: <code>edit</code> is not gated; <code>write</code> needs a full read; bash writes are outside the guard.</li>
+			<li><strong>Coverage tracking, if needed.</strong> If whole-file rewrites of files above the 2,000-line read cap become common, record read ranges per mtime and allow <code>write</code> once the ranges cover the file. Do not add this before the split; the simple full-read rule covers the observed session.</li>
+			<li><strong>Non-blocking bash-write note.</strong> Snapshot tracked mtimes at bash <code>tool_call</code> and compare at <code>tool_result</code>. Append a short note naming the tracked files the command changed. This surfaces the bypass without blocking bulk edits. It is optional.</li>
+			<li><strong>Do not block bash writes.</strong> A blocklist for <code>python3</code>, <code>perl -i</code>, <code>sed -i</code>, and <code>cat &gt;</code> will miss the next writer and break legitimate bulk edits. The right place for that policy is a permission layer, not this guard.</li>
+		</ul>
+	</section>
+
+	<footer>
+		Sources: <code>extensions/stale-write-guard/src/{index,bash,guard}.ts</code>, <code>test/{unit,integration}</code>, the session transcript at <code>~/.pi/agent/sessions/--home-neudeline-code-pi-tre--/2026-10-22T08-27-42-485Z_01a162b9-2215-752b-82c3-5ca154fc02a5.jsonl</code>, and pi 1.2.0's <code>dist/core/tools/{read,edit,edit-diff,truncate}.*</code>.
+	</footer>
+</main>
+</body>
+</html>
