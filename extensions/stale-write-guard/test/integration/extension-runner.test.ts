@@ -24,6 +24,25 @@ function setMtimeMs(path: string, mtimeMs: number): void {
 	utimesSync(path, timeSeconds, timeSeconds);
 }
 
+/** A truncated tool result, as pi reports it in `details`. */
+function truncatedDetails() {
+	return {
+		truncation: {
+			content: "line 1",
+			truncated: true as const,
+			truncatedBy: "lines" as const,
+			totalLines: 3,
+			totalBytes: 21,
+			outputLines: 1,
+			outputBytes: 7,
+			lastLinePartial: false,
+			firstLineExceedsLimit: false,
+			maxLines: 1,
+			maxBytes: 50 * 1024,
+		},
+	};
+}
+
 /**
  * Emit `before_agent_start` for a submitted user prompt.
  *
@@ -93,7 +112,52 @@ describe("stale-write-guard extension", () => {
 		).resolves.toBeUndefined();
 	});
 
-	it("blocks edit on existing file when no read record exists", async () => {
+	it("dumps the full-read mtime and the write decision", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const dumpCommand = runner.getCommand("stale-write-guard-dump");
+		if (!dumpCommand) throw new Error("Expected dump command");
+
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "read-dump",
+			toolName: "read",
+			input: { path: toolPath },
+			content: [{ type: "text", text: "hello" }],
+			details: undefined,
+			isError: false,
+		});
+
+		let output = "";
+		const ctx = {
+			hasUI: true,
+			ui: {
+				setEditorText: (text: string) => {
+					output = text;
+				},
+			},
+		} as unknown as Parameters<typeof dumpCommand.handler>[1];
+
+		await dumpCommand.handler("", ctx);
+		expect(output).toContain(filePath);
+		expect(output).toContain("fullReadMtime:");
+		expect(output).toContain("decision: ALLOW write");
+		expect(output).toContain("reason: full read up to date");
+
+		writeFileSync(filePath, "external\n", "utf8");
+		setMtimeMs(filePath, 2_000_000);
+
+		await dumpCommand.handler("", ctx);
+		expect(output).toContain("decision: BLOCK write");
+		expect(output).toContain("reason: file changed after last full read");
+	});
+
+	it("allows edit on existing file when no read record exists", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const toolPath = "unread.txt";
@@ -112,11 +176,10 @@ describe("stale-write-guard extension", () => {
 			},
 		});
 
-		expect(result?.block).toBe(true);
-		expect(result?.reason).toContain("Read it again");
+		expect(result).toBeUndefined();
 	});
 
-	it("blocks edit when file changed externally after last agent edit", async () => {
+	it("blocks write when file changed externally after last agent write", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const toolPath = "note.txt";
@@ -140,19 +203,20 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-1",
-			toolName: "edit",
+			toolCallId: "write-1",
+			toolName: "write",
 			input: {
 				path: toolPath,
-				edits: [{ oldText: "external", newText: "agent" }],
+				content: "agent change\n",
 			},
 		});
 
 		expect(result?.block).toBe(true);
-		expect(result?.reason).toContain("Read it again");
+		expect(result?.reason).toContain("changed after your last full read");
+		expect(result?.reason).toContain("content you have not seen");
 	});
 
-	it("allows edit after a fresh read of externally changed file", async () => {
+	it("allows write after a fresh full read of externally changed file", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const toolPath = "note.txt";
@@ -186,18 +250,76 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-2",
-			toolName: "edit",
+			toolCallId: "write-2",
+			toolName: "write",
 			input: {
 				path: toolPath,
-				edits: [{ oldText: "external", newText: "agent" }],
+				content: "agent change\n",
 			},
 		});
 
 		expect(result).toBeUndefined();
 	});
 
-	it("allows edit after the agent printed the file with bash cat", async () => {
+	it("blocks write after a partial read", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "line 1\nline 2\nline 3\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "read-part",
+			toolName: "read",
+			input: { path: toolPath, offset: 1, limit: 1 },
+			content: [{ type: "text", text: "line 1" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-part",
+			toolName: "write",
+			input: { path: toolPath, content: "new\n" },
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("blocks write after a truncated read", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "line 1\nline 2\nline 3\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "read-truncated",
+			toolName: "read",
+			input: { path: toolPath },
+			content: [{ type: "text", text: "line 1" }],
+			details: truncatedDetails(),
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-truncated",
+			toolName: "write",
+			input: { path: toolPath, content: "new\n" },
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("allows write after the agent printed the whole file with bash cat", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const toolPath = "note.txt";
@@ -218,18 +340,190 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-1",
-			toolName: "edit",
+			toolCallId: "write-1",
+			toolName: "write",
 			input: {
 				path: toolPath,
-				edits: [{ oldText: "hello", newText: "hi" }],
+				content: "from bash\n",
 			},
 		});
 
 		expect(result).toBeUndefined();
 	});
 
-	it("blocks edit when the file changed after the bash cat", async () => {
+	it("blocks write after a cat behind a cd segment", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		// The shell would read this file inside `sub`, not in the session cwd.
+		// The guard must not record the cwd file just because its name matches.
+		writeFileSync(filePath, "cwd file\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-cd-cat",
+			toolName: "bash",
+			input: { command: `cd sub && cat ${toolPath}` },
+			content: [{ type: "text", text: "sub file" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-after-cd-cat",
+			toolName: "write",
+			input: { path: toolPath, content: "new\n" },
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("blocks write after a truncated bash cat", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-cat-truncated",
+			toolName: "bash",
+			input: { command: `cat ${toolPath}` },
+			content: [{ type: "text", text: "hello" }],
+			details: truncatedDetails(),
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-cat-truncated",
+			toolName: "write",
+			input: { path: toolPath, content: "new\n" },
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("records the literal @ operand, not the stripped path", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const atPath = "@note.txt";
+		const plainPath = "note.txt";
+
+		writeFileSync(join(cwd, atPath), "at file\n", "utf8");
+		writeFileSync(join(cwd, plainPath), "plain file\n", "utf8");
+		setMtimeMs(join(cwd, atPath), 1_000_000);
+		setMtimeMs(join(cwd, plainPath), 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-at",
+			toolName: "bash",
+			input: { command: `cat '${atPath}'` },
+			content: [{ type: "text", text: "at file" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const plainWrite = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-plain",
+			toolName: "write",
+			input: { path: plainPath, content: "new\n" },
+		});
+		expect(plainWrite?.block).toBe(true);
+
+		const atWrite = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-at",
+			toolName: "write",
+			input: { path: `./${atPath}`, content: "new\n" },
+		});
+		expect(atWrite).toBeUndefined();
+	});
+
+	it("allows a second write after a successful write", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "new.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "first\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "write-first",
+			toolName: "write",
+			input: { path: toolPath, content: "first\n" },
+			content: [{ type: "text", text: "written" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-second",
+			toolName: "write",
+			input: { path: toolPath, content: "second\n" },
+		});
+
+		expect(result).toBeUndefined();
+	});
+
+	it("blocks write after an edit invalidates the full read", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "before\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "read-before-edit",
+			toolName: "read",
+			input: { path: toolPath },
+			content: [{ type: "text", text: "before" }],
+			details: undefined,
+			isError: false,
+		});
+
+		writeFileSync(filePath, "after\n", "utf8");
+		setMtimeMs(filePath, 2_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "edit-after-read",
+			toolName: "edit",
+			input: {
+				path: toolPath,
+				edits: [{ oldText: "before", newText: "after" }],
+			},
+			content: [{ type: "text", text: "edited" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-after-edit",
+			toolName: "write",
+			input: { path: toolPath, content: "rewritten\n" },
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("blocks write when the file changed after the bash cat", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const toolPath = "note.txt";
@@ -253,18 +547,18 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-1",
-			toolName: "edit",
+			toolCallId: "write-1",
+			toolName: "write",
 			input: {
 				path: toolPath,
-				edits: [{ oldText: "external", newText: "agent" }],
+				content: "external change\n",
 			},
 		});
 
 		expect(result?.block).toBe(true);
 	});
 
-	it("does not record a read from a piped bash command", async () => {
+	it("does not record a full read from a piped bash command", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const toolPath = "note.txt";
@@ -285,12 +579,130 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-1",
-			toolName: "edit",
+			toolCallId: "write-1",
+			toolName: "write",
 			input: {
 				path: toolPath,
-				edits: [{ oldText: "hello", newText: "hi" }],
+				content: "agent change\n",
 			},
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("blocks write after a sed read", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-sed",
+			toolName: "bash",
+			input: { command: `sed -n '1,10p' ${toolPath}` },
+			content: [{ type: "text", text: "hello" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-sed",
+			toolName: "write",
+			input: { path: toolPath, content: "new\n" },
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("blocks write after a head read", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-head",
+			toolName: "bash",
+			input: { command: `head -n 5 ${toolPath}` },
+			content: [{ type: "text", text: "hello" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-head",
+			toolName: "write",
+			input: { path: toolPath, content: "new\n" },
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("blocks write after a grep read", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-grep",
+			toolName: "bash",
+			input: { command: `grep hello ${toolPath}` },
+			content: [{ type: "text", text: "hello" }],
+			details: undefined,
+			isError: false,
+		});
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-grep",
+			toolName: "write",
+			input: { path: toolPath, content: "new\n" },
+		});
+
+		expect(result?.block).toBe(true);
+	});
+
+	it("blocks write after a jj or git diff", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		for (const command of ["jj diff", "git diff"]) {
+			await runner.emitToolResult({
+				type: "tool_result",
+				toolCallId: `bash-${command}`,
+				toolName: "bash",
+				input: { command },
+				content: [{ type: "text", text: "diff --git a/note.txt" }],
+				details: undefined,
+				isError: false,
+			});
+		}
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-diff",
+			toolName: "write",
+			input: { path: toolPath, content: "new\n" },
 		});
 
 		expect(result?.block).toBe(true);
@@ -313,7 +725,72 @@ describe("stale-write-guard extension", () => {
 		expect(result).toBeUndefined();
 	});
 
-	it("allows edit after /skill:name injection recorded in before_agent_start", async () => {
+	it("names the read tool and the edit alternative when write blocks", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "write-unread",
+			toolName: "write",
+			input: { path: toolPath, content: "new\n" },
+		});
+
+		expect(result?.block).toBe(true);
+		expect(result?.reason).toContain("No full read");
+		expect(result?.reason).toContain("partial read");
+		expect(result?.reason).toContain("cat with flags");
+		expect(result?.reason).toContain("head/tail/sed/grep/rg");
+		expect(result?.reason).toContain("pipe");
+		expect(result?.reason).toContain("path after a cd");
+		expect(result?.reason).toContain("read tool");
+		expect(result?.reason).toContain("no offset/limit");
+		expect(result?.reason).toContain("edit");
+	});
+
+	it("allows edit after a bash write", async () => {
+		const cwd = makeRunnerCwd();
+		const runner = await createRunner(cwd);
+		const toolPath = "note.txt";
+		const filePath = join(cwd, toolPath);
+
+		writeFileSync(filePath, "hello\n", "utf8");
+		setMtimeMs(filePath, 1_000_000);
+
+		await runner.emitToolResult({
+			type: "tool_result",
+			toolCallId: "bash-python",
+			toolName: "bash",
+			input: {
+				command: `python3 - <<'EOF'\nopen('${toolPath}', 'w').write('changed\\n')\nEOF`,
+			},
+			content: [{ type: "text", text: "" }],
+			details: undefined,
+			isError: false,
+		});
+
+		writeFileSync(filePath, "changed\n", "utf8");
+		setMtimeMs(filePath, 2_000_000);
+
+		const result = await runner.emitToolCall({
+			type: "tool_call",
+			toolCallId: "edit-after-bash",
+			toolName: "edit",
+			input: {
+				path: toolPath,
+				edits: [{ oldText: "changed", newText: "agent" }],
+			},
+		});
+
+		expect(result).toBeUndefined();
+	});
+
+	it("allows write after /skill:name injection recorded in before_agent_start", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const skillDir = join(cwd, "skills", "my-skill");
@@ -335,18 +812,18 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-skill",
-			toolName: "edit",
+			toolCallId: "write-skill",
+			toolName: "write",
 			input: {
 				path: skillPath,
-				edits: [{ oldText: "thing", newText: "job" }],
+				content: "agent body\n",
 			},
 		});
 
 		expect(result).toBeUndefined();
 	});
 
-	it("blocks edit when the skill file changed after /skill:name injection", async () => {
+	it("blocks write when the skill file changed after /skill:name injection", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const skillDir = join(cwd, "skills", "my-skill");
@@ -374,19 +851,18 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-skill",
-			toolName: "edit",
+			toolCallId: "write-skill",
+			toolName: "write",
 			input: {
 				path: skillPath,
-				edits: [{ oldText: "new", newText: "x" }],
+				content: "agent body\n",
 			},
 		});
 
 		expect(result?.block).toBe(true);
-		expect(result?.reason).toContain("Read it again");
 	});
 
-	it("allows edit of a context file whose disk content matches systemPromptOptions", async () => {
+	it("allows write of a context file whose disk content matches systemPromptOptions", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const agentsPath = join(cwd, "AGENTS.md");
@@ -402,18 +878,18 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-agents",
-			toolName: "edit",
+			toolCallId: "write-agents",
+			toolName: "write",
 			input: {
 				path: agentsPath,
-				edits: [{ oldText: "rules", newText: "more rules" }],
+				content: "# Agents\n\nmore rules\n",
 			},
 		});
 
 		expect(result).toBeUndefined();
 	});
 
-	it("blocks edit of a context file whose disk content diverged since session start", async () => {
+	it("blocks write of a context file whose disk content diverged since session start", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const agentsPath = join(cwd, "AGENTS.md");
@@ -433,18 +909,18 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-agents",
-			toolName: "edit",
+			toolCallId: "write-agents",
+			toolName: "write",
 			input: {
 				path: agentsPath,
-				edits: [{ oldText: "changed", newText: "x" }],
+				content: "agent content\n",
 			},
 		});
 
 		expect(result?.block).toBe(true);
 	});
 
-	it("records context files for a custom-message run without a prompt", async () => {
+	it("allows write for a context file recorded on a custom-message run", async () => {
 		const cwd = makeRunnerCwd();
 		const runner = await createRunner(cwd);
 		const agentsPath = join(cwd, "AGENTS.md");
@@ -472,11 +948,11 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-agents-custom",
-			toolName: "edit",
+			toolCallId: "write-agents-custom",
+			toolName: "write",
 			input: {
 				path: agentsPath,
-				edits: [{ oldText: "rules", newText: "more rules" }],
+				content: "# Agents\n\nmore rules\n",
 			},
 		});
 
@@ -517,16 +993,15 @@ describe("stale-write-guard extension", () => {
 
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-skill-custom",
-			toolName: "edit",
+			toolCallId: "write-skill-custom",
+			toolName: "write",
 			input: {
 				path: skillPath,
-				edits: [{ oldText: "thing", newText: "job" }],
+				content: "agent body\n",
 			},
 		});
 
 		expect(result?.block).toBe(true);
-		expect(result?.reason).toContain("Read it again");
 	});
 
 	it("stays consistent when a path-rewriting extension runs before it", async () => {
@@ -575,11 +1050,11 @@ describe("stale-write-guard extension", () => {
 		// before the guard's tool_call handler sees it.
 		const result = await runner.emitToolCall({
 			type: "tool_call",
-			toolCallId: "edit-1",
-			toolName: "edit",
+			toolCallId: "write-1",
+			toolName: "write",
 			input: {
 				path: toolPath,
-				edits: [{ oldText: "initial", newText: "next" }],
+				content: "next\n",
 			},
 		});
 

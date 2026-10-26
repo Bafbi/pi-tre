@@ -7,7 +7,7 @@
 - [leaf-copy](./extensions/leaf-copy): copies editor text or the last leaf message to the clipboard
 - [repo-query](./extensions/repo-query/CONTEXT.md): clones git repositories into a per-session tempspace and answers questions with a subagent
 - [sillajje](./extensions/sillajje/CONTEXT.md): auto-versioning for Pi sessions built on jj
-- [stale-write-guard](./extensions/stale-write-guard/README.md): blocks `edit` and `write` after a stale read
+- [stale-write-guard](./extensions/stale-write-guard/README.md): blocks `write` until the agent has read the whole current file
 
 ### Sillajje package contexts
 

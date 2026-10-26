@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Report title</title>
+	<style>
+		:root {
+			--bg: #ffffff;
+			--fg: #1c1e21;
+			--muted: #5c6570;
+			--line: #e2e6ea;
+			--panel: #f7f8fa;
+			--code-bg: #f2f4f7;
+			--accent: #2f6feb;
+			--ok: #1a7f4b;
+			--ok-bg: #e8f5ee;
+			--warn: #9a6700;
+			--warn-bg: #fff6df;
+			--crit: #b42318;
+			--crit-bg: #fdecea;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #14171a;
+				--fg: #e6e9ed;
+				--muted: #9aa4af;
+				--line: #2a2f36;
+				--panel: #1b1f24;
+				--code-bg: #1f242a;
+				--accent: #6ea8fe;
+				--ok: #65d19a;
+				--ok-bg: #16291f;
+				--warn: #e2b34a;
+				--warn-bg: #2a2416;
+				--crit: #ff8a80;
+				--crit-bg: #2a1817;
+			}
+		}
+		* { box-sizing: border-box; }
+		html { scroll-behavior: smooth; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--fg);
+			font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		}
+		main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+		header { border-bottom: 1px solid var(--line); padding-bottom: 1.5rem; margin-bottom: 2rem; }
+		h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+		.sub { color: var(--muted); margin: 0; font-size: 1.05rem; }
+		.meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+		.chip {
+			font-size: .78rem; color: var(--muted);
+			border: 1px solid var(--line); background: var(--panel);
+			padding: .2rem .6rem; border-radius: 999px;
+		}
+		h2 { font-size: 1.3rem; margin: 2.75rem 0 .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+		h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+		p, li { max-width: 46rem; }
+		ul, ol { padding-left: 1.4rem; }
+		li { margin: .3rem 0; }
+		a { color: var(--accent); }
+		code {
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+			font-size: .88em; background: var(--code-bg);
+			border: 1px solid var(--line); border-radius: 5px; padding: .08em .35em;
+		}
+		pre {
+			background: var(--code-bg); border: 1px solid var(--line);
+			border-radius: 10px; padding: 1rem 1.1rem; overflow-x: auto; line-height: 1.5;
+		}
+		pre code { background: none; border: 0; padding: 0; font-size: .85rem; }
+		table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+		th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+		th { color: var(--muted); font-weight: 600; }
+		.callout {
+			border: 1px solid var(--line); border-left-width: 4px;
+			border-radius: 8px; padding: .85rem 1rem; margin: 1rem 0; background: var(--panel);
+		}
+		.callout p:first-child { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+		.callout.info { border-left-color: var(--accent); }
+		.callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+		.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+		.callout.crit { border-left-color: var(--crit); background: var(--crit-bg); }
+		.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+		.card { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 1rem 1.1rem; }
+		.card h3 { margin-top: 0; }
+		nav.toc {
+			border: 1px solid var(--line); background: var(--panel);
+			border-radius: 10px; padding: .75rem 1rem; font-size: .92rem;
+		}
+		nav.toc a { margin-right: .9rem; text-decoration: none; }
+		nav.toc a:hover { text-decoration: underline; }
+		footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+		@media print {
+			:root { --bg: #fff; --fg: #000; --panel: #fff; --code-bg: #f5f5f5; }
+			nav.toc { display: none; }
+			main { max-width: none; padding: 0; }
+		}
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Code review: stale-write-guard split contract</h1>
+		<p class="sub">The split is right and green. One real safety hole: a <code>cd</code> before <code>cat</code> records a file the agent never read.</p>
+		<div class="meta">
+			<span class="chip">2026-10-25</span>
+			<span class="chip">axes: main..@</span>
+			<span class="chip">commits: 596d938, 9516a48</span>
+			<span class="chip">check: green (60 tests)</span>
+		</div>
+	</header>
+
+	<nav class="toc">
+		<a href="#standards">Standards</a>
+		<a href="#spec">Spec</a>
+		<a href="#fixed-point">Fixed point</a>
+	</nav>
+
+	<section id="standards">
+		<h2>Standards</h2>
+		<p>Sources: root <code>AGENTS.md</code>, <code>extensions/stale-write-guard/AGENTS.md</code>, <code>README.md</code>, <code>CONTEXT-MAP.md</code>, <code>docs/agents/domain.md</code>, plus the Fowler smell baseline.</p>
+		<div class="callout crit">
+			<p><strong>Documented breach: a <code>cd</code> segment records the wrong file.</strong> README line 32 says “<code>cd dir &amp;&amp; cat file</code> does not count. Use <code>read</code> or an absolute path.” <code>extractFullReadPaths("cd dir &amp;&amp; cat file")</code> returns <code>["file"]</code>, and <code>src/index.ts:154-159</code> resolves it against <code>ctx.cwd</code>. So the guard records <code>cwd/file</code>, a file the command never read. If that file exists, a later <code>write</code> to it is allowed with no read. This breaks the README rule “every ambiguity fails closed” and the local AGENTS.md constraint “Record only full-content reads … no partial bash readers”. Fix: track <code>cd</code> segments, or drop every <code>cat</code> that follows one, and add the parser test row the spec already promises.</p>
+		</div>
+		<ul>
+			<li><strong>Transform flags count as full reads (judgement).</strong> <code>src/bash.ts:84-85</code> keeps any non-flag operand, so <code>cat -s</code> (squeezes blank lines), <code>cat -n</code>, and <code>cat -A</code> record a full read. The README says a “whole file view” counts; <code>-s</code> is not one.</li>
+			<li><strong>Wrong-file normalization (judgement).</strong> Bash operands go through <code>resolveCanonicalPath</code>, which strips a leading <code>@</code> and expands <code>~</code> even inside quotes. <code>cat "@name"</code> or <code>cat "~/x"</code> can record a different path than the shell reads.</li>
+			<li><strong>Duplicated Code (judgement).</strong> Three copies of resolve → stat → set in the <code>tool_result</code> handler (<code>src/index.ts:154-159</code>, <code>170-174</code>, <code>184-188</code>). Extract <code>recordFullRead(rawPath, cwd)</code>.</li>
+			<li><strong>Stale mirrored comment (judgement).</strong> <code>test/unit/manifest-order.test.ts:11</code> still says “reads record workspace mtimes while edits check repo-checkout mtimes, and every read-then-edit blocks forever.” AGENTS.md was updated to writes; the test comment was not.</li>
+			<li><strong>Leftover template banner (judgement).</strong> <code>.scratch/stale-write-guard/01-guard-read-detection.html:1</code> keeps “Copy to .scratch/… Replace the title…”, which the template marks as an instruction, not report content.</li>
+		</ul>
+		<p>Clean: naming (<code>fullyReadMtimeMs</code>, <code>requiresFullReadBeforeWrite</code>, <code>extractFullReadPaths</code>) is consistent, no old symbol names remain, and the docs describe the new contract. <code>mise run //extensions/stale-write-guard:check</code> passes. Tooling-enforced items (format, lint, types) are green and not re-listed.</p>
+	</section>
+
+	<section id="spec">
+		<h2>Spec</h2>
+		<p>Spec: <code>.scratch/stale-write-guard/01-guard-read-detection.html</code> (commit 9516a48), reinforced by both commit messages.</p>
+		<h3>Missing or partial</h3>
+		<ul>
+			<li><strong><code>cd dir &amp;&amp; cat file</code> must not count.</strong> The spec’s “What counts as a full read” line says exactly that. The code records <code>cwd/file</code> instead (see Standards). Not just missing: it is a false allow for a different file.</li>
+			<li><strong>Spec test 17 (dump output).</strong> The only dump test calls the handler and expects it to resolve. It never checks the full-read mtime or the BLOCK/ALLOW reason. The feature is implemented at <code>src/index.ts:193-241</code>; the proof is not.</li>
+			<li><strong>Spec test 10 (<code>jj diff</code>/<code>git diff</code> then write blocks).</strong> Not tested. Correct by construction, since only <code>cat</code> yields paths.</li>
+			<li><strong>“Flip the existing edit tests”.</strong> One of five flips exists (“allows edit on existing file when no read record exists”). The other four were deleted rather than flipped. Defensible, because <code>edit</code> is ungated, but not what the spec asked for.</li>
+		</ul>
+		<h3>Scope creep</h3>
+		<p>None material. The diff is the split contract, the parser shrink, and the doc updates the spec asked for. The extra tests (partial read, truncated read, injected context on custom-message runs) serve the spec.</p>
+		<h3>Implemented but wrong</h3>
+		<ul>
+			<li><strong>Partial <code>cat</code> views.</strong> <code>cat -s</code>/<code>-n</code>/<code>-A</code> are recorded as full reads. The spec allows only full-content views and rejects transformed ones.</li>
+			<li><strong>Operand normalization.</strong> Stripping <code>@</code> and expanding quoted <code>~</code> records a path the shell did not print.</li>
+		</ul>
+		<p>Otherwise faithful: <code>edit</code> is never blocked, <code>write</code> is gated on a full read, the block reason matches the spec text exactly, bash writes are documented as outside the guard, and the read/bash truncation and offset/limit checks match.</p>
+	</section>
+
+	<section id="fixed-point">
+		<h2>Fixed point</h2>
+		<p><code>main</code> resolves to <code>478af61e</code>. Diff: <code>jj diff --from 'heads(::@ &amp; ::main)' --to @</code>. Commits: <code>596d938</code> (refactor) and <code>9516a48</code> (research). 11 files, +1005/−247.</p>
+	</section>
+
+	<footer>Generated by the agent for the code-review skill. Diff base: main (478af61e), reviewed at 2026-10-25.</footer>
+</main>
+</body>
+</html>
