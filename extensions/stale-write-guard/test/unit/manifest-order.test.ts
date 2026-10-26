@@ -6,9 +6,9 @@ import { describe, expect, it } from "vitest";
  * stale-write-guard must load AFTER sillajje. Sillajje rewrites tool input
  * paths to the sillajje workspace by mutating the shared args object during
  * tool_call. The guard's tool_result handler always sees those rewritten
- * paths, so its tool_call handler must see them too — otherwise reads record
- * workspace mtimes while edits check repo-checkout mtimes, and every
- * read-then-edit blocks forever.
+ * paths, so its tool_call handler must see them too — otherwise full reads
+ * record workspace mtimes while writes check repo-checkout mtimes, and every
+ * write blocks forever.
  */
 describe("pi-tre package manifest", () => {
 	const manifestPath = resolve(

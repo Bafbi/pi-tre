@@ -1,21 +1,14 @@
 /**
- * Recognize bash commands that put file content into the agent's context.
+ * Recognize bash commands that put a whole file into the agent's context.
  *
- * The goal is narrow: find the file paths a command prints, so the guard
- * can record a read for them. When in doubt, record nothing — a missing
- * record only causes an extra read, while a wrong record would whitelist
- * a stale write.
+ * The goal is narrow: find the file paths a command prints in full, so the
+ * guard can record a full read for them. Only `cat` qualifies. A partial
+ * reader (head, tail, sed, grep, rg) or a pipeline does not prove the agent
+ * saw the whole file, and a wrong record would whitelist a stale write.
  */
 
-/** Commands whose stdout is the file content itself. */
-const WHOLE_FILE_READERS = new Set(["cat", "head", "tail", "tac", "nl", "bat"]);
-
-/**
- * Commands whose first non-flag operand is a pattern and whose remaining
- * operands are files. Their output shows only matching lines, so this
- * counts as seeing those lines, not the whole file.
- */
-const PATTERN_READERS = new Set(["grep", "rg"]);
+/** Commands whose stdout is the complete file content. */
+const FULL_FILE_READERS = new Set(["cat"]);
 
 /** Operators that change what the agent sees (pipes, redirects, backgrounding). */
 const UNSAFE_CHARS = /[|<>&]/;
@@ -27,6 +20,12 @@ const UNSAFE_EXPANSION_CHARS = /[$`]/;
 const SEGMENT_SPLIT = /&&|\|\||;|\n/;
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+/** Commands that change the shell's working directory. */
+const DIRECTORY_CHANGE_COMMANDS = new Set(["cd", "pushd", "popd"]);
+
+/** Wrappers that keep the next token as the command name. */
+const COMMAND_PREFIXES = new Set(["command", "builtin", "exec", "time"]);
 
 /**
  * Tokenize one command segment, honoring quotes and backslash escapes.
@@ -88,29 +87,68 @@ function segmentPaths(segment: string): string[] {
 	if (command === undefined) return [];
 	index++;
 
-	if (WHOLE_FILE_READERS.has(command)) {
-		return tokens.slice(index).filter((token) => !token.startsWith("-"));
-	}
-	if (PATTERN_READERS.has(command)) {
-		const operands = tokens
-			.slice(index)
-			.filter((token) => !token.startsWith("-"));
-		// The first operand is the pattern, not a file.
-		return operands.slice(1);
+	if (FULL_FILE_READERS.has(command)) {
+		const operands = tokens.slice(index);
+		// A flag changes the view (`-s` drops lines, `-n`/`-A` rewrite them)
+		// or adds options. Only a bare `cat file` proves the whole content.
+		if (operands.some((token) => token.startsWith("-"))) return [];
+		// The shell expands a leading `~` before `cat` sees the path. The
+		// tokenizer drops quote information, so the guard cannot tell an
+		// expanded `~/x` from a literal `~/x`. Skip it; a record for the
+		// literal `<cwd>/~/x` would authorize a file the shell never read.
+		return operands.filter((token) => !token.startsWith("~"));
 	}
 	return [];
 }
 
 /**
- * Return the file paths a bash command prints, or an empty list when the
- * command does not put file content into context (or is too complex to
- * analyze safely). Non-existing candidates are filtered out later, when
- * the caller stats them.
+ * True when a segment changes the working directory. Once the directory is
+ * unknown, the guard cannot resolve a later relative path against the session
+ * cwd, so it records nothing after that point.
  */
-export function extractReadPaths(command: string): string[] {
+function isDirectoryChange(segment: string): boolean {
+	const tokens = tokenize(segment);
+	if (!tokens || tokens.length === 0) return false;
+
+	let index = 0;
+	while (index < tokens.length) {
+		const token = tokens[index] ?? "";
+		if (
+			ENV_ASSIGNMENT.test(token) ||
+			COMMAND_PREFIXES.has(token) ||
+			/^[({!]+$/.test(token)
+		) {
+			index++;
+			continue;
+		}
+		break;
+	}
+
+	const command = tokens[index]?.replace(/^[({!]+/, "");
+	return command !== undefined && DIRECTORY_CHANGE_COMMANDS.has(command);
+}
+
+/**
+ * Return the file paths a bash command prints in full, or an empty list when
+ * the command is partial, transformed, or too complex to analyze safely.
+ * Non-existing candidates are filtered out later, when the caller stats them.
+ *
+ * A `cd`/`pushd`/`popd` segment makes every later relative path ambiguous, so
+ * paths after it are dropped. A `cat` before the directory change still
+ * counts.
+ */
+export function extractFullReadPaths(command: string): string[] {
 	const paths: string[] = [];
-	for (const segment of command.split(SEGMENT_SPLIT)) {
-		paths.push(...segmentPaths(segment.trim()));
+	let directoryChanged = false;
+
+	for (const rawSegment of command.split(SEGMENT_SPLIT)) {
+		const segment = rawSegment.trim();
+		if (isDirectoryChange(segment)) {
+			directoryChanged = true;
+			continue;
+		}
+		if (directoryChanged) continue;
+		paths.push(...segmentPaths(segment));
 	}
 	return paths;
 }

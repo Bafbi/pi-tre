@@ -1,21 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { requiresReadBeforeMutation } from "../../src/guard.js";
+import { requiresFullReadBeforeWrite } from "../../src/guard.js";
 
-describe("requiresReadBeforeMutation", () => {
-	it("returns true when no read record exists", () => {
-		expect(requiresReadBeforeMutation(120, undefined)).toBe(true);
+describe("requiresFullReadBeforeWrite", () => {
+	it("returns true when no full read record exists", () => {
+		expect(requiresFullReadBeforeWrite(120, undefined)).toBe(true);
 	});
 
-	it("returns false when current mtime is within tolerance of last read", () => {
-		expect(requiresReadBeforeMutation(102, 100)).toBe(false);
+	it("returns false when current mtime is within tolerance of the full read", () => {
+		expect(requiresFullReadBeforeWrite(102, 100)).toBe(false);
 	});
 
-	it("returns true when file changed since last read", () => {
-		expect(requiresReadBeforeMutation(150, 100)).toBe(true);
+	it("returns true when file changed since the full read", () => {
+		expect(requiresFullReadBeforeWrite(150, 100)).toBe(true);
 	});
 
-	it("returns false when file was freshly re-read", () => {
-		expect(requiresReadBeforeMutation(150, 150)).toBe(false);
+	it("returns false when file was freshly fully read", () => {
+		expect(requiresFullReadBeforeWrite(150, 150)).toBe(false);
 	});
 });
