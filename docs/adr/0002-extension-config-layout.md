@@ -22,6 +22,6 @@ Extensions gate the project layer behind `ctx.isProjectTrusted()`. Project confi
 
 - The `dotagents` repo owns `~/.pi/agent/configs/` and deploys it to every host as a symlink into `~/.agents/pi/configs`. Edit the global config in the dotagents repo, not on the host.
 - An untrusted project's config is ignored. Sillajje's `postInit` no longer runs from an untrusted repo.
-- Any extension that reads configuration depends on `@pi-tre/pi-config`. leaf-copy and stale-write-guard read none today.
+- Any extension that reads configuration depends on `@pi-tre/pi-config`. repo-query reads its configuration through it.
 - Environment overrides stay per extension. `REPO_QUERY_MODEL` and `SILLAJJE_POST_INIT` are extension policy, not loader policy.
 - The term "project-local config" is retired in favor of "project config".

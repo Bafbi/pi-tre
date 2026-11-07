@@ -2,9 +2,6 @@
 	"files": [],
 	"references": [
 		{
-			"path": "./extensions/stale-write-guard"
-		},
-		{
 			"path": "./extensions/repo-query"
 		},
 		{

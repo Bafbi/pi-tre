@@ -1,0 +1,7 @@
+{
+	"$schema": "https://pi.dev/schemas/settings.schema.json",
+	"defaultTools": ["+codemode"],
+	"codemode": {
+		"mode": "only"
+	}
+}

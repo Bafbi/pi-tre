@@ -10,10 +10,18 @@ Built for fast local iteration with:
 
 ## Extensions in this repo
 
-- **stale-write-guard**
-  Docs: [`extensions/stale-write-guard/README.md`](./extensions/stale-write-guard/README.md)
 - **repo-query**
   Docs: [`extensions/repo-query/README.md`](./extensions/repo-query/README.md)
+
+## Pi settings
+
+This project runs pi in codemode-only mode. `.pi/settings.json` enables the
+`codemode` tool and sets `codemode.mode` to `only`, so the model reaches the
+built-in and extension tools through `codemode` scripts.
+
+Project settings load after project trust is granted. To use codemode-only in
+every project, copy `defaultTools` and `codemode` into
+`~/.pi/agent/settings.json`.
 
 ## Packages in this repo
 
@@ -56,9 +64,6 @@ This repo exposes extensions through the `pi` manifest in `package.json`.
 ```bash
 # from git (no permanent install)
 pi --no-extensions -e git:github.com/Bafbi/pi-tre
-
-# from local checkout
-pi --no-extensions -e ./extensions/stale-write-guard/src/index.ts
 ```
 
 ## Local development

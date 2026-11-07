@@ -24,8 +24,7 @@
 	},
 	"pi": {
 		"extensions": [
-			"./extensions/repo-query/src/index.ts",
-			"./extensions/stale-write-guard/src/index.ts"
+			"./extensions/repo-query/src/index.ts"
 		]
 	},
 	"devDependencies": {

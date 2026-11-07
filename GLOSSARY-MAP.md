@@ -5,7 +5,6 @@
 ## Contexts
 
 - [repo-query](./extensions/repo-query/GLOSSARY.md): clones git repositories into a per-session tempspace and answers questions with a subagent
-- [stale-write-guard](./extensions/stale-write-guard/README.md): blocks `write` until the agent has read the whole current file
 
 ## Terminology
 

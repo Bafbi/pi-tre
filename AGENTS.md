@@ -14,6 +14,9 @@
   - `mise run ci` verifies formatting without writing and fails on unformatted code.
   - Run formatting on its own with `mise run format`.
 - **Vitest** is the testing framework.
+- **Codemode-only sessions.** `.pi/settings.json` enables `codemode` and sets
+  `codemode.mode` to `only`. The model reaches the built-in and extension tools
+  through `codemode` scripts (`tools.<name>`), not direct declarations.
 
 ## Extension config
 

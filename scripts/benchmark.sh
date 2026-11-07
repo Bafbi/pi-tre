@@ -19,7 +19,6 @@ cd "$(dirname "$0")/.."
 SECTION="${BENCH_SECTION:-all}"
 WORKSPACES=(
 	extensions/repo-query
-	extensions/stale-write-guard
 	packages/pi-subagent
 )
 

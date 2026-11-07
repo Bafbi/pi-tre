@@ -19,12 +19,9 @@ Multi-context monorepo:
 ├── GLOSSARY-MAP.md
 ├── docs/adr/                          ← system-wide decisions
 └── extensions/
-    ├── repo-query/
-    │   ├── GLOSSARY.md
-    │   └── docs/adr/                  ← context-specific decisions
-    └── stale-write-guard/
-        ├── GLOSSARY.md                ← created lazily
-        └── docs/adr/
+    └── repo-query/
+        ├── GLOSSARY.md
+        └── docs/adr/                  ← context-specific decisions
 ```
 
 ## Use the glossary's vocabulary
