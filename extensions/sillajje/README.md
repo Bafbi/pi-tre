@@ -1,5 +1,7 @@
 # Sillajje
 
+A really opignated version control system based on jj for multi session agentic works. integrate seemlessly with Pi harness and git backend remote. It let you and your agents care less about the versionning process, and only act when you wanna land.
+
 Auto-versioning for Pi agent sessions built on jj. Every agent interaction becomes a jj change, leaving a reviewable trail (a *sillage*) of all work done. See [CONTEXT.md](./CONTEXT.md) for the domain vocabulary and [docs/adr/](./docs/adr/) for the design decisions.
 
 ## Commands
