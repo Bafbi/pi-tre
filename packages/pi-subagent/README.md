@@ -1,7 +1,7 @@
 # @pi-tre/pi-subagent
 
 One contract for running a headless pi subagent, with a pluggable backend
-seam. Consumers in this monorepo: repo-query (process backend), sillajje
+seam. Consumers in this monorepo: repo-query (process backend)
 (in-process backend).
 
 The package is a plain TypeScript library with no `pi.extensions` entry.

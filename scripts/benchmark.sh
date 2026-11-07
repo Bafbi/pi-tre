@@ -18,9 +18,7 @@ cd "$(dirname "$0")/.."
 
 SECTION="${BENCH_SECTION:-all}"
 WORKSPACES=(
-	extensions/leaf-copy
 	extensions/repo-query
-	extensions/sillajje
 	extensions/stale-write-guard
 	packages/pi-subagent
 )

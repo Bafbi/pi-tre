@@ -8,25 +8,10 @@
 			"path": "./extensions/repo-query"
 		},
 		{
-			"path": "./extensions/leaf-copy"
-		},
-		{
-			"path": "./extensions/sillajje"
-		},
-		{
 			"path": "./packages/pi-config"
 		},
 		{
 			"path": "./packages/pi-subagent"
-		},
-		{
-			"path": "./packages/sillajje-jj"
-		},
-		{
-			"path": "./packages/sillajje-core"
-		},
-		{
-			"path": "./packages/sillajje-workspace"
 		}
 	]
 }

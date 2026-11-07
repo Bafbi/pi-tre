@@ -25,15 +25,6 @@ requires every `oldText` to match a unique region.
   full read) owned by `src/index.ts`. Do not add fields to it. The write
   decision needs exactly one number per file.
 
-## Load order constraint
-The guard must load after any extension that rewrites tool input paths
-(sillajje). Pi runs `tool_call` handlers in load order and hands the same
-args object to `tool_result`, so the guard only sees final paths when it
-runs last. If it runs before sillajje, full reads record workspace mtimes
-while writes check repo-checkout mtimes, and every write blocks forever.
-Keep `stale-write-guard` last in the `pi.extensions` list in the root
-`package.json`. `test/unit/manifest-order.test.ts` pins this.
-
 ## Implementation constraints
 - Handle symlinks via canonical paths where possible.
 - Handle missing files gracefully (new file writes should not fail this guard).

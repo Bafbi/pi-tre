@@ -134,8 +134,3 @@ Relevant code:
 - `src/path.ts` (path canonicalization)
 - `src/bash.ts` (bash `cat` commands that print a whole file)
 - `src/injected.ts` (content injected without a read tool call)
-
-## Load order
-
-The guard must load after sillajje (see AGENTS.md). Keep it last in the
-`pi.extensions` list in the root `package.json`.

@@ -42,15 +42,6 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@25.6.0)(jiti@2.7.0)(yaml@2.9.1)
 
-  extensions/leaf-copy:
-    dependencies:
-      '@earendil-works/pi-ai':
-        specifier: catalog:pi-dev
-        version: 1.2.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(zod@4.6.5)
-      '@earendil-works/pi-coding-agent':
-        specifier: catalog:pi-dev
-        version: 1.2.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(zod@4.6.5)
-
   extensions/repo-query:
     dependencies:
       '@earendil-works/pi-coding-agent':
@@ -74,33 +65,6 @@ importers:
       fuse.js:
         specifier: ^7.3.0
         version: 7.3.0
-
-  extensions/sillajje:
-    dependencies:
-      '@earendil-works/pi-ai':
-        specifier: catalog:pi-dev
-        version: 1.2.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(zod@4.6.5)
-      '@earendil-works/pi-coding-agent':
-        specifier: catalog:pi-dev
-        version: 1.2.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(zod@4.6.5)
-      '@pi-tre/pi-config':
-        specifier: workspace:*
-        version: link:../../packages/pi-config
-      '@pi-tre/pi-subagent':
-        specifier: workspace:*
-        version: link:../../packages/pi-subagent
-      '@pi-tre/sillajje-core':
-        specifier: workspace:*
-        version: link:../../packages/sillajje-core
-      '@pi-tre/sillajje-jj':
-        specifier: workspace:*
-        version: link:../../packages/sillajje-jj
-      '@pi-tre/sillajje-workspace':
-        specifier: workspace:*
-        version: link:../../packages/sillajje-workspace
-      '@sinclair/typebox':
-        specifier: catalog:pi-dev
-        version: 0.34.52
 
   extensions/stale-write-guard:
     dependencies:
@@ -131,26 +95,6 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: catalog:pi-dev
         version: 1.2.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(zod@4.6.5)
-
-  packages/sillajje-core:
-    dependencies:
-      '@pi-tre/sillajje-jj':
-        specifier: workspace:*
-        version: link:../sillajje-jj
-      '@pi-tre/sillajje-workspace':
-        specifier: workspace:*
-        version: link:../sillajje-workspace
-      '@sinclair/typebox':
-        specifier: catalog:pi-dev
-        version: 0.34.52
-
-  packages/sillajje-jj: {}
-
-  packages/sillajje-workspace:
-    dependencies:
-      '@pi-tre/sillajje-jj':
-        specifier: workspace:*
-        version: link:../sillajje-jj
 
 packages:
 

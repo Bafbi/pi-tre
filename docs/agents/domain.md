@@ -19,16 +19,10 @@ Multi-context monorepo:
 ├── CONTEXT-MAP.md
 ├── docs/adr/                          ← system-wide decisions (optional)
 └── extensions/
-    ├── leaf-copy/
-    │   ├── CONTEXT.md
-    │   └── docs/adr/                  ← context-specific decisions (optional)
     ├── repo-query/
     │   ├── CONTEXT.md
     │   └── docs/adr/
-    ├── stale-write-guard/
-    │   ├── CONTEXT.md
-    │   └── docs/adr/
-    └── webfetch-tool/
+    └── stale-write-guard/
         ├── CONTEXT.md
         └── docs/adr/
 ```

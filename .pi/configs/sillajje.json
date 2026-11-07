@@ -1,5 +1,0 @@
-{
-	"$schema": "../../extensions/sillajje/sillajje-config.schema.json",
-	"debug": true,
-	"postInit": ["mise trust", "mise deps"]
-}

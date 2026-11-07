@@ -14,7 +14,6 @@ Built for fast local iteration with:
   Docs: [`extensions/stale-write-guard/README.md`](./extensions/stale-write-guard/README.md)
 - **repo-query**
   Docs: [`extensions/repo-query/README.md`](./extensions/repo-query/README.md)
-- **sillajje**: automatic jj change stamping per agent session
 
 ## Packages in this repo
 
@@ -23,10 +22,10 @@ Built for fast local iteration with:
 
 ## Install from GitHub
 
-This is a pnpm workspace. `repo-query` and `sillajje` depend on the workspace
-package `@pi-tre/pi-subagent` through `workspace:*`. The default install runs
-`npm install --omit=dev`, which does not link workspace packages, so both
-extensions fail to load with `Cannot find module '@pi-tre/pi-subagent'`.
+This is a pnpm workspace. `repo-query` depends on the workspace packages
+`@pi-tre/pi-config` and `@pi-tre/pi-subagent` through `workspace:*`. The default
+install runs `npm install --omit=dev`, which does not link workspace packages,
+so the extension fails to load with `Cannot find module '@pi-tre/pi-subagent'`.
 
 Tell pi to install with pnpm. Add this to `~/.pi/agent/settings.json` (it
 applies to every pi install, including the temporary `-e git:...` below):
