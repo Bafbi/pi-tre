@@ -15,3 +15,11 @@ Two extensions spawn headless pi subagents with different needs, so the shared `
 - The package stays policy-free: retries and fallbacks live in sillajje's `SpawnFn` layer, streaming and usage mapping in repo-query's explorer.
 - Only the process backend couples to pi's JSON-lines protocol; the replayed fixture pins that coupling, and `mise check` must run on any pi version bump. The in-process backend couples at compile time through the `AgentSession` types.
 - The in-process backend loads installed extensions into the child session, so a spawning extension must pass its own tool names in `excludeTools`.
+
+## Amendment: T3 Code delegate
+
+repo-query also runs exploration through T3 Code's `delegate_task` when that tool is registered. This is not a third `@pi-tre/pi-subagent` backend. T3 owns the child thread, its UI row, and its lifecycle. The process backend remains the fallback outside T3 and whenever `explorer` is `process`.
+
+The "never auto-detected" rule still holds inside `@pi-tre/pi-subagent`. The package keeps no registry and no heuristic. The detection lives in repo-query and selects a T3 capability, not a subagent backend.
+
+The delegate has no enforced read-only toolset. repo-query asks for read-only behavior and lowers the child runtime mode to `approval-required`. Use `explorer: "process"` when the process-backend allowlist matters more than T3 visibility.

@@ -1,10 +1,14 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import {
 	addDebugEvent,
 	buildDebugDump,
 	createDebugState,
+	registerDebugCommand,
 	setDebugEnabled,
 	setTempspacePath,
 	syncDebugUi,
@@ -12,7 +16,7 @@ import {
 } from "../../src/debug.js";
 
 /** The fields of the pi context the debug UI reads. */
-type UiCtx = Pick<ExtensionContext, "hasUI" | "ui">;
+type UiCtx = Pick<ExtensionContext, "hasUI" | "ui" | "mode">;
 
 function makeUiCtx() {
 	const statusCalls: Array<{ key: string; value: string | undefined }> = [];
@@ -21,6 +25,7 @@ function makeUiCtx() {
 	return {
 		ctx: {
 			hasUI: true,
+			mode: "tui",
 			ui: {
 				setStatus: (key: string, value: string | undefined) => {
 					statusCalls.push({ key, value });
@@ -198,6 +203,21 @@ describe("syncDebugUi", () => {
 		expect(ctx.ui.setWidget).not.toHaveBeenCalled();
 	});
 
+	it("keeps the status line and skips the widget in RPC mode", () => {
+		const state = createDebugState();
+		setDebugEnabled(state, true);
+		const ctx = {
+			hasUI: true,
+			mode: "rpc",
+			ui: { setStatus: vi.fn(), setWidget: vi.fn() },
+		};
+
+		syncDebugUi(state, ctx as unknown as UiCtx);
+
+		expect(ctx.ui.setStatus).toHaveBeenCalled();
+		expect(ctx.ui.setWidget).not.toHaveBeenCalled();
+	});
+
 	it("shows tracked repos and recent events in widget", () => {
 		const state = createDebugState();
 		setDebugEnabled(state, true);
@@ -213,5 +233,58 @@ describe("syncDebugUi", () => {
 		expect(
 			lastWidget.lines?.some((l) => l.includes("something happened")),
 		).toBe(true);
+	});
+});
+
+describe("registerDebugCommand in RPC mode", () => {
+	it("shows the dump in an editor instead of the editor text", async () => {
+		const state = createDebugState();
+		let handler:
+			| ((args: string, ctx: ExtensionContext) => Promise<void> | void)
+			| undefined;
+		const pi = {
+			registerCommand: (
+				_name: string,
+				definition: {
+					handler: (
+						args: string,
+						ctx: ExtensionContext,
+					) => Promise<void> | void;
+				},
+			) => {
+				handler = definition.handler;
+			},
+		} as unknown as ExtensionAPI;
+
+		registerDebugCommand(pi, state);
+
+		const editor = vi.fn(async () => undefined);
+		const setEditorText = vi.fn();
+		const ctx = {
+			hasUI: true,
+			mode: "rpc",
+			cwd: "/tmp",
+			ui: {
+				editor,
+				setEditorText,
+				notify: vi.fn(),
+				setStatus: vi.fn(),
+				setWidget: vi.fn(),
+			},
+			sessionManager: {
+				getBranch: () => [],
+				getEntries: () => [],
+				getSessionFile: () => null,
+				getLeafId: () => null,
+			},
+		} as unknown as ExtensionContext;
+
+		await handler?.("dump", ctx);
+
+		expect(editor).toHaveBeenCalledWith(
+			"repo-query debug dump",
+			expect.any(String),
+		);
+		expect(setEditorText).not.toHaveBeenCalled();
 	});
 });

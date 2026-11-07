@@ -12,7 +12,17 @@ checksum = "sha256:b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81
 url = "https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-aarch64-unknown-linux-gnu.zip"
 url_api = "https://api.github.com/repos/ast-grep/ast-grep/releases/assets/537333400"
 
+[tools.ast-grep."platforms.linux-arm64-musl"]
+checksum = "sha256:b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81c8f"
+url = "https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-aarch64-unknown-linux-gnu.zip"
+url_api = "https://api.github.com/repos/ast-grep/ast-grep/releases/assets/537333400"
+
 [tools.ast-grep."platforms.linux-x64"]
+checksum = "sha256:f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8"
+url = "https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-unknown-linux-gnu.zip"
+url_api = "https://api.github.com/repos/ast-grep/ast-grep/releases/assets/537332692"
+
+[tools.ast-grep."platforms.linux-x64-musl"]
 checksum = "sha256:f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8"
 url = "https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-unknown-linux-gnu.zip"
 url_api = "https://api.github.com/repos/ast-grep/ast-grep/releases/assets/537332692"

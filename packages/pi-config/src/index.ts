@@ -18,8 +18,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { Static, TSchema } from "@sinclair/typebox";
-import { Check, Clean, Default, Value } from "@sinclair/typebox/value";
+import type { Static, TSchema } from "typebox";
+import { Check, Clean, Default, Value } from "typebox/value";
 
 export interface LoadExtensionConfigOptions<T extends TSchema> {
 	/** Extension name. The config file is `<name>.json`. */
@@ -103,7 +103,7 @@ function readLayer<T extends TSchema>(
 
 	if (!Check(schema, cleaned)) {
 		const details = [...Value.Errors(schema, cleaned)]
-			.map((error) => `${error.path || "/"}: ${error.message}`)
+			.map((error) => `${error.instancePath || "/"}: ${error.message}`)
 			.join("; ");
 		warn(name, `${path} failed validation: ${details}`);
 		return undefined;

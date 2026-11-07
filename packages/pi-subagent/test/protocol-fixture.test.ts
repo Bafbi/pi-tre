@@ -75,6 +75,7 @@ interface AssistantEndUsage {
 	cacheWrite: number;
 	totalTokens: number;
 	cost: number;
+	costFromProvider: boolean;
 }
 
 /** Sum the usage over the fixture's assistant `message_end` lines. */
@@ -86,6 +87,8 @@ function expectedUsage(): AssistantEndUsage {
 		cacheWrite: 0,
 		totalTokens: 0,
 		cost: 0,
+		// The recorded fixture carries catalog-estimate costs.
+		costFromProvider: false,
 	};
 	for (const line of fixtureLines) {
 		const event = JSON.parse(line) as {
@@ -178,6 +181,7 @@ describe("pi protocol fixture (replayed session)", () => {
 			cacheWrite: usage.cacheWrite,
 			cost: usage.cost,
 			totalTokens: usage.totalTokens,
+			costFromProvider: usage.costFromProvider,
 		});
 		await expect(session.usage()).resolves.toEqual({
 			turns: 1,
@@ -187,6 +191,7 @@ describe("pi protocol fixture (replayed session)", () => {
 			cacheWrite: usage.cacheWrite,
 			cost: usage.cost,
 			totalTokens: usage.totalTokens,
+			costFromProvider: usage.costFromProvider,
 		});
 
 		// Non-assistant lines (session, user messages, turn_end, agent_end)

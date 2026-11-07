@@ -14,7 +14,7 @@ export interface AssistantMessageInfo {
 				cacheRead?: number;
 				cacheWrite?: number;
 				totalTokens?: number;
-				cost?: { total?: number };
+				cost?: { total?: number; totalFromProvider?: boolean };
 		  }
 		| undefined;
 	stopReason?: string | undefined;
@@ -60,6 +60,12 @@ export function emitAssistantMessage(
 		usage.cacheWrite += message.usage.cacheWrite ?? 0;
 		usage.cost += message.usage.cost?.total ?? 0;
 		usage.totalTokens += message.usage.totalTokens ?? 0;
+		// A total is provider-billed only when every contributing message was.
+		const fromProvider = message.usage.cost?.totalFromProvider === true;
+		usage.costFromProvider =
+			usage.costFromProvider === undefined
+				? fromProvider
+				: usage.costFromProvider && fromProvider;
 	}
 	emit({ type: "usage", usage: { ...usage } });
 	if (message.stopReason === "error") {

@@ -228,6 +228,7 @@ describe("runExplorer kill and abort handling", () => {
 			cacheWrite: 0,
 			cost: 0.003,
 			totalTokens: 180,
+			costFromProvider: false,
 		});
 	}, 5_000);
 

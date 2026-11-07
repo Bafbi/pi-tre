@@ -51,6 +51,26 @@ describe("loadRepoQueryConfig", () => {
 		expect(config.defaultModel).toBe("openai/gpt-4o");
 	});
 
+	it("reads the explorer backend", () => {
+		const configDir = makeTempDir("repo-query-global-");
+		const cwd = makeTempDir("repo-query-repo-");
+		writeGlobal(configDir, { explorer: "process" });
+
+		const config = loadRepoQueryConfig({ cwd, configDir });
+
+		expect(config.explorer).toBe("process");
+	});
+
+	it("rejects an unknown explorer backend", () => {
+		const configDir = makeTempDir("repo-query-global-");
+		const cwd = makeTempDir("repo-query-repo-");
+		writeGlobal(configDir, { explorer: "nope" });
+
+		const config = loadRepoQueryConfig({ cwd, configDir });
+
+		expect(config.explorer).toBeUndefined();
+	});
+
 	it("resolves the global layer through PI_CODING_AGENT_DIR", () => {
 		const agentDir = makeTempDir("repo-query-agent-");
 		vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);

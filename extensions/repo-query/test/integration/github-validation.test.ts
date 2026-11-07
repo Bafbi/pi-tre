@@ -132,7 +132,7 @@ describe("repo_query GitHub validation (hermetic)", () => {
 		}
 	});
 
-	it("throws with suggestions when the repo is not found", async () => {
+	it("returns isError with suggestions when the repo is not found", async () => {
 		const gh = mockGitHubApi({
 			responses: new Map([
 				[
@@ -148,18 +148,32 @@ describe("repo_query GitHub validation (hermetic)", () => {
 		});
 
 		try {
-			// The hard-failure path throws; pi reports the thrown message to the LLM.
-			await expect(
-				executeQuery("What is the main entry point?", [
-					"owner/missing",
-				]),
-			).rejects.toThrow(/owner\/missing/);
+			// The hard-failure path returns isError with structured data. A
+			// code-mode script still resolves because outputSchema is declared.
+			const result = await executeQuery("What is the main entry point?", [
+				"owner/missing",
+			]);
 
-			await expect(
-				executeQuery("What is the main entry point?", [
-					"owner/missing",
-				]),
-			).rejects.toThrow(/owner\/real-repo/);
+			expect(result.isError).toBe(true);
+			const text = (result.content as Array<{ text: string }>)[0]?.text;
+			expect(text).toContain("owner/missing");
+			expect(text).toContain("owner/real-repo");
+
+			const structured = result.structuredContent as {
+				status: string;
+				answer: unknown;
+				repos: Array<{
+					status: string;
+					suggestedRepos: string[];
+				}>;
+			};
+			expect(structured.status).toBe("failed");
+			expect(structured.answer).toBeNull();
+			expect(structured.repos[0]?.status).toBe("not_found");
+			expect(structured.repos[0]?.suggestedRepos).toEqual([
+				"owner/real-repo",
+				"other/repo",
+			]);
 		} finally {
 			gh.restore();
 		}

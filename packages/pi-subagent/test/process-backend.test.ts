@@ -122,7 +122,7 @@ describe("createProcessBackend event parsing", () => {
 					input: 100,
 					output: 10,
 					totalTokens: 110,
-					cost: { total: 0.001 },
+					cost: { total: 0.001, totalFromProvider: true },
 				},
 				stopReason: "stop",
 			},
@@ -166,6 +166,7 @@ describe("createProcessBackend event parsing", () => {
 			cacheWrite: 0,
 			cost: 0.001,
 			totalTokens: 110,
+			costFromProvider: true,
 		});
 		await expect(session.usage()).resolves.toEqual({
 			turns: 1,
@@ -175,6 +176,7 @@ describe("createProcessBackend event parsing", () => {
 			cacheWrite: 0,
 			cost: 0.001,
 			totalTokens: 110,
+			costFromProvider: true,
 		});
 	});
 
@@ -197,7 +199,7 @@ describe("createProcessBackend event parsing", () => {
 					input: 100,
 					output: 10,
 					totalTokens: 110,
-					cost: { total: 0.001 },
+					cost: { total: 0.001, totalFromProvider: true },
 				},
 				stopReason: "toolUse",
 			},
@@ -226,6 +228,9 @@ describe("createProcessBackend event parsing", () => {
 			cacheWrite: 0,
 			cost: 0.003,
 			totalTokens: 180,
+			// The second message had no provider-billed flag, so the total is
+			// not fully provider-reported.
+			costFromProvider: false,
 		});
 	});
 

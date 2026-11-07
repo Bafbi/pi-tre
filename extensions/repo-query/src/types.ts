@@ -38,14 +38,35 @@ export function isFailure(status: RepoStatus): boolean {
 	);
 }
 
+/**
+ * One claim the exploration attributed to a file.
+ *
+ * `repo` is the repository display name when the model named one.
+ * `verified` is true when the path exists inside the clone and, when a line
+ * is given, the line is within the file.
+ */
+export interface RepoFinding {
+	repo: string | null;
+	path: string;
+	line: number | null;
+	claim: string;
+	verified: boolean;
+}
+
 export interface RepoResult {
 	identifier: string;
 	status: RepoStatus;
 	localPath?: string | undefined;
 	warnings: string[];
+	/** Similar repository names suggested by the GitHub API. */
 	suggestions?: string[] | undefined;
+	/** Similar branch names suggested after a failed branch clone. */
+	suggestedBranches?: string[] | undefined;
 	error?: string | undefined;
 }
+
+/** Overall outcome of one repo_query call. */
+export type RepoQueryStatus = "ok" | "partial" | "failed";
 
 export type RepoQueryPhase =
 	| "parsing"
@@ -64,6 +85,8 @@ export interface RepoQueryDetails {
 	phase: RepoQueryPhase;
 	/** The single answer produced by the subagent (absent until exploration completes). */
 	answer?: string | undefined;
+	/** Claims parsed from the answer and checked against the clones. */
+	findings?: RepoFinding[] | undefined;
 	thought?: string | undefined;
 	model?: string | undefined;
 	usage?: SubagentUsage | undefined;

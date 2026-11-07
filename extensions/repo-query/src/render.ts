@@ -1,7 +1,6 @@
 import {
 	type AgentToolResult,
 	getMarkdownTheme,
-	keyHint,
 	type Theme,
 	truncateToVisualLines,
 } from "@earendil-works/pi-coding-agent";
@@ -91,6 +90,12 @@ export interface ToolRenderLike {
 	lastComponent: Component | undefined;
 	state: unknown;
 	invalidate: () => void;
+	/**
+	 * Injected keybinding formatter. pi 1.5 adds it to the render context.
+	 * Importing `keyHint` from the package can resolve another copy and render
+	 * no key, so the renderer uses this one.
+	 */
+	keyHint?: (keybinding: "app.tools.expand", description: string) => string;
 }
 
 type StatusTone = "success" | "warning" | "error" | "dim";
@@ -155,7 +160,7 @@ function usageLine(
 function rebuildRepoQueryResultComponent(
 	component: RepoQueryResultComponent,
 	result: AgentToolResult<RepoQueryDetails>,
-	options: { expanded: boolean; isPartial: boolean },
+	options: { expanded: boolean; isPartial: boolean; expandHint: string },
 	theme: Theme,
 	startedAt?: number,
 	endedAt?: number,
@@ -355,9 +360,7 @@ function rebuildRepoQueryResultComponent(
 	}
 
 	if (hasAnswer) {
-		component.addChild(
-			new Text(keyHint("app.tools.expand", "to expand"), 0, 0),
-		);
+		component.addChild(new Text(options.expandHint, 0, 0));
 	}
 
 	appendDurationLine(component, theme, startedAt, endedAt);
@@ -438,7 +441,12 @@ export function renderResult(
 	rebuildRepoQueryResultComponent(
 		component,
 		result,
-		options,
+		{
+			...options,
+			expandHint:
+				context.keyHint?.("app.tools.expand", "to expand") ??
+				"expand to see more",
+		},
 		theme,
 		state?.startedAt,
 		state?.endedAt,

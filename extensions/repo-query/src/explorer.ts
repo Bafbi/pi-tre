@@ -9,10 +9,11 @@ import {
 	zeroUsage,
 } from "@pi-tre/pi-subagent";
 
+import { MAX_FINDINGS } from "./findings.js";
 import type { ParsedRepo, SubagentUsage } from "./types.js";
 
 const SUBAGENT_TIMEOUT_MS = 300_000;
-const MAX_OUTPUT_CHARS = 8000;
+export const MAX_OUTPUT_CHARS = 8000;
 
 const ABORT_NOTICE = "[Exploration aborted before completion.]";
 
@@ -25,7 +26,7 @@ export type {
 	ProcessSpawnFn as SpawnFunction,
 } from "@pi-tre/pi-subagent";
 
-function truncateSubagentOutput(text: string): string {
+export function truncateSubagentOutput(text: string): string {
 	return text.length > MAX_OUTPUT_CHARS
 		? `${text.slice(0, MAX_OUTPUT_CHARS)}...\n[Answer truncated]`
 		: text;
@@ -48,6 +49,11 @@ export interface ExplorationResult {
 	answer: string;
 	error?: string;
 	usage?: SubagentUsage;
+	/**
+	 * False when the answer was cut short: the subagent aborted, the answer was
+	 * truncated, or the run failed. Omitted means complete.
+	 */
+	complete?: boolean;
 }
 
 /**
@@ -200,6 +206,7 @@ export async function runExplorer(
 		return {
 			answer: `${truncateSubagentOutput(answer.get())}\n${ABORT_NOTICE}`,
 			usage,
+			complete: false,
 		};
 	}
 
@@ -220,7 +227,30 @@ export async function runExplorer(
 		};
 	}
 
-	return { answer: truncateSubagentOutput(answer.get()), usage };
+	const rawAnswer = answer.get();
+	return {
+		answer: truncateSubagentOutput(rawAnswer),
+		usage,
+		complete: rawAnswer.length <= MAX_OUTPUT_CHARS,
+	};
+}
+
+/**
+ * Ask for the machine-readable findings block.
+ *
+ * The tool parses this block, verifies each path and line against the clone,
+ * and returns it as `structuredContent.answer.findings`. A malformed block
+ * falls back to the prose answer.
+ */
+export function findingsInstructions(repoHint: string): string {
+	const fence = "```";
+	return [
+		"End the answer with one fenced json block listing the claims you can attribute to a file:",
+		`${fence}json`,
+		`{"findings":[{"repo":"${repoHint}","path":"src/file.ts","line":42,"claim":"one sentence"}]}`,
+		fence,
+		`Use paths relative to the repository root. Set line to null when the claim spans a file. Include at most ${MAX_FINDINGS} findings. Leave out any claim you cannot attribute to a file.`,
+	].join("\n");
 }
 
 function buildSystemPrompt(
@@ -249,6 +279,8 @@ Output requirements:
 - Maximum 800 words
 - Do NOT make assumptions beyond the code you have read
 
+${findingsInstructions(repo.displayName)}
+
 Query: ${query}`;
 	}
 
@@ -273,6 +305,8 @@ Output requirements:
 - If you cannot find the answer, state this clearly
 - Maximum 1000 words
 - Do NOT make assumptions beyond the code you have read
+
+${findingsInstructions("owner/repo")}
 
 Query: ${query}`;
 }

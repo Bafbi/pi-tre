@@ -5,7 +5,7 @@ import type {
 	ExtensionAPI,
 	ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 
 import {
 	type CloneImpl,
@@ -21,6 +21,7 @@ import {
 	trackRepo,
 } from "./debug.js";
 import { type ExplorerImpl, runExplorer } from "./explorer.js";
+import { parseFindings } from "./findings.js";
 import { validateGitHubRepo } from "./github.js";
 import {
 	formatOutput,
@@ -30,8 +31,15 @@ import {
 } from "./output.js";
 import { renderCall, renderResult } from "./render.js";
 import { parseRepoIdentifier, redactCredentials } from "./resolver.js";
+import {
+	buildStructured,
+	RepoQueryOutputSchema,
+	resolveStatus,
+} from "./structured.js";
+import { canUseT3Delegate, runT3Delegate } from "./t3-delegate.js";
 import { clearTempspaceCache, getTempspacePath } from "./tempspace.js";
 import type {
+	RepoFinding,
 	RepoQueryDetails,
 	RepoQueryPhase,
 	RepoResult,
@@ -84,6 +92,7 @@ function toAgentUsage(usage: SubagentUsage): AgentUsage {
 			cacheRead: 0,
 			cacheWrite: 0,
 			total: usage.cost,
+			totalFromProvider: usage.costFromProvider === true,
 		},
 	};
 }
@@ -137,6 +146,7 @@ export function createRepoQueryExtension(
 				"Shallow-clones each repo, then a subagent answers using grep, find, and read.",
 				"Supports GitHub shorthand ('owner/repo'), full URLs, and branch suffix (:branch).",
 				"GitHub repos are validated via API; non-existent repos return search suggestions.",
+				"Pass several repos in one call to compare them or to use a docs repo with its code repo. For the same question across unrelated repos, use one call per repo.",
 			].join(" "),
 			promptSnippet:
 				"Query git repositories by cloning them and exploring with a subagent",
@@ -144,8 +154,17 @@ export function createRepoQueryExtension(
 				"Use repo_query to investigate code in external repositories: implementation details, APIs, patterns, or file locations.",
 				"Give repo_query one concrete question per call. Name the symbols, files, or behavior to find so the subagent can grep for them.",
 				"repo_query caches clones per session, so follow-up queries on the same repos are cheap.",
+				"Pass several repos in one call to compare them or to use them together, such as a docs repo beside its code repo. For the same question across unrelated repos, call repo_query once per repository and combine the results with Promise.allSettled.",
+				"Check repo_query's structuredContent.status and repos[].status. A failed exploration sets isError: true and keeps the per-repo errors.",
 			],
 			parameters: RepoQueryParams,
+			outputSchema: RepoQueryOutputSchema,
+			annotations: {
+				readOnlyHint: false,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: true,
+			},
 
 			async execute(_toolCallId, params, signal, onUpdate, ctx) {
 				addDebugEvent(
@@ -159,6 +178,13 @@ export function createRepoQueryExtension(
 					trusted: ctx.isProjectTrusted(),
 				});
 
+				const explorerMode = config.explorer ?? "auto";
+				const delegateAvailable = canUseT3Delegate(ctx);
+				// Factory overrides win so tests stay deterministic.
+				const usingDelegate =
+					overrides.explorer === undefined &&
+					explorerMode !== "process" &&
+					delegateAvailable;
 				const tempspace = await getTempspacePath(ctx);
 				activeTempspaces.add(tempspace);
 				setTempspacePath(debug, tempspace);
@@ -166,6 +192,7 @@ export function createRepoQueryExtension(
 
 				let resolvedModel: string | undefined;
 				let answer = "";
+				let findings: RepoFinding[] = [];
 				let usage: SubagentUsage | undefined;
 				const results: RepoResult[] = [];
 				const reposToExplore: Array<{
@@ -190,7 +217,9 @@ export function createRepoQueryExtension(
 						case "cloning":
 							return `Cloning ${names}${rest} to search for "${params.query}"...`;
 						case "exploring":
-							return `Searching ${names}${rest} for "${params.query}"...`;
+							return usingDelegate
+								? `Delegating ${names}${rest} to a T3 subagent...`
+								: `Searching ${names}${rest} for "${params.query}"...`;
 						case "complete":
 							return `Done exploring ${names}${rest}.`;
 					}
@@ -205,14 +234,18 @@ export function createRepoQueryExtension(
 					results: [...results],
 					phase,
 					answer,
+					findings: [...findings],
 					thought: thoughtOverride ?? buildThought(phase),
 					model: resolvedModel,
 					usage,
 				});
 
 				const emitPhase = (phase: RepoQueryPhase) => {
+					// Content stays non-empty so hosts that render partial text
+					// (RPC clients such as T3 Code) show the phase. The TUI reads
+					// `details` instead.
 					onUpdate?.({
-						content: [{ type: "text", text: "" }],
+						content: [{ type: "text", text: buildThought(phase) }],
 						details: makeDetails(phase),
 					});
 				};
@@ -377,12 +410,15 @@ export function createRepoQueryExtension(
 						if (existing) {
 							existing.status = "clone_failed";
 							existing.error = cloneResult.error;
+							existing.suggestedBranches =
+								cloneResult.suggestions;
 						} else {
 							results.push({
 								identifier: parsed.raw,
 								status: "clone_failed",
 								warnings: [],
 								error: cloneResult.error,
+								suggestedBranches: cloneResult.suggestions,
 							});
 						}
 						trackRepo(debug, parsed.raw, {
@@ -432,7 +468,7 @@ export function createRepoQueryExtension(
 				if (readyRepos.length === 0) {
 					addDebugEvent(
 						debug,
-						"explore: no ready repos, throwing hard failure",
+						"explore: no ready repos, returning a failed result",
 						ctx,
 					);
 
@@ -465,70 +501,108 @@ export function createRepoQueryExtension(
 						parts.push(...retryLines);
 					}
 
-					// pi's tool contract: throwing reports the failure to the LLM.
-					throw new Error(parts.join("\n"));
+					// Return the failure instead of throwing: a returned result
+					// keeps `details` and `structuredContent` for the TUI and for
+					// code-mode scripts. Scripts resolve on isError only when the
+					// tool declares an outputSchema and returns structuredContent.
+					const details = makeDetails("complete");
+					addDebugEvent(
+						debug,
+						`execute failed: no repos explored (${results.length})`,
+						ctx,
+					);
+					return {
+						content: [{ type: "text", text: parts.join("\n") }],
+						details,
+						structuredContent: buildStructured(
+							details,
+							"failed",
+							false,
+						),
+						isError: true,
+					};
 				}
 
-				resolvedModel = resolveModel(
-					config,
-					readyRepos.map((r) => r.parsed),
-				);
-				if (resolvedModel) {
-					addDebugEvent(debug, `model: ${resolvedModel}`, ctx);
+				if (!usingDelegate) {
+					resolvedModel = resolveModel(
+						config,
+						readyRepos.map((r) => r.parsed),
+					);
+					if (resolvedModel) {
+						addDebugEvent(debug, `model: ${resolvedModel}`, ctx);
+					}
 				}
 
 				emitPhase("exploring");
 				addDebugEvent(
 					debug,
-					`subagent spawn: ${readyRepos.length} repo(s)`,
+					usingDelegate
+						? `t3 delegate start: ${readyRepos.length} repo(s)`
+						: `subagent spawn: ${readyRepos.length} repo(s)`,
 					ctx,
 				);
-				const exploration = await runExplorer(
-					{
-						tempspace,
-						repos: readyRepos.map((r) => r.parsed),
-						query: params.query,
-						model: resolvedModel,
-						signal,
-						onUpdate: (partial) => {
-							// Update the streamed answer text
-							const text =
-								partial.content[0]?.type === "text"
-									? partial.content[0].text
-									: "";
-							if (text && text !== "(exploring...)") {
-								answer = text;
-							}
-							// Stream actual subagent thinking if available
-							let subagentThought: string | undefined;
-							if (
-								partial.details &&
-								typeof partial.details === "object" &&
-								"thought" in partial.details
-							) {
-								const raw = (
-									partial.details as Record<string, unknown>
-								).thought;
-								if (
-									typeof raw === "string" &&
-									raw.trim().length > 0
-								) {
-									subagentThought = raw;
-								}
-							}
-							onUpdate?.({
-								content: partial.content,
-								details: makeDetails(
-									"exploring",
-									subagentThought,
-								),
-							});
-						},
-					},
-					overrides.explorer
-						? { run: overrides.explorer }
-						: undefined,
-				);
+
+				const exploration = await (usingDelegate
+					? runT3Delegate(
+							{
+								tempspace,
+								repos: readyRepos.map((r) => r.parsed),
+								query: params.query,
+								signal,
+							},
+							ctx,
+						)
+					: runExplorer(
+							{
+								tempspace,
+								repos: readyRepos.map((r) => r.parsed),
+								query: params.query,
+								model: resolvedModel,
+								signal,
+								onUpdate: (partial) => {
+									// Update the streamed answer text
+									const text =
+										partial.content[0]?.type === "text"
+											? partial.content[0].text
+											: "";
+									if (text && text !== "(exploring...)") {
+										answer = text;
+									}
+									// Stream actual subagent thinking if available
+									let subagentThought: string | undefined;
+									if (
+										partial.details &&
+										typeof partial.details === "object" &&
+										"thought" in partial.details
+									) {
+										const raw = (
+											partial.details as Record<
+												string,
+												unknown
+											>
+										).thought;
+										if (
+											typeof raw === "string" &&
+											raw.trim().length > 0
+										) {
+											subagentThought = raw;
+										}
+									}
+									onUpdate?.({
+										content: partial.content,
+										details: makeDetails(
+											"exploring",
+											subagentThought,
+										),
+									});
+								},
+							},
+							overrides.explorer
+								? { run: overrides.explorer }
+								: undefined,
+						));
+
+				const explorationFailed = Boolean(exploration.error);
 
 				if (exploration.usage) {
 					usage = exploration.usage;
@@ -556,20 +630,46 @@ export function createRepoQueryExtension(
 					answer = exploration.answer;
 				}
 
+				// The subagent ends with a findings block. Parse it, verify
+				// each path against the clone, and strip it from the prose so
+				// the model does not read the same claims twice.
+				if (answer.trim().length > 0) {
+					const parsed = await parseFindings(
+						answer,
+						readyRepos.map((r) => r.parsed),
+						tempspace,
+					);
+					answer = parsed.text;
+					findings = parsed.findings;
+					addDebugEvent(
+						debug,
+						`findings: ${findings.length} parsed, ${findings.filter((f) => f.verified).length} verified`,
+						ctx,
+					);
+				}
+
 				// ── Phase 4: Synthesize output ──────────────────────────────
 				const details = makeDetails("complete");
+				const status = resolveStatus(details, explorationFailed);
+				const structured = buildStructured(
+					details,
+					status,
+					exploration.complete ?? !explorationFailed,
+				);
 				const outputText = formatOutput(details);
 				const text = truncateOutput(outputText);
 
 				addDebugEvent(
 					debug,
-					`execute complete: answer=${Boolean(answer)} usage=${usage ? `${usage.totalTokens} tokens` : "none"}`,
+					`execute complete: status=${status} answer=${Boolean(answer)} usage=${usage ? `${usage.totalTokens} tokens` : "none"}`,
 					ctx,
 				);
 
 				return {
 					content: [{ type: "text", text }],
 					details,
+					structuredContent: structured,
+					...(status === "failed" ? { isError: true } : {}),
 					...(usage ? { usage: toAgentUsage(usage) } : {}),
 				};
 			},

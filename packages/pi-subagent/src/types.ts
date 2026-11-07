@@ -33,6 +33,11 @@ export interface SubagentUsage {
 	cacheWrite: number;
 	cost: number;
 	totalTokens: number;
+	/**
+	 * True only when every message that reported usage also reported a
+	 * provider-billed cost. Absent while no message has reported usage.
+	 */
+	costFromProvider?: boolean | undefined;
 }
 
 /**

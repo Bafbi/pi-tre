@@ -83,11 +83,23 @@ export async function testExec(
 			: undefined;
 		proc.on("close", (code) => {
 			if (timer) clearTimeout(timer);
-			resolve({ stdout, stderr, code: code ?? 1, killed: false });
+			resolve({
+				stdout,
+				stderr,
+				code: code ?? 1,
+				killed: false,
+				truncated: false,
+			});
 		});
 		proc.on("error", () => {
 			if (timer) clearTimeout(timer);
-			resolve({ stdout, stderr, code: 1, killed: false });
+			resolve({
+				stdout,
+				stderr,
+				code: 1,
+				killed: false,
+				truncated: false,
+			});
 		});
 	});
 }
@@ -130,10 +142,14 @@ export function captureExtension(
 /** Minimal ExtensionToolContext covering what the extension actually reads. */
 export function minimalContext(
 	cwd: string,
+	overrides: Partial<
+		import("@earendil-works/pi-coding-agent").ExtensionToolContext
+	> = {},
 ): import("@earendil-works/pi-coding-agent").ExtensionToolContext {
 	return {
 		cwd,
 		hasUI: false,
+		mode: "print",
 		isProjectTrusted: () => true,
 		tools: [],
 		executeTool: async () => {
@@ -144,5 +160,6 @@ export function minimalContext(
 			getBranch: () => [],
 			getEntries: () => [],
 		},
+		...overrides,
 	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionToolContext;
 }

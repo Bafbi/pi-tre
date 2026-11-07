@@ -31,6 +31,7 @@ function mockRenderContext(overrides?: {
 		lastComponent: overrides?.lastComponent,
 		state: overrides?.state ?? {},
 		executionStarted: true,
+		keyHint: (_keybinding, description) => `ctrl+o ${description}`,
 	};
 }
 
