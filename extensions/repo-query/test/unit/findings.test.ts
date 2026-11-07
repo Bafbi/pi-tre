@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -163,6 +169,65 @@ describe("parseFindings", () => {
 
 		expect(result.findings[0]?.repo).toBe("owner/repo");
 		expect(result.findings[0]?.verified).toBe(true);
+	});
+
+	it("keeps a finding with an unknown named repo unverified", async () => {
+		const { tempspace, repo, other } = makeCloneLayout();
+
+		const result = await parseFindings(
+			answerWith([
+				{
+					repo: "owner/unrequested",
+					path: "src/a.ts",
+					line: 1,
+					claim: "Wrong repo.",
+				},
+			]),
+			[repo, other],
+			tempspace,
+		);
+
+		expect(result.findings[0]).toMatchObject({
+			repo: null,
+			verified: false,
+		});
+	});
+
+	it.skipIf(process.platform === "win32")(
+		"does not verify a symlink that points outside the clone",
+		async () => {
+			const { tempspace, repo } = makeCloneLayout();
+			const outside = join(tempspace, "outside.ts");
+			writeFileSync(outside, "secret\n", "utf8");
+			symlinkSync(
+				outside,
+				join(tempspace, "github_owner_repo", "src", "link.ts"),
+			);
+
+			const result = await parseFindings(
+				answerWith([
+					{
+						repo: "owner/repo",
+						path: "src/link.ts",
+						line: 1,
+						claim: "Escapes the clone.",
+					},
+				]),
+				[repo],
+				tempspace,
+			);
+
+			expect(result.findings[0]?.verified).toBe(false);
+		},
+	);
+
+	it("does not strip a fenced array that is not findings", async () => {
+		const { tempspace, repo } = makeCloneLayout();
+		const answer = 'Answer.\n\n```json\n["read", "grep"]\n```';
+
+		const result = await parseFindings(answer, [repo], tempspace);
+		expect(result.text).toBe(answer);
+		expect(result.findings).toEqual([]);
 	});
 
 	it("accepts a bare findings array", async () => {

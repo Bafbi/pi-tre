@@ -94,6 +94,35 @@ describe("runExplorer kill and abort handling", () => {
 		expect(result.error).toContain("aborted");
 	}, 5_000);
 
+	it("marks a partial answer incomplete when the child exits nonzero", async () => {
+		const proc = new FakeProc();
+		const spawned = waitForSpawn();
+
+		const promise = runExplorer(baseOptions(), {
+			spawn: makeSpawn(proc, spawned.onSpawn),
+			killGraceMs: 20,
+		});
+		await spawned.promise;
+
+		proc.stdout.emit(
+			"data",
+			Buffer.from(
+				`${JSON.stringify({
+					type: "message_update",
+					assistantMessageEvent: {
+						type: "text_delta",
+						delta: "partial ",
+					},
+				})}\n`,
+			),
+		);
+		proc.emit("close", 1);
+
+		const result = await promise;
+		expect(result.answer).toContain("partial");
+		expect(result.complete).toBe(false);
+	});
+
 	it("keeps the partial answer and appends a truncation notice on abort", async () => {
 		const proc = new FakeProc();
 		const abort = new AbortController();

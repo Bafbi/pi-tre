@@ -231,7 +231,12 @@ export async function runExplorer(
 	return {
 		answer: truncateSubagentOutput(rawAnswer),
 		usage,
-		complete: rawAnswer.length <= MAX_OUTPUT_CHARS,
+		// A partial answer from a failed child is still incomplete, even when
+		// it fits the length cap.
+		complete:
+			exit.code === 0 &&
+			!exit.spawnError &&
+			rawAnswer.length <= MAX_OUTPUT_CHARS,
 	};
 }
 

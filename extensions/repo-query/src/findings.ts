@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 
 import type { ParsedRepo, RepoFinding } from "./types.js";
@@ -79,10 +79,23 @@ function findFindingsBlock(
 }
 
 function entriesOf(payload: unknown): unknown[] | null {
-	if (Array.isArray(payload)) return payload;
+	if (Array.isArray(payload)) {
+		// A bare array is only a findings block when every entry looks like a
+		// finding. Otherwise a fenced example such as ["read", "grep"] would
+		// be stripped from the answer with nothing rendered in its place.
+		return payload.length > 0 && payload.every(isFindingShaped)
+			? payload
+			: null;
+	}
 	if (typeof payload !== "object" || payload === null) return null;
 	const entries = (payload as { findings?: unknown }).findings;
 	return Array.isArray(entries) ? entries : null;
+}
+
+function isFindingShaped(value: unknown): boolean {
+	if (typeof value !== "object" || value === null) return false;
+	const record = value as Record<string, unknown>;
+	return typeof record.claim === "string" && typeof record.path === "string";
 }
 
 function stripBlock(answer: string, index: number, length: number): string {
@@ -114,6 +127,20 @@ async function verifyFinding(
 
 	const line = normalizeLine(record.line);
 	const named = matchRepo(record.repo, repos);
+	const hasNamedRepo =
+		typeof record.repo === "string" && record.repo.trim().length > 0;
+	// A named but unknown repository must not be checked against every clone.
+	// Otherwise a claim for an unrequested repo is verified under a requested
+	// one whenever the path happens to exist there.
+	if (hasNamedRepo && named === undefined) {
+		return {
+			repo: null,
+			path,
+			line,
+			claim,
+			verified: false,
+		};
+	}
 	const candidates = named === undefined ? repos : [named];
 
 	for (const repo of candidates) {
@@ -193,9 +220,26 @@ async function verifyPath(
 		return "missing";
 	}
 
+	// The lexical check above does not follow symlinks. Canonicalize both
+	// paths so a link inside the clone cannot point outside it.
+	let rootReal: string;
+	let targetReal: string;
+	try {
+		rootReal = await realpath(root);
+		targetReal = await realpath(absolute);
+	} catch {
+		return "missing";
+	}
+	if (
+		targetReal !== rootReal &&
+		!targetReal.startsWith(`${rootReal}${sep}`)
+	) {
+		return "missing";
+	}
+
 	let info: Awaited<ReturnType<typeof stat>>;
 	try {
-		info = await stat(absolute);
+		info = await stat(targetReal);
 	} catch {
 		return "missing";
 	}
@@ -204,7 +248,7 @@ async function verifyPath(
 	if (info.size > MAX_VERIFY_BYTES) return false;
 
 	try {
-		const content = await readFile(absolute, "utf8");
+		const content = await readFile(targetReal, "utf8");
 		const lineCount = content.split("\n").length;
 		return line <= lineCount;
 	} catch {
