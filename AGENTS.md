@@ -61,8 +61,8 @@ parts.
 Per-module tasks track their `sources` and skip when nothing changed. A change
 to a workspace dependency invalidates the consumers that list it. The
 `@pi-tre/pi-subagent` and `@pi-tre/pi-config` edges live in
-`extensions/repo-query/mise.toml`; a new consumer must add them. Use `mise run --force <task>` to bypass the skip. `ci`
-adds the slow scans.
+`extensions/repo-query/mise.toml`; a new consumer must add them. Use
+`mise run --force <task>` to bypass the skip. `ci` adds the slow scans.
 
 
 ## LLM-backed and service tests
