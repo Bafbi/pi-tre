@@ -13,8 +13,8 @@ export const RepoQueryConfigSchema = Type.Object(
 		models: Type.Optional(Type.Record(Type.String(), Type.String())),
 		/**
 		 * Exploration backend.
-		 * - `auto` (default): use T3's delegate when it is available.
-		 * - `process`: always spawn a child pi process.
+		 * - `process` (default): spawn a child pi process with the tool allowlist.
+		 * - `auto`: use T3's delegate when it is available, otherwise the child.
 		 */
 		explorer: Type.Optional(
 			Type.Union([Type.Literal("auto"), Type.Literal("process")]),

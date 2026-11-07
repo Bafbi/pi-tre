@@ -230,6 +230,12 @@ describe("repo-query extension", () => {
 			const cwd = makeTempDir("repo-query-ext-test-");
 			tempDirs.push(cwd);
 			const localRepo = createLocalRepo(cwd);
+			// The delegate is opt-in. The default uses the child process.
+			mkdirSync(join(cwd, ".pi", "configs"), { recursive: true });
+			writeFileSync(
+				join(cwd, ".pi", "configs", "repo-query.json"),
+				JSON.stringify({ explorer: "auto" }),
+			);
 
 			const executeTool = vi.fn(
 				async (

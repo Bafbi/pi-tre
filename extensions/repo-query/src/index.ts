@@ -178,12 +178,14 @@ export function createRepoQueryExtension(
 					trusted: ctx.isProjectTrusted(),
 				});
 
-				const explorerMode = config.explorer ?? "auto";
+				// A T3 delegate is a broader agent than the child process, so it
+				// is opt-in. The default keeps the process allowlist.
+				const explorerMode = config.explorer ?? "process";
 				const delegateAvailable = canUseT3Delegate(ctx);
 				// Factory overrides win so tests stay deterministic.
 				const usingDelegate =
 					overrides.explorer === undefined &&
-					explorerMode !== "process" &&
+					explorerMode === "auto" &&
 					delegateAvailable;
 				const tempspace = await getTempspacePath(ctx);
 				activeTempspaces.add(tempspace);

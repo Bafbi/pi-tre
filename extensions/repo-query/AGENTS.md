@@ -41,7 +41,7 @@ The tool declares `outputSchema` and returns `structuredContent` for code-mode s
 
 ## Exploration backends
 
-`explorer` in the config picks the backend. `auto` uses T3 Code's `mcp__t3-code__delegate_task` when it is registered, because a delegate is a visible T3 thread. Otherwise it spawns a child `pi` process.
+`explorer` in the config picks the backend. The default is `process`, which spawns a child `pi` process. Set `auto` to use T3 Code's `mcp__t3-code__delegate_task` when it is registered, because a delegate is a visible T3 thread. `auto` falls back to the child process.
 
 - The delegate's cwd is the T3 project, not the tempspace. The task passes absolute clone paths and tells it to read only. T3 does not enforce a read-only toolset for delegates. The child runtime mode is lowered to `approval-required`.
 - The child process enforces `read,grep,find,ls,bash` through `--tools`.

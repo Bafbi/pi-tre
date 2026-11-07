@@ -134,7 +134,7 @@ The project config wins per key and is read only when pi trusts the project. The
     "facebook/react": "openai/gpt-4o",
     "torvalds/linux": "anthropic/claude-haiku"
   },
-  "explorer": "auto"
+  "explorer": "process"
 }
 ```
 
@@ -161,8 +161,10 @@ This is used when no config file specifies a model.
 
 | Value | Behavior |
 |-------|----------|
-| `auto` (default) | Use T3 Code's `delegate_task` when it is registered. Otherwise spawn a child pi process. |
-| `process` | Always spawn a child pi process. |
+| `process` (default) | Spawn a child pi process with the tool allowlist. |
+| `auto` | Use T3 Code's `delegate_task` when it is registered. Otherwise spawn a child pi process. |
+
+Set `explorer` to `auto` to use the delegate. It is opt-in because a T3 delegate is a broader agent than the child process.
 
 Under T3 Code, the delegate is a T3 thread, so the exploration appears in the UI. The delegate reads the tempspace clone by absolute path because its working directory is the T3 project. The task tells it to stay read-only. T3 does not enforce a read-only toolset for delegates, so the child runtime mode is lowered to `approval-required`: an edit needs approval.
 

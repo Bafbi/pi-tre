@@ -56,6 +56,12 @@ export async function parseFindings(
 		if (finding !== null) findings.push(finding);
 	}
 
+	// If the model produced entries but none survived validation, keep the
+	// block. Stripping it would delete the only record of what it said.
+	if (entries.length > 0 && findings.length === 0) {
+		return { text: answer, findings: [] };
+	}
+
 	return { text: stripBlock(answer, block.index, block.length), findings };
 }
 

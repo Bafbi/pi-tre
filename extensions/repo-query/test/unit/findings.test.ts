@@ -153,7 +153,23 @@ describe("parseFindings", () => {
 		);
 
 		expect(result.findings).toEqual([]);
-		expect(result.text).toBe("The answer.");
+		// Every entry was rejected, so the block stays in the answer.
+		expect(result.text).toContain("```json");
+	});
+
+	it("keeps the block when every entry is rejected", async () => {
+		const { tempspace, repo } = makeCloneLayout();
+		const answer = answerWith([
+			{
+				repo: "owner/repo",
+				path: "src/a.ts",
+				claim: "",
+			},
+		]);
+
+		const result = await parseFindings(answer, [repo], tempspace);
+		expect(result.text).toBe(answer);
+		expect(result.findings).toEqual([]);
 	});
 
 	it("finds the repository when the model omits it", async () => {
