@@ -1,10 +1,10 @@
-# Context Map
+# Glossary Map
 
 `pi-tre` is a monorepo of Pi extensions. Each extension is its own context, with its own glossary where one is resolved.
 
 ## Contexts
 
-- [repo-query](./extensions/repo-query/CONTEXT.md): clones git repositories into a per-session tempspace and answers questions with a subagent
+- [repo-query](./extensions/repo-query/GLOSSARY.md): clones git repositories into a per-session tempspace and answers questions with a subagent
 - [stale-write-guard](./extensions/stale-write-guard/README.md): blocks `write` until the agent has read the whole current file
 
 ## Terminology

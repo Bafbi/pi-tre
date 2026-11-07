@@ -115,7 +115,7 @@ known-red.
 
 ### Issue tracker
 
-Issues are tracked as local markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues for `Bafbi/pi-tre`, through the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -123,4 +123,4 @@ Five canonical triage roles using default label strings. See `docs/agents/triage
 
 ### Domain docs
 
-Multi-context monorepo — `CONTEXT-MAP.md` at root maps to per-extension `CONTEXT.md` files under `extensions/<name>/`. See `docs/agents/domain.md`.
+Multi-context monorepo — `GLOSSARY-MAP.md` at root maps to per-extension `GLOSSARY.md` files under `extensions/<name>/`. See `docs/agents/domain.md`.
