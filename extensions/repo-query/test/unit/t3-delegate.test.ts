@@ -109,7 +109,10 @@ describe("runT3Delegate", () => {
 			isolation: "shared",
 			runtimeMode: "full-access",
 			timeoutMs: 300_000,
-			target: { model: "opencode-go/deepseek-v4.1-flash" },
+			target: {
+				providerInstanceId: "pi",
+				model: "opencode-go/deepseek-v4.1-flash",
+			},
 		});
 		expect(args.task).toContain("/tmp/pi-rq-test/github_owner_repo");
 		expect(args.task).toContain("read-only");

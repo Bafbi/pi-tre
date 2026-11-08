@@ -279,7 +279,10 @@ describe("repo-query extension", () => {
 				mode: "wait",
 				role: "research",
 				runtimeMode: "full-access",
-				target: { model: "opencode-go/deepseek-v4.1-flash" },
+				target: {
+					providerInstanceId: "pi",
+					model: "opencode-go/deepseek-v4.1-flash",
+				},
 			});
 
 			const text = (result.content[0] as { text: string }).text;

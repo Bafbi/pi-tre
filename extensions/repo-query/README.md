@@ -168,7 +168,7 @@ Set `explorer` to `auto` to use the delegate. It is opt-in because a T3 delegate
 
 Under T3 Code, the delegate is a T3 thread, so the exploration appears in the UI. The delegate reads the tempspace clone by absolute path because its working directory is the T3 project.
 
-The delegate runs with full access. T3 has no per-delegate tool allowlist, and `approval-required` asks for every codemode or bash call, which makes exploration unusable. The task prompt restricts codemode to `read`, `grep`, `find`, and `ls` and forbids `bash`, `edit`, `write`, and `repo_query`.
+The delegate target is pinned to the `pi` provider, so the child loads this extension and its read-only guard. The delegate runs with full access. T3 has no per-delegate tool allowlist, and `approval-required` asks for every codemode or bash call, which makes exploration unusable. The task prompt restricts codemode to `read`, `grep`, `find`, and `ls` and forbids `bash`, `edit`, `write`, and `repo_query`.
 
 The delegate title starts with `read-only:`. T3 sets the delegate session name to that title. A `tool_call` hook in this extension checks `ctx.sessionManager.getSessionName()` and allows only `read`, `grep`, `find`, `ls`, `codemode`, and `tool_search` in that session. Everything else is blocked, including `write`, `edit`, `bash`, `powershell`, `repo_query`, and T3 control tools. pi applies the same hook to nested codemode calls, so `tools.write` inside a script is blocked. This covers pi delegates. A delegate on another provider does not load this extension and is not covered.
 

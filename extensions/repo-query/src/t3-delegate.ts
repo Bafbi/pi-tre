@@ -16,6 +16,9 @@ import type { ParsedRepo } from "./types.js";
 /** T3 exposes its orchestrator tools to pi under this prefix. */
 export const T3_DELEGATE_TOOL = "mcp__t3-code__delegate_task";
 
+/** Pin the delegate to pi so the child loads this extension and its guard. */
+const T3_PI_PROVIDER_INSTANCE_ID = "pi";
+
 const DELEGATE_TIMEOUT_MS = 300_000;
 
 /** True when T3's delegate tool is registered and callable. */
@@ -80,7 +83,10 @@ export async function runT3Delegate(
 				// enables the guard. T3 rejects this mode when the parent
 				// is lower; the caller falls back to the process backend.
 				runtimeMode: "full-access",
-				...(model !== undefined ? { target: { model } } : {}),
+				target: {
+					providerInstanceId: T3_PI_PROVIDER_INSTANCE_ID,
+					...(model !== undefined ? { model } : {}),
+				},
 			},
 			{ ...(signal !== undefined ? { signal } : {}) },
 		);
