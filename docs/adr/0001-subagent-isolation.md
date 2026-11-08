@@ -22,4 +22,6 @@ repo-query also runs exploration through T3 Code's `delegate_task` when that too
 
 The "never auto-detected" rule still holds inside `@pi-tre/pi-subagent`. The package keeps no registry and no heuristic. The detection lives in repo-query and selects a T3 capability, not a subagent backend.
 
-The delegate has no enforced read-only toolset. repo-query asks for read-only behavior and lowers the child runtime mode to `approval-required`. Use `explorer: "process"` when the process-backend allowlist matters more than T3 visibility.
+The delegate target is pinned to the `pi` provider, so the child loads this extension and the guard. The delegate runs with full access. T3 has no per-delegate tool allowlist, and `approval-required` asks on every codemode call, which makes exploration unusable. Read-only behavior is enforced in the child by the `read-only:` title and a `tool_call` hook: only `read`, `grep`, `find`, `ls`, `codemode`, and `tool_search` are allowed, including nested codemode calls. A delegate on another provider is not covered.
+
+A delegate that waits on a question or approval, or times out, is cancelled before the process backend takes over. The repo model config is passed to the delegate as `target.model`.

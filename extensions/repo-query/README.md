@@ -166,7 +166,15 @@ This is used when no config file specifies a model.
 
 Set `explorer` to `auto` to use the delegate. It is opt-in because a T3 delegate is a broader agent than the child process.
 
-Under T3 Code, the delegate is a T3 thread, so the exploration appears in the UI. The delegate reads the tempspace clone by absolute path because its working directory is the T3 project. The task tells it to stay read-only. T3 does not enforce a read-only toolset for delegates, so the child runtime mode is lowered to `approval-required`: an edit needs approval.
+Under T3 Code, the delegate is a T3 thread, so the exploration appears in the UI. The delegate reads the tempspace clone by absolute path because its working directory is the T3 project.
+
+The delegate target is pinned to the `pi` provider, so the child loads this extension and its read-only guard. The delegate runs with full access. T3 has no per-delegate tool allowlist, and `approval-required` asks for every codemode or bash call, which makes exploration unusable. The task prompt restricts codemode to `read`, `grep`, `find`, and `ls` and forbids `bash`, `edit`, `write`, and `repo_query`.
+
+The delegate title starts with `read-only:`. T3 sets the delegate session name to that title. A `tool_call` hook in this extension checks `ctx.sessionManager.getSessionName()` and allows only `read`, `grep`, `find`, `ls`, `codemode`, and `tool_search` in that session. Everything else is blocked, including `write`, `edit`, `bash`, `powershell`, `repo_query`, and T3 control tools. pi applies the same hook to nested codemode calls, so `tools.write` inside a script is blocked. This covers pi delegates. A delegate on another provider does not load this extension and is not covered.
+
+The project `.pi/settings.json` adds `+grep`, `+find`, and `+ls` so codemode exposes those read-only tools. The global `~/.pi/agent/settings.json` should add the same entries to `defaultTools`: `+codemode`, `+grep`, `+find`, and `+ls`. The delegate runs in the T3 project root, so the global setting is what makes the tools available when a project config is absent.
+
+If T3 rejects full access or the delegate fails, repo_query falls back to the child process. A delegate that waits or times out is cancelled first.
 
 The child pi process keeps a strict tool allowlist: `read`, `grep`, `find`, `ls`, and `bash`.
 

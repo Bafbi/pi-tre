@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { READ_ONLY_DELEGATE_TITLE_PREFIX } from "../../src/read-only-delegate.js";
 import { T3_DELEGATE_TOOL } from "../../src/t3-delegate.js";
 import { clearTempspaceCache } from "../../src/tempspace.js";
 import {
@@ -234,7 +235,10 @@ describe("repo-query extension", () => {
 			mkdirSync(join(cwd, ".pi", "configs"), { recursive: true });
 			writeFileSync(
 				join(cwd, ".pi", "configs", "repo-query.json"),
-				JSON.stringify({ explorer: "auto" }),
+				JSON.stringify({
+					explorer: "auto",
+					defaultModel: "opencode-go/deepseek-v4.1-flash",
+				}),
 			);
 
 			const executeTool = vi.fn(
@@ -274,7 +278,11 @@ describe("repo-query extension", () => {
 			expect(args).toMatchObject({
 				mode: "wait",
 				role: "research",
-				runtimeMode: "approval-required",
+				runtimeMode: "full-access",
+				target: {
+					providerInstanceId: "pi",
+					model: "opencode-go/deepseek-v4.1-flash",
+				},
 			});
 
 			const text = (result.content[0] as { text: string }).text;
@@ -292,6 +300,60 @@ describe("repo-query extension", () => {
 			expect(structured.status).toBe("ok");
 			expect(structured.answer?.text).toBe("Delegate answer.");
 
+			tempspacesToClean.push(details.tempspacePath);
+		},
+		30000,
+	);
+
+	it.skipIf(!gitAvailable)(
+		"falls back to the process backend when the T3 delegate fails",
+		async () => {
+			const cwd = makeTempDir("repo-query-ext-test-");
+			tempDirs.push(cwd);
+			const localRepo = createLocalRepo(cwd);
+			mkdirSync(join(cwd, ".pi", "configs"), { recursive: true });
+			writeFileSync(
+				join(cwd, ".pi", "configs", "repo-query.json"),
+				JSON.stringify({ explorer: "auto" }),
+			);
+
+			const executeTool = vi.fn(
+				async (
+					_name: string,
+					_args: Record<string, unknown>,
+					_options?: { signal?: AbortSignal },
+				) => ({
+					result: { content: [], details: {} },
+					isError: true,
+				}),
+			);
+			const ctx = minimalContext(cwd, {
+				tools: [{ name: T3_DELEGATE_TOOL }] as never,
+				executeTool: executeTool as never,
+			});
+			const { getTool } = captureExtension({
+				explorer: async () => ({ answer: "Process answer." }),
+				delegate: async () => ({
+					answer: "",
+					error: "delegate needs approval",
+				}),
+			});
+			const repoQueryTool = getTool();
+			if (!repoQueryTool) throw new Error("repo_query tool not found");
+
+			const result = await repoQueryTool.execute(
+				"test-call-fallback",
+				{ query: "Where is the entry point?", repos: [localRepo] },
+				undefined,
+				undefined,
+				ctx,
+			);
+
+			const text = (result.content[0] as { text: string }).text;
+			expect(text).toContain("Process answer.");
+			expect(result.isError).toBeUndefined();
+
+			const details = result.details as { tempspacePath: string };
 			tempspacesToClean.push(details.tempspacePath);
 		},
 		30000,
@@ -331,4 +393,88 @@ describe("repo-query extension", () => {
 		},
 		30000,
 	);
+
+	it("blocks write in a read-only delegate session", async () => {
+		const cwd = makeTempDir("repo-query-ext-test-");
+		tempDirs.push(cwd);
+		const { getHandler } = captureExtension();
+		const handler = getHandler("tool_call") as
+			| ((
+					event: { toolName: string; input: unknown },
+					ctx: unknown,
+			  ) => Promise<unknown>)
+			| undefined;
+		expect(handler).toBeDefined();
+
+		const ctx = minimalContext(cwd, {
+			sessionManager: {
+				getSessionFile: () => join(cwd, "session.jsonl"),
+				getSessionName: () =>
+					`${READ_ONLY_DELEGATE_TITLE_PREFIX} repo_query: test`,
+				getBranch: () => [],
+				getEntries: () => [],
+			} as never,
+		});
+
+		const blocked = await handler?.({ toolName: "write", input: {} }, ctx);
+		expect(blocked).toMatchObject({ block: true });
+		const allowed = await handler?.({ toolName: "read", input: {} }, ctx);
+		expect(allowed).toBeUndefined();
+	});
+
+	it("arms the read-only guard before the first tool call", async () => {
+		const cwd = makeTempDir("repo-query-ext-test-");
+		tempDirs.push(cwd);
+		const { getHandler } = captureExtension();
+		const before = getHandler("before_agent_start") as
+			| ((event: unknown, ctx: unknown) => Promise<unknown>)
+			| undefined;
+		const toolCall = getHandler("tool_call") as
+			| ((
+					event: { toolName: string; input: unknown },
+					ctx: unknown,
+			  ) => Promise<unknown>)
+			| undefined;
+		expect(before).toBeDefined();
+		expect(toolCall).toBeDefined();
+
+		await before?.(
+			{},
+			minimalContext(cwd, {
+				sessionManager: {
+					getSessionFile: () => join(cwd, "session.jsonl"),
+					getSessionName: () =>
+						`${READ_ONLY_DELEGATE_TITLE_PREFIX} repo_query: test`,
+					getBranch: () => [],
+					getEntries: () => [],
+				} as never,
+			}),
+		);
+
+		// The tool-call context has no title, but the guard is already armed.
+		const blocked = await toolCall?.(
+			{ toolName: "write", input: {} },
+			minimalContext(cwd),
+		);
+		expect(blocked).toMatchObject({ block: true });
+	});
+
+	it("allows write in a session without the read-only title", async () => {
+		const cwd = makeTempDir("repo-query-ext-test-");
+		tempDirs.push(cwd);
+		const { getHandler } = captureExtension();
+		const handler = getHandler("tool_call") as
+			| ((
+					event: { toolName: string; input: unknown },
+					ctx: unknown,
+			  ) => Promise<unknown>)
+			| undefined;
+		expect(handler).toBeDefined();
+
+		const allowed = await handler?.(
+			{ toolName: "write", input: {} },
+			minimalContext(cwd),
+		);
+		expect(allowed).toBeUndefined();
+	});
 });

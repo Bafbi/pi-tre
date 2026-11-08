@@ -1,6 +1,6 @@
 {
 	"$schema": "https://pi.dev/schemas/settings.schema.json",
-	"defaultTools": ["+codemode"],
+	"defaultTools": ["+codemode", "+grep", "+find", "+ls"],
 	"codemode": {
 		"mode": "only"
 	}

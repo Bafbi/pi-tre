@@ -15,3 +15,11 @@ _Avoid_: Repo dir, checkout, clone destination
 **Publish**:
 The single atomic rename that makes a finished clone visible at its clone target. A clone is fetched into a private temporary directory and then published. Only a publish creates or replaces a clone target.
 _Avoid_: Move, promote, install
+
+**Read-only delegate title**:
+A delegate title that starts with `read-only:`. T3 sets the delegate session name to the delegate title, so the delegate reads it with `ctx.sessionManager.getSessionName()`. The guard uses it to allow only read-only tools.
+_Avoid_: Marker, guard token
+
+**Read-only delegate session**:
+A pi session whose session name starts with `read-only:`. It may call only the read-only tools, and the process backend is not used for it.
+_Avoid_: Subagent session, delegate session

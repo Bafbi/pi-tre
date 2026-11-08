@@ -4,17 +4,20 @@ import type {
 	AgentToolResult,
 	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
-
 import {
 	type ExplorationResult,
 	findingsInstructions,
 	MAX_OUTPUT_CHARS,
 	truncateSubagentOutput,
 } from "./explorer.js";
+import { READ_ONLY_DELEGATE_TITLE_PREFIX } from "./read-only-delegate.js";
 import type { ParsedRepo } from "./types.js";
 
 /** T3 exposes its orchestrator tools to pi under this prefix. */
 export const T3_DELEGATE_TOOL = "mcp__t3-code__delegate_task";
+
+/** Pin the delegate to pi so the child loads this extension and its guard. */
+const T3_PI_PROVIDER_INSTANCE_ID = "pi";
 
 const DELEGATE_TIMEOUT_MS = 300_000;
 
@@ -29,6 +32,8 @@ export interface T3DelegateOptions {
 	tempspace: string;
 	repos: ParsedRepo[];
 	query: string;
+	/** Model for the delegate. Omitted, T3 uses the parent thread's model. */
+	model?: string | undefined;
 	signal: AbortSignal | undefined;
 }
 
@@ -37,15 +42,20 @@ export interface T3DelegateOptions {
  *
  * The delegate is a real T3 thread, so it appears in the UI. It reads the
  * clones by absolute path because its working directory is the T3 project,
- * not the tempspace. T3 does not enforce a read-only toolset for delegates:
- * this asks for read-only behavior and lowers the runtime mode so edits need
- * approval.
+ * not the tempspace.
+ *
+ * The delegate runs with full access because T3 has no per-delegate tool
+ * allowlist and an approval prompt on every codemode call makes exploration
+ * unusable. Read-only behavior is enforced in the child by the `read-only:`
+ * title and the `tool_call` guard in `read-only-delegate.ts`. If T3 rejects
+ * full access or the delegate fails, the caller falls back to the process
+ * backend.
  */
 export async function runT3Delegate(
 	options: T3DelegateOptions,
 	ctx: Pick<ExtensionToolContext, "executeTool">,
 ): Promise<ExplorationResult> {
-	const { tempspace, repos, query, signal } = options;
+	const { tempspace, repos, query, model, signal } = options;
 	const clonePaths = repos.map((repo) => ({
 		displayName: repo.displayName,
 		path: join(tempspace, repo.dirName),
@@ -60,7 +70,7 @@ export async function runT3Delegate(
 			T3_DELEGATE_TOOL,
 			{
 				task: buildDelegateTask(query, clonePaths),
-				title: `repo_query: ${repos
+				title: `${READ_ONLY_DELEGATE_TITLE_PREFIX} repo_query: ${repos
 					.map((repo) => repo.displayName)
 					.join(", ")
 					.slice(0, 80)}`,
@@ -68,9 +78,15 @@ export async function runT3Delegate(
 				mode: "wait",
 				timeoutMs: DELEGATE_TIMEOUT_MS,
 				isolation: "shared",
-				// The parent may be in full access. Lower the child so an edit
-				// needs approval; the task also tells it to only read.
-				runtimeMode: "approval-required",
+				// Full access avoids a prompt on every codemode call. T3 has no
+				// per-delegate tool allowlist, so the child's read-only title
+				// enables the guard. T3 rejects this mode when the parent
+				// is lower; the caller falls back to the process backend.
+				runtimeMode: "full-access",
+				target: {
+					providerInstanceId: T3_PI_PROVIDER_INSTANCE_ID,
+					...(model !== undefined ? { model } : {}),
+				},
 			},
 			{ ...(signal !== undefined ? { signal } : {}) },
 		);
@@ -92,24 +108,26 @@ export async function runT3Delegate(
 		};
 	}
 	if (delegate.pending) {
+		await cancelDelegate(ctx, delegate.taskId);
 		return {
 			answer: "",
 			error: [
 				"The T3 delegate is waiting for an answer or approval.",
 				delegate.link ? `Open the thread: ${delegate.link}` : "",
-				"The exploration is visible in T3 Code and keeps running.",
+				"It was cancelled and the process backend takes over.",
 			]
 				.filter((part) => part.length > 0)
 				.join(" "),
 		};
 	}
 	if (delegate.timedOut) {
+		await cancelDelegate(ctx, delegate.taskId);
 		return {
 			answer: "",
 			error: [
 				`The T3 delegate did not finish within ${DELEGATE_TIMEOUT_MS / 1000} seconds.`,
 				delegate.link ? `Open the thread: ${delegate.link}` : "",
-				"The exploration keeps running in T3 Code.",
+				"It was cancelled and the process backend takes over.",
 			]
 				.filter((part) => part.length > 0)
 				.join(" "),
@@ -133,6 +151,7 @@ export async function runT3Delegate(
 interface DelegateReading {
 	summary: string;
 	link: string;
+	taskId: string;
 	pending: boolean;
 	timedOut: boolean;
 	isError: boolean;
@@ -156,6 +175,7 @@ function delegateResult(result: AgentToolResult<unknown>): DelegateReading {
 			? rawSummary
 			: textOf(result);
 	const link = typeof inner?.link === "string" ? inner.link : "";
+	const taskId = typeof inner?.taskId === "string" ? inner.taskId : "";
 	const pendingApproval = inner?.pendingApproval;
 	const pending =
 		inner?.hasPendingQuestion === true ||
@@ -163,7 +183,7 @@ function delegateResult(result: AgentToolResult<unknown>): DelegateReading {
 	const timedOut = inner?.waitTimedOut === true;
 	const isError = outer?.isError === true || inner?.isError === true;
 
-	return { summary, link, pending, timedOut, isError };
+	return { summary, link, taskId, pending, timedOut, isError };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -201,12 +221,27 @@ Rules:
 - The paths above are temporary clones. Treat them as read-only.
 - Do not edit, write, move, rename, or delete any file.
 - Do not run git commands that change state.
-- Use read, grep, find, ls, and read-only bash commands.
+- Use the codemode tool for exploration.
+- Inside codemode, call only tools.read, tools.grep, tools.find, and tools.ls.
+- Do not call tools.bash, tools.edit, tools.write, or tools.repo_query.
 - Answer with specific file paths and line numbers.
 - State clearly when the code does not answer the query.
 - Maximum 800 words.
 
 ${findingsInstructions("owner/repo")}`;
+}
+
+/** Cancel a delegate that is parked on a question or that timed out. */
+async function cancelDelegate(
+	ctx: Pick<ExtensionToolContext, "executeTool">,
+	taskId: string,
+): Promise<void> {
+	if (taskId.length === 0) return;
+	try {
+		await ctx.executeTool("mcp__t3-code__task_cancel", { taskId });
+	} catch {
+		/* best effort: the fallback still answers */
+	}
 }
 
 function errorMessage(err: unknown): string {

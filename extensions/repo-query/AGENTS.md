@@ -43,9 +43,12 @@ The tool declares `outputSchema` and returns `structuredContent` for code-mode s
 
 `explorer` in the config picks the backend. The default is `process`, which spawns a child `pi` process. Set `auto` to use T3 Code's `mcp__t3-code__delegate_task` when it is registered, because a delegate is a visible T3 thread. `auto` falls back to the child process.
 
-- The delegate's cwd is the T3 project, not the tempspace. The task passes absolute clone paths and tells it to read only. T3 does not enforce a read-only toolset for delegates. The child runtime mode is lowered to `approval-required`.
+- The delegate's cwd is the T3 project, not the tempspace. The task passes absolute clone paths and tells it to read only. The delegate runs with full access because T3 has no per-delegate tool allowlist and approvals on every codemode call make it unusable. The prompt restricts codemode to `read`, `grep`, `find`, and `ls`, and forbids `bash`, `edit`, `write`, and `repo_query`.
+- The delegate target is pinned to the `pi` provider, so the child loads this extension and the guard. The delegate title starts with `read-only:`. T3 sets the delegate session name to that title, and `src/read-only-delegate.ts` checks `ctx.sessionManager.getSessionName()`. The `tool_call` hook in `src/index.ts` then allows only `read`, `grep`, `find`, `ls`, `codemode`, and `tool_search` for that session. Everything else is blocked, including `write`, `edit`, `bash`, `powershell`, `repo_query`, and T3 control tools. pi applies the hook to nested codemode calls, so a codemode script cannot write. This covers pi delegates only. A delegate on another provider does not load this extension.
+- The project `.pi/settings.json` adds `+grep`, `+find`, and `+ls` so codemode exposes those read-only tools. The global `~/.pi/agent/settings.json` should add `+codemode`, `+grep`, `+find`, and `+ls` to `defaultTools`, because the delegate runs in the T3 project root.
+- If the delegate fails, the query falls back to the child process. A delegate that waits or times out is cancelled first.
 - The child process enforces `read,grep,find,ls,bash` through `--tools`.
-- Tests inject `overrides.explorer`, which takes precedence over both backends.
+- Tests inject `overrides.explorer` for the process backend or `overrides.delegate` for the T3 backend. When both are set, `delegate` wins and `explorer` is the fallback.
 
 ## Subagent behavior
 
@@ -67,7 +70,7 @@ Because jiti (extension loader) and native ESM (test imports) create separate mo
 
 The extension takes its seams as explicit parameters instead of global state:
 
-- `createRepoQueryExtension({ explorer, clone })` in `src/index.ts` replaces `runExplorer` and `ensureRepoCloned` for pipeline-level `execute` tests. Tests drive the captured tool with the helpers in `test/helpers/create-runner.ts`.
+- `createRepoQueryExtension({ explorer, delegate, clone })` in `src/index.ts` replaces `runExplorer`, `runT3Delegate`, and `ensureRepoCloned` for pipeline-level `execute` tests. Tests drive the captured tool with the helpers in `test/helpers/create-runner.ts`.
 - `runExplorer(options, impl)` and `ensureRepoCloned(repo, tempspace, signal, pi, impl)` accept an optional last-parameter implementation for direct-call tests. `runExplorer`'s `impl` also takes a fake `spawn` and `killGraceMs` for the kill/abort paths.
 - Loader-based tests (`discoverAndLoadExtensions` via `createRunner`) cannot reach factory parameters; they mock `globalThis.fetch` for GitHub validation or use local-path repos, which clone without network.
 
