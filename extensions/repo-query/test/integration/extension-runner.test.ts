@@ -274,7 +274,7 @@ describe("repo-query extension", () => {
 			expect(args).toMatchObject({
 				mode: "wait",
 				role: "research",
-				runtimeMode: "approval-required",
+				runtimeMode: "full-access",
 			});
 
 			const text = (result.content[0] as { text: string }).text;
@@ -292,6 +292,60 @@ describe("repo-query extension", () => {
 			expect(structured.status).toBe("ok");
 			expect(structured.answer?.text).toBe("Delegate answer.");
 
+			tempspacesToClean.push(details.tempspacePath);
+		},
+		30000,
+	);
+
+	it.skipIf(!gitAvailable)(
+		"falls back to the process backend when the T3 delegate fails",
+		async () => {
+			const cwd = makeTempDir("repo-query-ext-test-");
+			tempDirs.push(cwd);
+			const localRepo = createLocalRepo(cwd);
+			mkdirSync(join(cwd, ".pi", "configs"), { recursive: true });
+			writeFileSync(
+				join(cwd, ".pi", "configs", "repo-query.json"),
+				JSON.stringify({ explorer: "auto" }),
+			);
+
+			const executeTool = vi.fn(
+				async (
+					_name: string,
+					_args: Record<string, unknown>,
+					_options?: { signal?: AbortSignal },
+				) => ({
+					result: { content: [], details: {} },
+					isError: true,
+				}),
+			);
+			const ctx = minimalContext(cwd, {
+				tools: [{ name: T3_DELEGATE_TOOL }] as never,
+				executeTool: executeTool as never,
+			});
+			const { getTool } = captureExtension({
+				explorer: async () => ({ answer: "Process answer." }),
+				delegate: async () => ({
+					answer: "",
+					error: "delegate needs approval",
+				}),
+			});
+			const repoQueryTool = getTool();
+			if (!repoQueryTool) throw new Error("repo_query tool not found");
+
+			const result = await repoQueryTool.execute(
+				"test-call-fallback",
+				{ query: "Where is the entry point?", repos: [localRepo] },
+				undefined,
+				undefined,
+				ctx,
+			);
+
+			const text = (result.content[0] as { text: string }).text;
+			expect(text).toContain("Process answer.");
+			expect(result.isError).toBeUndefined();
+
+			const details = result.details as { tempspacePath: string };
 			tempspacesToClean.push(details.tempspacePath);
 		},
 		30000,

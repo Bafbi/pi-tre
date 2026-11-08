@@ -105,7 +105,7 @@ describe("runT3Delegate", () => {
 			role: "research",
 			mode: "wait",
 			isolation: "shared",
-			runtimeMode: "approval-required",
+			runtimeMode: "full-access",
 			timeoutMs: 300_000,
 		});
 		expect(args.task).toContain("/tmp/pi-rq-test/github_owner_repo");
@@ -113,6 +113,8 @@ describe("runT3Delegate", () => {
 		expect(args.task).toContain("Where is the entry point?");
 		expect(args.task).toContain("findings");
 		expect(args.task).toContain("```json");
+		expect(args.task).toContain("tools.read");
+		expect(args.task).toContain("Do not call tools.bash");
 	});
 
 	it("reads the error flag from the nested MCP result", async () => {

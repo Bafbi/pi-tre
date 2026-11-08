@@ -74,6 +74,8 @@ type AgentUsage = NonNullable<AgentToolResult<unknown>["usage"]>;
 export interface RepoQueryOverrides {
 	/** Replaces runExplorer for pipeline-level execute tests. */
 	explorer?: ExplorerImpl["run"];
+	/** Replaces runT3Delegate for pipeline-level fallback tests. */
+	delegate?: typeof runT3Delegate;
 	/** Replaces ensureRepoCloned for pipeline-level execute tests. */
 	clone?: CloneImpl;
 }
@@ -184,9 +186,10 @@ export function createRepoQueryExtension(
 				const delegateAvailable = canUseT3Delegate(ctx);
 				// Factory overrides win so tests stay deterministic.
 				const usingDelegate =
-					overrides.explorer === undefined &&
 					explorerMode === "auto" &&
-					delegateAvailable;
+					delegateAvailable &&
+					(overrides.delegate !== undefined ||
+						overrides.explorer === undefined);
 				const tempspace = await getTempspacePath(ctx);
 				activeTempspaces.add(tempspace);
 				setTempspacePath(debug, tempspace);
@@ -544,65 +547,79 @@ export function createRepoQueryExtension(
 					ctx,
 				);
 
-				const exploration = await (usingDelegate
-					? runT3Delegate(
-							{
-								tempspace,
-								repos: readyRepos.map((r) => r.parsed),
-								query: params.query,
-								signal,
+				const explorationRequest = {
+					tempspace,
+					repos: readyRepos.map((r) => r.parsed),
+					query: params.query,
+					signal,
+				};
+
+				const runProcessExplorer = () =>
+					runExplorer(
+						{
+							...explorationRequest,
+							model: resolvedModel,
+							onUpdate: (partial) => {
+								// Update the streamed answer text
+								const text =
+									partial.content[0]?.type === "text"
+										? partial.content[0].text
+										: "";
+								if (text && text !== "(exploring...)") {
+									answer = text;
+								}
+								// Stream actual subagent thinking if available
+								let subagentThought: string | undefined;
+								if (
+									partial.details &&
+									typeof partial.details === "object" &&
+									"thought" in partial.details
+								) {
+									const raw = (
+										partial.details as Record<
+											string,
+											unknown
+										>
+									).thought;
+									if (
+										typeof raw === "string" &&
+										raw.trim().length > 0
+									) {
+										subagentThought = raw;
+									}
+								}
+								onUpdate?.({
+									content: partial.content,
+									details: makeDetails(
+										"exploring",
+										subagentThought,
+									),
+								});
 							},
+						},
+						overrides.explorer
+							? { run: overrides.explorer }
+							: undefined,
+					);
+
+				let exploration = usingDelegate
+					? await (overrides.delegate ?? runT3Delegate)(
+							explorationRequest,
 							ctx,
 						)
-					: runExplorer(
-							{
-								tempspace,
-								repos: readyRepos.map((r) => r.parsed),
-								query: params.query,
-								model: resolvedModel,
-								signal,
-								onUpdate: (partial) => {
-									// Update the streamed answer text
-									const text =
-										partial.content[0]?.type === "text"
-											? partial.content[0].text
-											: "";
-									if (text && text !== "(exploring...)") {
-										answer = text;
-									}
-									// Stream actual subagent thinking if available
-									let subagentThought: string | undefined;
-									if (
-										partial.details &&
-										typeof partial.details === "object" &&
-										"thought" in partial.details
-									) {
-										const raw = (
-											partial.details as Record<
-												string,
-												unknown
-											>
-										).thought;
-										if (
-											typeof raw === "string" &&
-											raw.trim().length > 0
-										) {
-											subagentThought = raw;
-										}
-									}
-									onUpdate?.({
-										content: partial.content,
-										details: makeDetails(
-											"exploring",
-											subagentThought,
-										),
-									});
-								},
-							},
-							overrides.explorer
-								? { run: overrides.explorer }
-								: undefined,
-						));
+					: await runProcessExplorer();
+
+				if (usingDelegate && exploration.error) {
+					// A delegate can fail because T3 rejected full access, the
+					// child asked for approval, or the child ended without an
+					// answer. The process backend still answers.
+					addDebugEvent(
+						debug,
+						`t3 delegate failed (${exploration.error.substring(0, 80)}), falling back to child pi`,
+						ctx,
+					);
+					exploration = await runProcessExplorer();
+				}
 
 				const explorationFailed = Boolean(exploration.error);
 

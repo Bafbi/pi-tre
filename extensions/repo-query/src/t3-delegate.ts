@@ -68,9 +68,11 @@ export async function runT3Delegate(
 				mode: "wait",
 				timeoutMs: DELEGATE_TIMEOUT_MS,
 				isolation: "shared",
-				// The parent may be in full access. Lower the child so an edit
-				// needs approval; the task also tells it to only read.
-				runtimeMode: "approval-required",
+				// Full access avoids a prompt on every codemode call. T3 has no
+				// per-delegate tool allowlist, so the task prompt restricts
+				// codemode to the read-only tools. T3 rejects this mode when the
+				// parent is lower; the caller falls back to the process backend.
+				runtimeMode: "full-access",
 			},
 			{ ...(signal !== undefined ? { signal } : {}) },
 		);
@@ -201,7 +203,9 @@ Rules:
 - The paths above are temporary clones. Treat them as read-only.
 - Do not edit, write, move, rename, or delete any file.
 - Do not run git commands that change state.
-- Use read, grep, find, ls, and read-only bash commands.
+- Use the codemode tool for exploration.
+- Inside codemode, call only tools.read, tools.grep, tools.find, and tools.ls.
+- Do not call tools.bash, tools.edit, tools.write, or tools.repo_query.
 - Answer with specific file paths and line numbers.
 - State clearly when the code does not answer the query.
 - Maximum 800 words.
