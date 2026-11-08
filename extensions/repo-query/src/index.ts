@@ -113,14 +113,14 @@ export function createRepoQueryExtension(
 		const debug = createDebugState();
 		const validationCache = new Map<string, ValidationResult>();
 		/** True once this session's branch shows a repo_query delegate task. */
-		let delegateSession = false;
+		let isDelegateSession = false;
 
 		pi.on("session_start", async (_event, ctx) => {
 			debug.events.length = 0;
 			debug.trackedRepos.clear();
 			debug.tempspacePath = null;
 			validationCache.clear();
-			delegateSession = false;
+			isDelegateSession = false;
 			addDebugEvent(debug, "session_start: state reset", ctx);
 		});
 
@@ -149,12 +149,12 @@ export function createRepoQueryExtension(
 		// nested calls from a codemode script, so tools.write, tools.edit, and
 		// tools.bash are blocked inside codemode too.
 		pi.on("tool_call", async (event, ctx) => {
-			if (!delegateSession) {
-				delegateSession = branchHasDelegateMarker(
+			if (!isDelegateSession) {
+				isDelegateSession = branchHasDelegateMarker(
 					ctx.sessionManager.getBranch(),
 				);
 			}
-			if (!delegateSession) return;
+			if (!isDelegateSession) return;
 			return delegateToolBlock(event.toolName);
 		});
 
@@ -206,7 +206,7 @@ export function createRepoQueryExtension(
 				const explorerMode = config.explorer ?? "process";
 				const delegateAvailable = canUseT3Delegate(ctx);
 				// Factory overrides win so tests stay deterministic.
-				const usingDelegate =
+				const useT3Delegate =
 					explorerMode === "auto" &&
 					delegateAvailable &&
 					(overrides.delegate !== undefined ||
@@ -243,7 +243,7 @@ export function createRepoQueryExtension(
 						case "cloning":
 							return `Cloning ${names}${rest} to search for "${params.query}"...`;
 						case "exploring":
-							return usingDelegate
+							return useT3Delegate
 								? `Delegating ${names}${rest} to a T3 subagent...`
 								: `Searching ${names}${rest} for "${params.query}"...`;
 						case "complete":
@@ -549,20 +549,18 @@ export function createRepoQueryExtension(
 					};
 				}
 
-				if (!usingDelegate) {
-					resolvedModel = resolveModel(
-						config,
-						readyRepos.map((r) => r.parsed),
-					);
-					if (resolvedModel) {
-						addDebugEvent(debug, `model: ${resolvedModel}`, ctx);
-					}
+				resolvedModel = resolveModel(
+					config,
+					readyRepos.map((r) => r.parsed),
+				);
+				if (resolvedModel) {
+					addDebugEvent(debug, `model: ${resolvedModel}`, ctx);
 				}
 
 				emitPhase("exploring");
 				addDebugEvent(
 					debug,
-					usingDelegate
+					useT3Delegate
 						? `t3 delegate start: ${readyRepos.length} repo(s)`
 						: `subagent spawn: ${readyRepos.length} repo(s)`,
 					ctx,
@@ -572,6 +570,7 @@ export function createRepoQueryExtension(
 					tempspace,
 					repos: readyRepos.map((r) => r.parsed),
 					query: params.query,
+					model: resolvedModel,
 					signal,
 				};
 
@@ -579,7 +578,6 @@ export function createRepoQueryExtension(
 					runExplorer(
 						{
 							...explorationRequest,
-							model: resolvedModel,
 							onUpdate: (partial) => {
 								// Update the streamed answer text
 								const text =
@@ -623,14 +621,14 @@ export function createRepoQueryExtension(
 							: undefined,
 					);
 
-				let exploration = usingDelegate
+				let exploration = useT3Delegate
 					? await (overrides.delegate ?? runT3Delegate)(
 							explorationRequest,
 							ctx,
 						)
 					: await runProcessExplorer();
 
-				if (usingDelegate && exploration.error) {
+				if (useT3Delegate && exploration.error) {
 					// A delegate can fail because T3 rejected full access, the
 					// child asked for approval, or the child ended without an
 					// answer. The process backend still answers.

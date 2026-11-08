@@ -235,7 +235,10 @@ describe("repo-query extension", () => {
 			mkdirSync(join(cwd, ".pi", "configs"), { recursive: true });
 			writeFileSync(
 				join(cwd, ".pi", "configs", "repo-query.json"),
-				JSON.stringify({ explorer: "auto" }),
+				JSON.stringify({
+					explorer: "auto",
+					defaultModel: "opencode-go/deepseek-v4.1-flash",
+				}),
 			);
 
 			const executeTool = vi.fn(
@@ -276,6 +279,7 @@ describe("repo-query extension", () => {
 				mode: "wait",
 				role: "research",
 				runtimeMode: "full-access",
+				target: { model: "opencode-go/deepseek-v4.1-flash" },
 			});
 
 			const text = (result.content[0] as { text: string }).text;

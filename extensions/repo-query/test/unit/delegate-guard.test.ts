@@ -54,21 +54,31 @@ describe("branchHasDelegateMarker", () => {
 });
 
 describe("delegateToolBlock", () => {
-	it("blocks write, edit, bash, and recursion", () => {
+	it("blocks writes, shells, recursion, and T3 control tools", () => {
 		for (const tool of [
 			"write",
 			"edit",
 			"bash",
+			"powershell",
 			"repo_query",
 			"mcp__t3-code__delegate_task",
-			"mcp__t3_code__delegate_task",
+			"mcp__t3-code__create_threads",
+			"mcp__t3-code__schedule_task",
+			"mcp__t3-code__request_secret",
 		]) {
 			expect(delegateToolBlock(tool)).toMatchObject({ block: true });
 		}
 	});
 
-	it("allows the read-only tools and codemode itself", () => {
-		for (const tool of ["read", "grep", "find", "ls", "codemode"]) {
+	it("allows only the read-only tools and codemode", () => {
+		for (const tool of [
+			"read",
+			"grep",
+			"find",
+			"ls",
+			"codemode",
+			"tool_search",
+		]) {
 			expect(delegateToolBlock(tool)).toBeUndefined();
 		}
 	});

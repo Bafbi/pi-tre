@@ -2,10 +2,10 @@
  * Read-only guard for repo_query delegates.
  *
  * A delegate task carries a marker in its prompt. The extension scans the
- * session branch for that marker; once found, a `tool_call` hook blocks the
- * tools that could write or recurse. pi runs the same hook for nested calls
- * made by a codemode script, so `tools.write`, `tools.edit`, and `tools.bash`
- * are blocked inside codemode too.
+ * session branch for that marker; once found, a `tool_call` hook allows only
+ * the read-only tools and blocks everything else. pi runs the same hook for
+ * nested calls made by a codemode script, so `tools.write`, `tools.edit`,
+ * `tools.bash`, and T3 control tools are blocked inside codemode too.
  *
  * This applies to pi delegates. A delegate on another provider does not load
  * this extension, so it is not covered.
@@ -14,14 +14,19 @@
 /** Prefix shared by every delegate task marker. */
 export const DELEGATE_MARKER_PREFIX = "REPO_QUERY_DELEGATE_V1:";
 
-/** Tools a repo_query delegate may never call. */
-const DELEGATE_BLOCKED_TOOLS: ReadonlySet<string> = new Set([
-	"write",
-	"edit",
-	"bash",
-	"repo_query",
-	"mcp__t3-code__delegate_task",
-	"mcp__t3_code__delegate_task",
+/**
+ * The only tools a repo_query delegate may call.
+ *
+ * `codemode` is allowed because its nested calls still pass through this
+ * hook. `tool_search` only lists tools, it does not call them.
+ */
+const DELEGATE_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
+	"read",
+	"grep",
+	"find",
+	"ls",
+	"codemode",
+	"tool_search",
 ]);
 
 interface BranchEntryLike {
@@ -61,11 +66,11 @@ function contentHasMarker(content: unknown): boolean {
 	});
 }
 
-/** The block response for a disallowed tool, or undefined to allow it. */
+/** The block response for a tool outside the allowlist, or undefined. */
 export function delegateToolBlock(
 	toolName: string,
 ): { block: true; reason: string } | undefined {
-	if (!DELEGATE_BLOCKED_TOOLS.has(toolName)) return undefined;
+	if (DELEGATE_ALLOWED_TOOLS.has(toolName)) return undefined;
 	return {
 		block: true,
 		reason: `repo_query delegates are read-only. ${toolName} is blocked.`,

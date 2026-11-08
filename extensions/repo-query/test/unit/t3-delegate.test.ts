@@ -27,6 +27,7 @@ const options = {
 	tempspace: "/tmp/pi-rq-test",
 	repos: [repo],
 	query: "Where is the entry point?",
+	model: "opencode-go/deepseek-v4.1-flash",
 	signal: undefined,
 };
 
@@ -108,6 +109,7 @@ describe("runT3Delegate", () => {
 			isolation: "shared",
 			runtimeMode: "full-access",
 			timeoutMs: 300_000,
+			target: { model: "opencode-go/deepseek-v4.1-flash" },
 		});
 		expect(args.task).toContain("/tmp/pi-rq-test/github_owner_repo");
 		expect(args.task).toContain("read-only");
@@ -152,30 +154,42 @@ describe("runT3Delegate", () => {
 		expect(result.error).toContain("delegate crashed");
 	});
 
-	it("reports a delegate that waits on a question or approval", async () => {
-		const { ctx } = fakeContext({
+	it("cancels a delegate that waits on a question or approval", async () => {
+		const { executeTool, ctx } = fakeContext({
 			result: delegateResult({
 				hasPendingQuestion: true,
+				taskId: "task-1",
 				link: "t3-thread://thread/child",
 			}),
 		});
 
 		const result = await runT3Delegate(options, ctx);
 		expect(result.error).toContain("waiting for an answer or approval");
-		expect(result.error).toContain("t3-thread://thread/child");
+		expect(result.error).toContain("cancelled");
+		expect(executeTool).toHaveBeenNthCalledWith(
+			2,
+			"mcp__t3-code__task_cancel",
+			{ taskId: "task-1" },
+		);
 	});
 
-	it("reports a wait timeout without stopping the delegate", async () => {
-		const { ctx } = fakeContext({
+	it("cancels a delegate that times out", async () => {
+		const { executeTool, ctx } = fakeContext({
 			result: delegateResult({
 				waitTimedOut: true,
+				taskId: "task-2",
 				link: "t3-thread://thread/child",
 			}),
 		});
 
 		const result = await runT3Delegate(options, ctx);
 		expect(result.error).toContain("did not finish within 300 seconds");
-		expect(result.error).toContain("keeps running");
+		expect(result.error).toContain("cancelled");
+		expect(executeTool).toHaveBeenNthCalledWith(
+			2,
+			"mcp__t3-code__task_cancel",
+			{ taskId: "task-2" },
+		);
 	});
 
 	it("reports a delegate that finishes without a summary", async () => {
