@@ -17,9 +17,9 @@ The single atomic rename that makes a finished clone visible at its clone target
 _Avoid_: Move, promote, install
 
 **Read-only delegate title**:
-A delegate title that starts with `read-only:`. T3 sets the child session name to the delegate title, so the child reads it with `ctx.sessionManager.getSessionName()`. The guard uses it to allow only read-only tools.
+A delegate title that starts with `read-only:`. T3 sets the delegate session name to the delegate title, so the delegate reads it with `ctx.sessionManager.getSessionName()`. The guard uses it to allow only read-only tools.
 _Avoid_: Marker, guard token
 
 **Read-only delegate session**:
 A pi session whose session name starts with `read-only:`. It may call only the read-only tools, and the process backend is not used for it.
-_Avoid_: Subagent session, child session
+_Avoid_: Subagent session, delegate session

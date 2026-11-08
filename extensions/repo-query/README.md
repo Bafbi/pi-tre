@@ -170,9 +170,9 @@ Under T3 Code, the delegate is a T3 thread, so the exploration appears in the UI
 
 The delegate runs with full access. T3 has no per-delegate tool allowlist, and `approval-required` asks for every codemode or bash call, which makes exploration unusable. The task prompt restricts codemode to `read`, `grep`, `find`, and `ls` and forbids `bash`, `edit`, `write`, and `repo_query`.
 
-The delegate title starts with `read-only:`. T3 sets the child session name to that title. A `tool_call` hook in this extension checks `ctx.sessionManager.getSessionName()` and allows only `read`, `grep`, `find`, `ls`, `codemode`, and `tool_search` in that session. Everything else is blocked, including `write`, `edit`, `bash`, `powershell`, `repo_query`, and T3 control tools. pi applies the same hook to nested codemode calls, so `tools.write` inside a script is blocked. This covers pi delegates. A delegate on another provider does not load this extension and is not covered.
+The delegate title starts with `read-only:`. T3 sets the delegate session name to that title. A `tool_call` hook in this extension checks `ctx.sessionManager.getSessionName()` and allows only `read`, `grep`, `find`, `ls`, `codemode`, and `tool_search` in that session. Everything else is blocked, including `write`, `edit`, `bash`, `powershell`, `repo_query`, and T3 control tools. pi applies the same hook to nested codemode calls, so `tools.write` inside a script is blocked. This covers pi delegates. A delegate on another provider does not load this extension and is not covered.
 
-The project `.pi/settings.json` adds `+grep`, `+find`, and `+ls` so codemode exposes those read-only tools.
+The project `.pi/settings.json` adds `+grep`, `+find`, and `+ls` so codemode exposes those read-only tools. The global `~/.pi/agent/settings.json` should add the same entries to `defaultTools`: `+codemode`, `+grep`, `+find`, and `+ls`. The delegate runs in the T3 project root, so the global setting is what makes the tools available when a project config is absent.
 
 If T3 rejects full access or the delegate fails, repo_query falls back to the child process. A delegate that waits or times out is cancelled first.
 

@@ -112,7 +112,7 @@ export function createRepoQueryExtension(
 		const activeTempspaces = new Set<string>();
 		const debug = createDebugState();
 		const validationCache = new Map<string, ValidationResult>();
-		/** True once this session's branch shows a repo_query delegate task. */
+		/** True once the session name declares this session read-only. */
 		let isReadOnlyDelegateSession = false;
 
 		pi.on("session_start", async (_event, ctx) => {
@@ -145,10 +145,18 @@ export function createRepoQueryExtension(
 		});
 
 		// A read-only delegate's title starts with `read-only:`. T3 sets the
-		// child session name to the delegate title, so the child reads it from
-		// the session. pi applies the same hook to nested calls from a codemode
-		// script, so tools.write, tools.edit, and tools.bash are blocked inside
-		// codemode too.
+		// delegate session name to the delegate title. Arm the guard before the
+		// first model call, then keep it for the session. pi applies the same
+		// hook to nested calls from a codemode script, so tools.write,
+		// tools.edit, and tools.bash are blocked inside codemode too.
+		pi.on("before_agent_start", async (_event, ctx) => {
+			if (!isReadOnlyDelegateSession) {
+				isReadOnlyDelegateSession = isReadOnlyDelegateTitle(
+					ctx.sessionManager.getSessionName(),
+				);
+			}
+		});
+
 		pi.on("tool_call", async (event, ctx) => {
 			if (!isReadOnlyDelegateSession) {
 				isReadOnlyDelegateSession = isReadOnlyDelegateTitle(
@@ -629,10 +637,11 @@ export function createRepoQueryExtension(
 						)
 					: await runProcessExplorer();
 
-				if (useT3Delegate && exploration.error) {
+				if (useT3Delegate && exploration.error && !signal?.aborted) {
 					// A delegate can fail because T3 rejected full access, the
 					// child asked for approval, or the child ended without an
-					// answer. The process backend still answers.
+					// answer. The process backend still answers, unless the
+					// caller already aborted.
 					addDebugEvent(
 						debug,
 						`t3 delegate failed (${exploration.error.substring(0, 80)}), falling back to child pi`,

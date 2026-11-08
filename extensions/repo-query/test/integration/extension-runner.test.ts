@@ -419,6 +419,43 @@ describe("repo-query extension", () => {
 		expect(allowed).toBeUndefined();
 	});
 
+	it("arms the read-only guard before the first tool call", async () => {
+		const cwd = makeTempDir("repo-query-ext-test-");
+		tempDirs.push(cwd);
+		const { getHandler } = captureExtension();
+		const before = getHandler("before_agent_start") as
+			| ((event: unknown, ctx: unknown) => Promise<unknown>)
+			| undefined;
+		const toolCall = getHandler("tool_call") as
+			| ((
+					event: { toolName: string; input: unknown },
+					ctx: unknown,
+			  ) => Promise<unknown>)
+			| undefined;
+		expect(before).toBeDefined();
+		expect(toolCall).toBeDefined();
+
+		await before?.(
+			{},
+			minimalContext(cwd, {
+				sessionManager: {
+					getSessionFile: () => join(cwd, "session.jsonl"),
+					getSessionName: () =>
+						`${READ_ONLY_DELEGATE_TITLE_PREFIX} repo_query: test`,
+					getBranch: () => [],
+					getEntries: () => [],
+				} as never,
+			}),
+		);
+
+		// The tool-call context has no title, but the guard is already armed.
+		const blocked = await toolCall?.(
+			{ toolName: "write", input: {} },
+			minimalContext(cwd),
+		);
+		expect(blocked).toMatchObject({ block: true });
+	});
+
 	it("allows write in a session without the read-only title", async () => {
 		const cwd = makeTempDir("repo-query-ext-test-");
 		tempDirs.push(cwd);
