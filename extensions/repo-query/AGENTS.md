@@ -29,6 +29,24 @@ Branch suffix (`:`) is stripped before URL parsing.
 4. **Reuse**: subsequent queries in the same session skip existing clones
 5. **Cleanup**: `session_shutdown` removes all tracked tempspaces
 
+## Result contract
+
+The tool declares `outputSchema` and returns `structuredContent` for code-mode scripts. The model still receives formatted text from `formatOutput`. Keep the two views in step:
+
+- `src/structured.ts` owns the schema and the mapping from `RepoQueryDetails`.
+- `status` is `ok`, `partial`, or `failed`.
+- A failed exploration returns `isError: true` and keeps per-repo errors, suggestions, and usage.
+- A code-mode script receives `structuredContent` only because the tool declares `outputSchema`. Without it, pi hands scripts the text and turns `isError` into a rejected promise.
+- The subagent ends with a fenced `json` block. `src/findings.ts` parses it, checks each path and line against the clone, and strips the block from the prose. A malformed block falls back to the prose with no findings. Keep the block request in `findingsInstructions()` and the schema in `src/structured.ts` in step.
+
+## Exploration backends
+
+`explorer` in the config picks the backend. The default is `process`, which spawns a child `pi` process. Set `auto` to use T3 Code's `mcp__t3-code__delegate_task` when it is registered, because a delegate is a visible T3 thread. `auto` falls back to the child process.
+
+- The delegate's cwd is the T3 project, not the tempspace. The task passes absolute clone paths and tells it to read only. T3 does not enforce a read-only toolset for delegates. The child runtime mode is lowered to `approval-required`.
+- The child process enforces `read,grep,find,ls,bash` through `--tools`.
+- Tests inject `overrides.explorer`, which takes precedence over both backends.
+
 ## Subagent behavior
 
 - Single repo: subagent cwd is the repo root

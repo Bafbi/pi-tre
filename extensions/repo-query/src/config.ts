@@ -1,5 +1,5 @@
 import { loadExtensionConfig } from "@pi-tre/pi-config";
-import { type Static, Type } from "@sinclair/typebox";
+import { type Static, Type } from "typebox";
 
 import type { ParsedRepo } from "./types.js";
 
@@ -11,6 +11,14 @@ export const RepoQueryConfigSchema = Type.Object(
 		defaultModel: Type.Optional(Type.String()),
 		/** Per-repo model overrides. Keys are repo display names like `owner/repo`. */
 		models: Type.Optional(Type.Record(Type.String(), Type.String())),
+		/**
+		 * Exploration backend.
+		 * - `process` (default): spawn a child pi process with the tool allowlist.
+		 * - `auto`: use T3's delegate when it is available, otherwise the child.
+		 */
+		explorer: Type.Optional(
+			Type.Union([Type.Literal("auto"), Type.Literal("process")]),
+		),
 	},
 	{
 		additionalProperties: false,

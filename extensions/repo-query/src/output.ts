@@ -62,6 +62,23 @@ export function formatOutput(details: RepoQueryDetails): string {
 		lines.push(answer);
 	}
 
+	const findings = details.findings ?? [];
+	if (findings.length > 0) {
+		lines.push("");
+		lines.push("## Findings");
+		for (const finding of findings) {
+			const location =
+				finding.line === null
+					? finding.path
+					: `${finding.path}:${finding.line}`;
+			const owner = finding.repo ? ` (${finding.repo})` : "";
+			const unverified = finding.verified ? "" : " [unverified]";
+			lines.push(
+				`- \`${location}\`${owner}${unverified}: ${finding.claim}`,
+			);
+		}
+	}
+
 	if (failures.length > 0) {
 		if (successes.length > 0) lines.push("");
 		lines.push("## Issues");

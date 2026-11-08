@@ -24,7 +24,7 @@ NODE_ENV = "development"
 
 # Model for the default LLM-backed test. This is not a secret. Override it in
 # mise.local.toml or the shell when a different provider is needed.
-PI_TEST_MODEL = "opencode-go/mimo-v2.5"
+PI_TEST_MODEL = "opencode-go/mimo-v2.6-flash"
 
 [deps.pnpm]
 auto = true

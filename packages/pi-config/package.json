@@ -11,6 +11,6 @@
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "catalog:pi-dev",
-		"@sinclair/typebox": "catalog:pi-dev"
+		"typebox": "catalog:pi-dev"
 	}
 }

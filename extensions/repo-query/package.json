@@ -18,7 +18,7 @@
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "catalog:pi-dev",
 		"@earendil-works/pi-tui": "catalog:pi-dev",
-		"@sinclair/typebox": "catalog:pi-dev"
+		"typebox": "catalog:pi-dev"
 	},
 	"dependencies": {
 		"@octokit/rest": "^21.0.0",

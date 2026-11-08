@@ -29,7 +29,13 @@ type CloneFailureReason =
 export type CloneResult =
 	| { status: "cloned" }
 	| { status: "reused" }
-	| { status: "failed"; reason: CloneFailureReason; error: string };
+	| {
+			status: "failed";
+			reason: CloneFailureReason;
+			error: string;
+			/** Similar branch names, when a branch clone failed. */
+			suggestions?: string[];
+	  };
 
 export type CloneImpl = typeof ensureRepoCloned;
 
@@ -380,6 +386,15 @@ async function runClone(
 			if (signal?.aborted) {
 				return abortedResult(repoLabel);
 			}
+			// pi 1.5 sets `killed` for a timeout, an abort, or an output cap.
+			// Report the cap first so a huge pack file is not called a timeout.
+			if (result.truncated) {
+				return {
+					status: "failed",
+					reason: "clone",
+					error: `Failed to clone ${repoLabel}: git output exceeded the output buffer.`,
+				};
+			}
 			if (result.killed) {
 				return timedOutResult(repoLabel);
 			}
@@ -443,21 +458,25 @@ async function branchFailure(
 	if (cloneErrorTail) {
 		errorMsg += ` git: ${cloneErrorTail}`;
 	}
+	let suggestions: string[] = [];
 	try {
 		const lsResult = await pi.exec(
 			"git",
 			["ls-remote", "--heads", cloneSource],
 			{
 				timeout: 30_000,
+				maxBuffer: 1_048_576,
 				...(signal !== undefined ? { signal } : {}),
 			},
 		);
-		if (lsResult.code === 0 && lsResult.stdout && repo.branch) {
-			const suggestions = getBranchSuggestions(
-				repo.branch,
-				lsResult.stdout,
-				5,
-			);
+		// A cut ref list is not a reliable suggestion source.
+		if (
+			lsResult.code === 0 &&
+			!lsResult.truncated &&
+			lsResult.stdout &&
+			repo.branch
+		) {
+			suggestions = getBranchSuggestions(repo.branch, lsResult.stdout, 5);
 			if (suggestions.length > 0) {
 				errorMsg += ` Did you mean one of these branches: ${suggestions.join(", ")}?`;
 			}
@@ -470,6 +489,7 @@ async function branchFailure(
 		status: "failed",
 		reason: "clone",
 		error: errorMsg,
+		...(suggestions.length > 0 ? { suggestions } : {}),
 	};
 }
 

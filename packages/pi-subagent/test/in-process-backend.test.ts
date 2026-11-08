@@ -295,7 +295,7 @@ describe("createInProcessBackend event mapping", () => {
 					input: 10,
 					output: 5,
 					totalTokens: 15,
-					cost: { total: 0.01 },
+					cost: { total: 0.01, totalFromProvider: true },
 				},
 				stopReason: "stop",
 			},
@@ -330,6 +330,7 @@ describe("createInProcessBackend event mapping", () => {
 			cacheWrite: 0,
 			cost: 0.01,
 			totalTokens: 15,
+			costFromProvider: true,
 		});
 	});
 

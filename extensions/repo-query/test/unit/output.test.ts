@@ -62,6 +62,42 @@ describe("formatOutput", () => {
 		expect(out).toContain("The answer is 42.");
 	});
 
+	it("renders findings with a file and line, and marks unverified claims", () => {
+		const out = formatOutput(
+			details(
+				[
+					{
+						identifier: "owner/repo",
+						status: "success",
+						warnings: [],
+					},
+				],
+				{
+					answer: "The answer.",
+					findings: [
+						{
+							repo: "owner/repo",
+							path: "src/a.ts",
+							line: 12,
+							claim: "A claim.",
+							verified: true,
+						},
+						{
+							repo: null,
+							path: "src/b.ts",
+							line: null,
+							claim: "An unclear claim.",
+							verified: false,
+						},
+					],
+				},
+			),
+		);
+		expect(out).toContain("## Findings");
+		expect(out).toContain("`src/a.ts:12` (owner/repo): A claim.");
+		expect(out).toContain("`src/b.ts` [unverified]: An unclear claim.");
+	});
+
 	it("formats failures under an Issues section", () => {
 		const out = formatOutput(
 			details([

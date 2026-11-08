@@ -48,6 +48,7 @@ function mockPi(
 		stderr: string;
 		code: number;
 		killed: boolean;
+		truncated?: boolean;
 	}>,
 ) {
 	return {
@@ -60,6 +61,7 @@ type ExecReply = {
 	stderr: string;
 	code: number;
 	killed: boolean;
+	truncated?: boolean;
 };
 
 type ExecOptionsLike = { signal?: AbortSignal; timeout?: number };
@@ -572,6 +574,33 @@ describe("ensureRepoCloned", () => {
 			expect(result.reason).toBe("timeout");
 			expect(result.error).toContain("timed out");
 			expect(readdirSync(tempspace)).toEqual([]);
+		});
+
+		it("reports an output-buffer cut as a clone failure, not a timeout", async () => {
+			const tempspace = mkdtempSync(
+				join(tmpdir(), "repo-query-clone-test-"),
+			);
+			tempDirs.push(tempspace);
+
+			const result = await ensureRepoCloned(
+				repo,
+				tempspace,
+				undefined,
+				fakeGit({
+					clone: () => ({
+						stdout: "",
+						stderr: "",
+						code: 1,
+						killed: true,
+						truncated: true,
+					}),
+				}),
+			);
+
+			expectFailed(result);
+			expect(result.reason).toBe("clone");
+			expect(result.error).toContain("output buffer");
+			expect(result.error).not.toContain("timed out");
 		});
 
 		it("classifies a killed clone on an aborted signal as aborted", async () => {

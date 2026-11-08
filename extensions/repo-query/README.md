@@ -28,6 +28,58 @@ The agent will call the tool with:
 }
 ```
 
+### Result contract
+
+The model sees formatted text. Code-mode scripts receive `structuredContent`:
+
+```ts
+{
+  status: "ok" | "partial" | "failed",
+  query: string,
+  model: string | null,
+  answer: {
+    text: string,
+    complete: boolean,
+    findings: Array<{
+      repo: string | null,
+      path: string,
+      line: number | null,
+      claim: string,
+      verified: boolean
+    }>
+  } | null,
+  repos: Array<{
+    identifier: string,
+    displayName: string,
+    branch: string | null,
+    status: "success" | "archived" | "not_found" | "clone_failed" | "exploration_failed" | "skipped",
+    localPath: string | null,
+    warnings: string[],
+    error: string | null,
+    suggestedRepos: string[],
+    suggestedBranches: string[]
+  }>,
+  usage: {
+    input: number,
+    output: number,
+    totalTokens: number,
+    cost: number,
+    costFromProvider: boolean
+  } | null,
+  tempspacePath: string
+}
+```
+
+`status` is `ok` when every repository answered, `partial` when some failed, and `failed` when none answered or the exploration failed. A failed call returns `isError: true` with the same structure, so a script can read `repos[].error`, `repos[].suggestedRepos`, and `repos[].suggestedBranches` without parsing prose.
+
+The subagent ends its answer with a fenced `json` block of claims. The tool parses it, removes the block from the text, and checks each finding against the clone. `verified` is true when the path exists and the line is within the file. A malformed block falls back to the prose answer with no findings.
+
+### One call or several
+
+A batch is one query over several repositories. Use it to compare repositories, or to use them together, such as a documentation repository beside the code repository it documents. The subagent answers across all repositories, and the clones run in sequence.
+
+For the same question across unrelated repositories, call once per repository from a code-mode script and combine the results with `Promise.allSettled`. Clones run in parallel, each answer is attributed to its repository, and a per-repo model override applies. Keep a fan-out to five calls or fewer.
+
 ### Repository identifier formats
 
 | Format | Example | Notes |
@@ -81,7 +133,8 @@ The project config wins per key and is read only when pi trusts the project. The
   "models": {
     "facebook/react": "openai/gpt-4o",
     "torvalds/linux": "anthropic/claude-haiku"
-  }
+  },
+  "explorer": "process"
 }
 ```
 
@@ -101,6 +154,21 @@ export REPO_QUERY_MODEL="anthropic/claude-sonnet-4-20250514"
 ```
 
 This is used when no config file specifies a model.
+
+### Exploration backend
+
+`explorer` selects how the exploration runs.
+
+| Value | Behavior |
+|-------|----------|
+| `process` (default) | Spawn a child pi process with the tool allowlist. |
+| `auto` | Use T3 Code's `delegate_task` when it is registered. Otherwise spawn a child pi process. |
+
+Set `explorer` to `auto` to use the delegate. It is opt-in because a T3 delegate is a broader agent than the child process.
+
+Under T3 Code, the delegate is a T3 thread, so the exploration appears in the UI. The delegate reads the tempspace clone by absolute path because its working directory is the T3 project. The task tells it to stay read-only. T3 does not enforce a read-only toolset for delegates, so the child runtime mode is lowered to `approval-required`: an edit needs approval.
+
+The child pi process keeps a strict tool allowlist: `read`, `grep`, `find`, `ls`, and `bash`.
 
 ### JSON schema
 

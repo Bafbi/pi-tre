@@ -7,7 +7,7 @@ const STATUS_KEY = "repo-query";
 const DEBUG_WIDGET_KEY = "repo-query-debug";
 const MAX_DEBUG_EVENTS = 20;
 
-type UiCtx = Pick<ExtensionContext, "hasUI" | "ui">;
+type UiCtx = Pick<ExtensionContext, "hasUI" | "ui" | "mode">;
 
 export interface DebugState {
 	enabled: boolean;
@@ -94,11 +94,20 @@ export function registerDebugCommand(
 					const report = buildDebugDump(debug, ctx);
 					addDebugEvent(debug, "debug dump generated", ctx);
 					if (ctx.hasUI) {
-						ctx.ui.setEditorText(report);
-						ctx.ui.notify(
-							"repo-query debug dump copied to editor",
-							"info",
-						);
+						if (ctx.mode === "tui") {
+							ctx.ui.setEditorText(report);
+							ctx.ui.notify(
+								"repo-query debug dump copied to editor",
+								"info",
+							);
+						} else {
+							// RPC clients such as T3 Code ignore setEditorText.
+							// A dialog is the one surface that shows the dump.
+							await ctx.ui.editor(
+								"repo-query debug dump",
+								report,
+							);
+						}
 					}
 					break;
 				}
@@ -143,7 +152,10 @@ export function syncDebugUi(state: DebugState, ctx: UiCtx): void {
 		STATUS_KEY,
 		`repo-query debug ON, repos: ${state.trackedRepos.size}`,
 	);
-	ctx.ui.setWidget(DEBUG_WIDGET_KEY, lines);
+	// RPC clients ignore widgets. Keep the status line, which they render.
+	if (ctx.mode === "tui") {
+		ctx.ui.setWidget(DEBUG_WIDGET_KEY, lines);
+	}
 }
 
 function getDebugLines(state: DebugState): string[] {
