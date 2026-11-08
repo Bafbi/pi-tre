@@ -20,10 +20,6 @@ import {
 	setTempspacePath,
 	trackRepo,
 } from "./debug.js";
-import {
-	branchHasDelegateMarker,
-	delegateToolBlock,
-} from "./delegate-guard.js";
 import { type ExplorerImpl, runExplorer } from "./explorer.js";
 import { parseFindings } from "./findings.js";
 import { validateGitHubRepo } from "./github.js";
@@ -33,6 +29,10 @@ import {
 	formatRetrySuggestions,
 	truncateOutput,
 } from "./output.js";
+import {
+	isReadOnlyDelegateTitle,
+	readOnlyDelegateToolBlock,
+} from "./read-only-delegate.js";
 import { renderCall, renderResult } from "./render.js";
 import { parseRepoIdentifier, redactCredentials } from "./resolver.js";
 import {
@@ -113,14 +113,14 @@ export function createRepoQueryExtension(
 		const debug = createDebugState();
 		const validationCache = new Map<string, ValidationResult>();
 		/** True once this session's branch shows a repo_query delegate task. */
-		let isDelegateSession = false;
+		let isReadOnlyDelegateSession = false;
 
 		pi.on("session_start", async (_event, ctx) => {
 			debug.events.length = 0;
 			debug.trackedRepos.clear();
 			debug.tempspacePath = null;
 			validationCache.clear();
-			isDelegateSession = false;
+			isReadOnlyDelegateSession = false;
 			addDebugEvent(debug, "session_start: state reset", ctx);
 		});
 
@@ -144,18 +144,19 @@ export function createRepoQueryExtension(
 			activeTempspaces.clear();
 		});
 
-		// A delegate task carries a marker in its prompt. Once the branch shows
-		// it, this session may read but not write. pi applies the same hook to
-		// nested calls from a codemode script, so tools.write, tools.edit, and
-		// tools.bash are blocked inside codemode too.
+		// A read-only delegate's title starts with `read-only:`. T3 sets the
+		// child session name to the delegate title, so the child reads it from
+		// the session. pi applies the same hook to nested calls from a codemode
+		// script, so tools.write, tools.edit, and tools.bash are blocked inside
+		// codemode too.
 		pi.on("tool_call", async (event, ctx) => {
-			if (!isDelegateSession) {
-				isDelegateSession = branchHasDelegateMarker(
-					ctx.sessionManager.getBranch(),
+			if (!isReadOnlyDelegateSession) {
+				isReadOnlyDelegateSession = isReadOnlyDelegateTitle(
+					ctx.sessionManager.getSessionName(),
 				);
 			}
-			if (!isDelegateSession) return;
-			return delegateToolBlock(event.toolName);
+			if (!isReadOnlyDelegateSession) return;
+			return readOnlyDelegateToolBlock(event.toolName);
 		});
 
 		registerDebugCommand(pi, debug);

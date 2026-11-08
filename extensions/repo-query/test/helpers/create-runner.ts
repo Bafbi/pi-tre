@@ -166,6 +166,7 @@ export function minimalContext(
 		},
 		sessionManager: {
 			getSessionFile: () => join(cwd, "session.jsonl"),
+			getSessionName: () => undefined,
 			getBranch: () => [],
 			getEntries: () => [],
 		},

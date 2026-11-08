@@ -4,7 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import { DELEGATE_MARKER_PREFIX } from "../../src/delegate-guard.js";
+import { READ_ONLY_DELEGATE_TITLE_PREFIX } from "../../src/read-only-delegate.js";
 import {
 	canUseT3Delegate,
 	runT3Delegate,
@@ -118,7 +118,7 @@ describe("runT3Delegate", () => {
 		expect(args.task).toContain("```json");
 		expect(args.task).toContain("tools.read");
 		expect(args.task).toContain("Do not call tools.bash");
-		expect(args.task).toContain(DELEGATE_MARKER_PREFIX);
+		expect(args.title).toContain(READ_ONLY_DELEGATE_TITLE_PREFIX);
 	});
 
 	it("reads the error flag from the nested MCP result", async () => {

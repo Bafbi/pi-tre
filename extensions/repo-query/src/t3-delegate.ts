@@ -1,18 +1,16 @@
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import type {
 	AgentToolResult,
 	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
-
-import { DELEGATE_MARKER_PREFIX } from "./delegate-guard.js";
 import {
 	type ExplorationResult,
 	findingsInstructions,
 	MAX_OUTPUT_CHARS,
 	truncateSubagentOutput,
 } from "./explorer.js";
+import { READ_ONLY_DELEGATE_TITLE_PREFIX } from "./read-only-delegate.js";
 import type { ParsedRepo } from "./types.js";
 
 /** T3 exposes its orchestrator tools to pi under this prefix. */
@@ -45,9 +43,10 @@ export interface T3DelegateOptions {
  *
  * The delegate runs with full access because T3 has no per-delegate tool
  * allowlist and an approval prompt on every codemode call makes exploration
- * unusable. Read-only behavior is enforced in the child by the marker-based
- * `tool_call` guard in `delegate-guard.ts`. If T3 rejects full access or the
- * delegate fails, the caller falls back to the process backend.
+ * unusable. Read-only behavior is enforced in the child by the `read-only:`
+ * title and the `tool_call` guard in `read-only-delegate.ts`. If T3 rejects
+ * full access or the delegate fails, the caller falls back to the process
+ * backend.
  */
 export async function runT3Delegate(
 	options: T3DelegateOptions,
@@ -68,7 +67,7 @@ export async function runT3Delegate(
 			T3_DELEGATE_TOOL,
 			{
 				task: buildDelegateTask(query, clonePaths),
-				title: `repo_query: ${repos
+				title: `${READ_ONLY_DELEGATE_TITLE_PREFIX} repo_query: ${repos
 					.map((repo) => repo.displayName)
 					.join(", ")
 					.slice(0, 80)}`,
@@ -77,8 +76,8 @@ export async function runT3Delegate(
 				timeoutMs: DELEGATE_TIMEOUT_MS,
 				isolation: "shared",
 				// Full access avoids a prompt on every codemode call. T3 has no
-				// per-delegate tool allowlist, so the child's marker guard
-				// enforces read-only tools. T3 rejects this mode when the parent
+				// per-delegate tool allowlist, so the child's read-only title
+				// enables the guard. T3 rejects this mode when the parent
 				// is lower; the caller falls back to the process backend.
 				runtimeMode: "full-access",
 				...(model !== undefined ? { target: { model } } : {}),
@@ -223,9 +222,7 @@ Rules:
 - State clearly when the code does not answer the query.
 - Maximum 800 words.
 
-${findingsInstructions("owner/repo")}
-
-<!-- repo-query-delegate ${DELEGATE_MARKER_PREFIX}${randomUUID()} -->`;
+${findingsInstructions("owner/repo")}`;
 }
 
 /** Cancel a delegate that is parked on a question or that timed out. */

@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DELEGATE_MARKER_PREFIX } from "../../src/delegate-guard.js";
+import { READ_ONLY_DELEGATE_TITLE_PREFIX } from "../../src/read-only-delegate.js";
 import { T3_DELEGATE_TOOL } from "../../src/t3-delegate.js";
 import { clearTempspaceCache } from "../../src/tempspace.js";
 import {
@@ -391,7 +391,7 @@ describe("repo-query extension", () => {
 		30000,
 	);
 
-	it("blocks write in a delegate session marked in the branch", async () => {
+	it("blocks write in a read-only delegate session", async () => {
 		const cwd = makeTempDir("repo-query-ext-test-");
 		tempDirs.push(cwd);
 		const { getHandler } = captureExtension();
@@ -406,20 +406,9 @@ describe("repo-query extension", () => {
 		const ctx = minimalContext(cwd, {
 			sessionManager: {
 				getSessionFile: () => join(cwd, "session.jsonl"),
-				getBranch: () => [
-					{
-						type: "message",
-						message: {
-							role: "user",
-							content: [
-								{
-									type: "text",
-									text: `${DELEGATE_MARKER_PREFIX}test`,
-								},
-							],
-						},
-					},
-				],
+				getSessionName: () =>
+					`${READ_ONLY_DELEGATE_TITLE_PREFIX} repo_query: test`,
+				getBranch: () => [],
 				getEntries: () => [],
 			} as never,
 		});
@@ -430,7 +419,7 @@ describe("repo-query extension", () => {
 		expect(allowed).toBeUndefined();
 	});
 
-	it("allows write in a session without the delegate marker", async () => {
+	it("allows write in a session without the read-only title", async () => {
 		const cwd = makeTempDir("repo-query-ext-test-");
 		tempDirs.push(cwd);
 		const { getHandler } = captureExtension();

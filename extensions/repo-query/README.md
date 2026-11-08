@@ -170,7 +170,7 @@ Under T3 Code, the delegate is a T3 thread, so the exploration appears in the UI
 
 The delegate runs with full access. T3 has no per-delegate tool allowlist, and `approval-required` asks for every codemode or bash call, which makes exploration unusable. The task prompt restricts codemode to `read`, `grep`, `find`, and `ls` and forbids `bash`, `edit`, `write`, and `repo_query`.
 
-The delegate task also carries a marker. A `tool_call` hook in this extension detects the marker and allows only `read`, `grep`, `find`, `ls`, `codemode`, and `tool_search` in that session. Everything else is blocked, including `write`, `edit`, `bash`, `powershell`, `repo_query`, and T3 control tools. pi applies the same hook to nested codemode calls, so `tools.write` inside a script is blocked. This covers pi delegates. A delegate on another provider does not load this extension and is not covered.
+The delegate title starts with `read-only:`. T3 sets the child session name to that title. A `tool_call` hook in this extension checks `ctx.sessionManager.getSessionName()` and allows only `read`, `grep`, `find`, `ls`, `codemode`, and `tool_search` in that session. Everything else is blocked, including `write`, `edit`, `bash`, `powershell`, `repo_query`, and T3 control tools. pi applies the same hook to nested codemode calls, so `tools.write` inside a script is blocked. This covers pi delegates. A delegate on another provider does not load this extension and is not covered.
 
 The project `.pi/settings.json` adds `+grep`, `+find`, and `+ls` so codemode exposes those read-only tools.
 
