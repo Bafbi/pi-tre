@@ -43,7 +43,9 @@ The tool declares `outputSchema` and returns `structuredContent` for code-mode s
 
 `explorer` in the config picks the backend. The default is `process`, which spawns a child `pi` process. Set `auto` to use T3 Code's `mcp__t3-code__delegate_task` when it is registered, because a delegate is a visible T3 thread. `auto` falls back to the child process.
 
-- The delegate's cwd is the T3 project, not the tempspace. The task passes absolute clone paths and tells it to read only. The delegate runs with full access because T3 has no per-delegate tool allowlist and approvals on every codemode call make it unusable. The prompt restricts codemode to `read`, `grep`, `find`, and `ls`, and forbids `bash`, `edit`, `write`, and `repo_query`. This is a prompt guardrail, not an enforced allowlist. If the delegate fails, the query falls back to the child process.
+- The delegate's cwd is the T3 project, not the tempspace. The task passes absolute clone paths and tells it to read only. The delegate runs with full access because T3 has no per-delegate tool allowlist and approvals on every codemode call make it unusable. The prompt restricts codemode to `read`, `grep`, `find`, and `ls`, and forbids `bash`, `edit`, `write`, and `repo_query`.
+- The task carries `DELEGATE_MARKER_PREFIX`. `src/delegate-guard.ts` detects it in the session branch, and the `tool_call` hook in `src/index.ts` blocks `write`, `edit`, `bash`, `repo_query`, and `delegate_task` for that session. pi applies the hook to nested codemode calls, so a codemode script cannot write. This covers pi delegates only. A delegate on another provider does not load this extension.
+- If the delegate fails, the query falls back to the child process.
 - The child process enforces `read,grep,find,ls,bash` through `--tools`.
 - Tests inject `overrides.explorer`, which takes precedence over both backends.
 

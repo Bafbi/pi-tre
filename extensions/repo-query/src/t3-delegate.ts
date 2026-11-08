@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import type {
@@ -5,6 +6,7 @@ import type {
 	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 
+import { DELEGATE_MARKER_PREFIX } from "./delegate-guard.js";
 import {
 	type ExplorationResult,
 	findingsInstructions,
@@ -210,7 +212,9 @@ Rules:
 - State clearly when the code does not answer the query.
 - Maximum 800 words.
 
-${findingsInstructions("owner/repo")}`;
+${findingsInstructions("owner/repo")}
+
+<!-- repo-query-delegate ${DELEGATE_MARKER_PREFIX}${randomUUID()} -->`;
 }
 
 function errorMessage(err: unknown): string {

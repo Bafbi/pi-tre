@@ -109,11 +109,16 @@ export interface CapturedExtension {
 	getTool: () =>
 		| import("@earendil-works/pi-coding-agent").ToolDefinition
 		| undefined;
+	/** The handler registered for an event, for hook-level tests. */
+	getHandler: (
+		event: string,
+	) => ((...args: unknown[]) => unknown) | undefined;
 }
 
 /**
- * Build a mock ExtensionAPI that captures the registered tool and delegates
- * exec to real command execution (needed for genuine git clones in tests).
+ * Build a mock ExtensionAPI that captures the registered tool, event handlers,
+ * and delegates exec to real command execution (needed for genuine git clones
+ * in tests).
  */
 export function captureExtension(
 	overrides?: Parameters<typeof createRepoQueryExtension>[0],
@@ -121,8 +126,11 @@ export function captureExtension(
 	let tool:
 		| import("@earendil-works/pi-coding-agent").ToolDefinition
 		| undefined;
+	const handlers = new Map<string, (...args: unknown[]) => unknown>();
 	const pi = {
-		on: () => {},
+		on: (event: string, handler: (...args: unknown[]) => unknown) => {
+			handlers.set(event, handler);
+		},
 		registerCommand: () => {},
 		registerTool: (definition: { name: string }) => {
 			if (definition.name === "repo_query") {
@@ -136,6 +144,7 @@ export function captureExtension(
 	return {
 		pi,
 		getTool: () => tool,
+		getHandler: (event) => handlers.get(event),
 	};
 }
 

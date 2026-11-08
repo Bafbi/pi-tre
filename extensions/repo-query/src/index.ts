@@ -20,6 +20,10 @@ import {
 	setTempspacePath,
 	trackRepo,
 } from "./debug.js";
+import {
+	branchHasDelegateMarker,
+	delegateToolBlock,
+} from "./delegate-guard.js";
 import { type ExplorerImpl, runExplorer } from "./explorer.js";
 import { parseFindings } from "./findings.js";
 import { validateGitHubRepo } from "./github.js";
@@ -108,12 +112,15 @@ export function createRepoQueryExtension(
 		const activeTempspaces = new Set<string>();
 		const debug = createDebugState();
 		const validationCache = new Map<string, ValidationResult>();
+		/** True once this session's branch shows a repo_query delegate task. */
+		let delegateSession = false;
 
 		pi.on("session_start", async (_event, ctx) => {
 			debug.events.length = 0;
 			debug.trackedRepos.clear();
 			debug.tempspacePath = null;
 			validationCache.clear();
+			delegateSession = false;
 			addDebugEvent(debug, "session_start: state reset", ctx);
 		});
 
@@ -135,6 +142,20 @@ export function createRepoQueryExtension(
 				}
 			}
 			activeTempspaces.clear();
+		});
+
+		// A delegate task carries a marker in its prompt. Once the branch shows
+		// it, this session may read but not write. pi applies the same hook to
+		// nested calls from a codemode script, so tools.write, tools.edit, and
+		// tools.bash are blocked inside codemode too.
+		pi.on("tool_call", async (event, ctx) => {
+			if (!delegateSession) {
+				delegateSession = branchHasDelegateMarker(
+					ctx.sessionManager.getBranch(),
+				);
+			}
+			if (!delegateSession) return;
+			return delegateToolBlock(event.toolName);
 		});
 
 		registerDebugCommand(pi, debug);
