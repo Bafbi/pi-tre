@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { loadWebSearchConfig } from "../../src/config.js";
+import { loadWebSearchConfig, webSearchConfigPaths } from "../../src/config.js";
 
 const tempDirs: string[] = [];
 
@@ -88,6 +88,27 @@ describe("loadWebSearchConfig", () => {
 
 		expect(config.enabled).toBe(true);
 		expect(config.endpoint).toBe("https://example.test/search");
+	});
+
+	it("names the files the loader actually reads", () => {
+		const configDir = makeTempDir("web-search-global-");
+		const cwd = makeTempDir("web-search-repo-");
+		const paths = webSearchConfigPaths(cwd, configDir);
+
+		expect(paths.global).toBe(join(configDir, "web-search.json"));
+		expect(paths.project).toBe(
+			join(cwd, ".pi", "configs", "web-search.json"),
+		);
+
+		writeFileSync(paths.global, JSON.stringify({ enabled: true }));
+		expect(loadWebSearchConfig({ cwd, configDir }).enabled).toBe(true);
+
+		rmSync(paths.global);
+		mkdirSync(join(cwd, ".pi", "configs"), { recursive: true });
+		writeFileSync(paths.project, JSON.stringify({ enabled: true }));
+		expect(
+			loadWebSearchConfig({ cwd, configDir, trusted: true }).enabled,
+		).toBe(true);
 	});
 
 	it("drops a layer whose value fails the schema, keeping the spend off", () => {

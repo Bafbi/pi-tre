@@ -1,3 +1,6 @@
+import { join } from "node:path";
+
+import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { loadExtensionConfig } from "@pi-tre/pi-config";
 import { type Static, Type } from "typebox";
 
@@ -54,6 +57,25 @@ export type WebSearchConfig = {
 		undefined
 	>;
 };
+
+/**
+ * The two files the loader reads.
+ *
+ * The loader builds these paths itself, so this helper exists for the refusal
+ * text and for a test that pins the two against drift.
+ */
+export function webSearchConfigPaths(
+	cwd: string,
+	configDir?: string | undefined,
+): { global: string; project: string } {
+	return {
+		global: join(
+			configDir ?? join(getAgentDir(), "configs"),
+			"web-search.json",
+		),
+		project: join(cwd, CONFIG_DIR_NAME, "configs", "web-search.json"),
+	};
+}
 
 export interface LoadWebSearchConfigOptions {
 	/** Working directory. The project config lives at `<cwd>/.pi/configs/web-search.json`. */

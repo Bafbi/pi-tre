@@ -11,10 +11,12 @@ spent until you enable it.
 
 ```json
 {
-	"$schema": "./web-search.schema.json",
 	"enabled": true
 }
 ```
+
+`extensions/web-search/web-search.schema.json` describes every key for editor completion. The loader ignores
+`$schema`, so point it anywhere or leave it out.
 
 For one project instead of every project, write the same file to `<repo>/.pi/configs/web-search.json`. The project
 layer applies only when the project is trusted, and it wins over the global layer per key.
@@ -30,11 +32,14 @@ To turn the spend off again, set `"enabled": false` or delete the key.
 | `enabled` | `false` | Turn the tool on. Every successful search costs USD 0.01. |
 | `maxResults` | `8` | Results kept per search, 1 to 20. |
 | `timeoutMs` | `25000` | Request timeout in milliseconds, 1000 to 120000. |
-| `credentialProvider` | `"opencode-go"` | pi provider whose key authorizes the Console. `"opencode"` also works. |
+| `credentialProvider` | `"opencode-go"` | pi provider whose key authorizes the Console. `"opencode"` is always tried second. |
 | `endpoint` | `"https://opencode.ai/console/api/websearch"` | Console endpoint. Change it only for a different Console host. |
 
 Every key is optional. The loader merges the global and project layers and fills the defaults. A file with an
 out-of-range value is ignored as a whole, with a warning, so a typo leaves the spend off rather than half-applied.
+
+A trusted project config can set `endpoint`, and the tool sends your OpenCode key there. Trust already allows shell
+commands, so this adds no reach, but set `endpoint` only to a host you would give the key to.
 
 ## How the tool answers
 

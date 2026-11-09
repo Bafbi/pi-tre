@@ -1,16 +1,12 @@
-import { join } from "node:path";
-
-import {
-	CONFIG_DIR_NAME,
-	type ExtensionAPI,
-	type ExtensionFactory,
-	type ExtensionToolContext,
-	getAgentDir,
+import type {
+	ExtensionAPI,
+	ExtensionFactory,
+	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { SEARCH_PROVIDER_ID, searchConsole } from "./client.js";
-import { loadWebSearchConfig } from "./config.js";
+import { loadWebSearchConfig, webSearchConfigPaths } from "./config.js";
 import {
 	formatDisabled,
 	formatFailure,
@@ -89,20 +85,6 @@ async function resolveApiKeyFromPi(
 		}
 	}
 	return undefined;
-}
-
-/** The config files named in the refusal text. */
-function configPaths(
-	cwd: string,
-	configDir: string | undefined,
-): { global: string; project: string } {
-	return {
-		global: join(
-			configDir ?? join(getAgentDir(), "configs"),
-			"web-search.json",
-		),
-		project: join(cwd, CONFIG_DIR_NAME, "configs", "web-search.json"),
-	};
 }
 
 /** Keep a requested limit inside what the Console accepts. */
@@ -185,7 +167,7 @@ export function createWebSearchExtension(
 					return respond(
 						{ ...base, status: "disabled" },
 						formatDisabled(
-							configPaths(ctx.cwd, overrides.configDir),
+							webSearchConfigPaths(ctx.cwd, overrides.configDir),
 						),
 					);
 				}

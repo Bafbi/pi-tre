@@ -199,6 +199,61 @@ describe("searchConsole", () => {
 		expect(outcome.reason).toBe("aborted");
 	});
 
+	it("reports an abort that lands while the body is arriving", async () => {
+		const { fetchImpl } = stubFetch(
+			() =>
+				({
+					ok: true,
+					status: 200,
+					json: async () => {
+						throw new DOMException(
+							"The operation was aborted.",
+							"AbortError",
+						);
+					},
+				}) as unknown as Response,
+		);
+		const controller = new AbortController();
+		controller.abort();
+
+		const outcome = await searchConsole(
+			call({ signal: controller.signal }),
+			{
+				fetch: fetchImpl,
+			},
+		);
+
+		expect(outcome.ok).toBe(false);
+		if (outcome.ok) return;
+		expect(outcome.reason).toBe("aborted");
+	});
+
+	it("reports a timeout that lands while the body is arriving", async () => {
+		const { fetchImpl } = stubFetch(
+			() =>
+				({
+					ok: true,
+					status: 200,
+					json: async () => {
+						// Outlive the request timeout, so the timeout signal has fired.
+						await new Promise((resolve) => setTimeout(resolve, 25));
+						throw new DOMException(
+							"The operation timed out.",
+							"TimeoutError",
+						);
+					},
+				}) as unknown as Response,
+		);
+
+		const outcome = await searchConsole(call({ timeoutMs: 10 }), {
+			fetch: fetchImpl,
+		});
+
+		expect(outcome.ok).toBe(false);
+		if (outcome.ok) return;
+		expect(outcome.reason).toBe("timeout");
+	});
+
 	it("reports a network failure", async () => {
 		const { fetchImpl } = stubFetch(() => {
 			throw new TypeError("fetch failed");

@@ -123,6 +123,28 @@ export async function searchConsole(
 		? AbortSignal.any([options.signal, timeout])
 		: timeout;
 
+	/**
+	 * The outcome for a request that stopped early. The caller's abort wins over
+	 * the timeout, so a cancelled call is never reported as a slow one.
+	 */
+	const interrupted = (): SearchOutcome | undefined => {
+		if (options.signal?.aborted) {
+			return {
+				ok: false,
+				reason: "aborted",
+				message: "The search was cancelled.",
+			};
+		}
+		if (timeout.aborted) {
+			return {
+				ok: false,
+				reason: "timeout",
+				message: `The OpenCode search timed out after ${options.timeoutMs} ms.`,
+			};
+		}
+		return undefined;
+	};
+
 	let response: Response;
 	try {
 		response = await fetchImpl(options.endpoint, {
@@ -139,13 +161,8 @@ export async function searchConsole(
 			signal,
 		});
 	} catch (error) {
-		if (options.signal?.aborted) {
-			return {
-				ok: false,
-				reason: "aborted",
-				message: "The search was cancelled.",
-			};
-		}
+		const stopped = interrupted();
+		if (stopped) return stopped;
 		const name = error instanceof Error ? error.name : "";
 		if (name === "TimeoutError" || name === "AbortError") {
 			return {
@@ -167,6 +184,9 @@ export async function searchConsole(
 	try {
 		body = await response.json();
 	} catch {
+		// An abort or a timeout can land while the body is still arriving.
+		const stopped = interrupted();
+		if (stopped) return stopped;
 		return {
 			ok: false,
 			reason: "invalid_response",
