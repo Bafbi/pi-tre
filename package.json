@@ -24,7 +24,8 @@
 	},
 	"pi": {
 		"extensions": [
-			"./extensions/repo-query/src/index.ts"
+			"./extensions/repo-query/src/index.ts",
+			"./extensions/web-search/src/index.ts"
 		]
 	},
 	"devDependencies": {

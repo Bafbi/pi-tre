@@ -5,6 +5,9 @@
 			"path": "./extensions/repo-query"
 		},
 		{
+			"path": "./extensions/web-search"
+		},
+		{
 			"path": "./packages/pi-config"
 		},
 		{

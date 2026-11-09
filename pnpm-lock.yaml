@@ -66,6 +66,18 @@ importers:
         specifier: catalog:pi-dev
         version: 1.3.27
 
+  extensions/web-search:
+    dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: catalog:pi-dev
+        version: 1.5.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(zod@4.6.5)
+      '@pi-tre/pi-config':
+        specifier: workspace:*
+        version: link:../../packages/pi-config
+      typebox:
+        specifier: catalog:pi-dev
+        version: 1.3.27
+
   packages/pi-config:
     dependencies:
       '@earendil-works/pi-coding-agent':
