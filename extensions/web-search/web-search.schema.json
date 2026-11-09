@@ -1,0 +1,34 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema#",
+	"type": "object",
+	"properties": {
+		"$schema": {
+			"type": "string"
+		},
+		"enabled": {
+			"type": "boolean",
+			"default": false
+		},
+		"maxResults": {
+			"type": "number",
+			"default": 8,
+			"minimum": 1,
+			"maximum": 20
+		},
+		"timeoutMs": {
+			"type": "number",
+			"default": 25000,
+			"minimum": 1000,
+			"maximum": 120000
+		},
+		"credentialProvider": {
+			"type": "string",
+			"default": "opencode-go"
+		},
+		"endpoint": {
+			"type": "string",
+			"default": "https://opencode.ai/console/api/websearch"
+		}
+	},
+	"additionalProperties": false
+}

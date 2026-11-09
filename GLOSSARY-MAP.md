@@ -5,6 +5,7 @@
 ## Contexts
 
 - [repo-query](./extensions/repo-query/GLOSSARY.md): clones git repositories into a per-session tempspace and answers questions with a subagent
+- [web-search](./extensions/web-search/GLOSSARY.md): searches the live web through the OpenCode Console, billed per search
 
 ## Terminology
 

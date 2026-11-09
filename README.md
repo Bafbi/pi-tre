@@ -12,6 +12,8 @@ Built for fast local iteration with:
 
 - **repo-query**
   Docs: [`extensions/repo-query/README.md`](./extensions/repo-query/README.md)
+- **web-search**
+  Docs: [`extensions/web-search/README.md`](./extensions/web-search/README.md)
 
 ## Pi settings
 
