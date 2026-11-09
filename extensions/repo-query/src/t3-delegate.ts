@@ -228,7 +228,7 @@ Rules:
 - State clearly when the code does not answer the query.
 - Maximum 800 words.
 
-${findingsInstructions("owner/repo")}`;
+${findingsInstructions(clones.map((clone) => clone.displayName))}`;
 }
 
 /** Cancel a delegate that is parked on a question or that timed out. */

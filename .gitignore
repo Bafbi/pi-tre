@@ -16,6 +16,10 @@ node_modules/
 **/dist/
 **/.turbo/
 
+# repo-query benchmark artifacts: cached clones and run output
+extensions/repo-query/bench/.cache/
+extensions/repo-query/bench/runs/
+
 .env
 # local mise overrides
 mise.local.toml

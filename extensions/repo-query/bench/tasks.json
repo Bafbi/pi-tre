@@ -1,0 +1,429 @@
+{
+	"tasks": [
+		{
+			"id": "plimit-clear-queue-error",
+			"title": "p-limit: where clearQueue gets its rejection value",
+			"repos": [
+				"sindresorhus/p-limit@a8a6fbec4e0e866d6d779b10889bb4f5567e70eb"
+			],
+			"query": "In p-limit, when a limiter was created with `rejectOnClear: true`, where does `clearQueue()` get the error value that the pending tasks reject with?",
+			"negative": false,
+			"expected": [
+				{
+					"path": "index.js",
+					"line": 84,
+					"symbol": "abortError",
+					"note": "the rejection value is AbortSignal.abort().reason, built inside clearQueue",
+					"accept": [
+						{
+							"path": "index.js",
+							"lineRange": [77, 89],
+							"symbol": "abortError",
+							"note": "the whole clearQueue value() block, which builds and uses the error"
+						}
+					]
+				},
+				{
+					"path": "index.js",
+					"line": 87,
+					"symbol": "reject",
+					"note": "each dequeued waiting task's promise rejects with that value",
+					"accept": [
+						{
+							"path": "index.js",
+							"lineRange": [87, 87],
+							"symbol": "reject",
+							"note": "the dequeue().reject() call itself"
+						},
+						{
+							"path": "index.js",
+							"lineRange": [51, 51],
+							"symbol": "reject",
+							"note": "enqueue stores the reject function on the queue item it hands to clearQueue"
+						}
+					]
+				},
+				{
+					"path": "index.d.ts",
+					"line": 27,
+					"symbol": "clearQueue",
+					"note": "the public LimitFunction type declares clearQueue(): void",
+					"accept": [
+						{
+							"path": "index.d.ts",
+							"lineRange": [18, 27],
+							"symbol": "clearQueue",
+							"note": "the JSDoc plus declaration of the public method"
+						}
+					]
+				}
+			],
+			"lineSlack": 3
+		},
+		{
+			"id": "pqueue-equal-priority-fifo",
+			"title": "p-queue: FIFO order for tasks with the same priority",
+			"repos": [
+				"sindresorhus/p-queue@7f272ab5ff2254c0dc2537b7977e88ede1cd55e8"
+			],
+			"query": "How does p-queue keep tasks that share the same priority in the order they were added when it inserts them into its default priority queue?",
+			"negative": false,
+			"expected": [
+				{
+					"path": "source/priority-queue.ts",
+					"line": 79,
+					"symbol": "priority",
+					"note": "the tail check appends equal and lower priorities instead of searching",
+					"accept": [
+						{
+							"path": "source/priority-queue.ts",
+							"lineRange": [79, 83],
+							"symbol": "priority",
+							"note": "the tail-append branch that preserves FIFO for equal priorities"
+						},
+						{
+							"path": "source/priority-queue.ts",
+							"lineRange": [85, 89],
+							"symbol": "priority",
+							"note": "the binary-insertion branch, where equal priorities compare as 0"
+						}
+					]
+				},
+				{
+					"path": "source/priority-queue.ts",
+					"line": 88,
+					"symbol": "lowerBound",
+					"note": "binary insertion, with equal priorities comparing as 0",
+					"accept": [
+						{
+							"path": "source/priority-queue.ts",
+							"lineRange": [85, 89],
+							"symbol": "lowerBound",
+							"note": "the insertion index call and the splice that uses it"
+						}
+					]
+				},
+				{
+					"path": "source/lower-bound.ts",
+					"line": 3,
+					"symbol": "lowerBound",
+					"note": "the binary search that returns the insertion index",
+					"accept": [
+						{
+							"path": "source/lower-bound.ts",
+							"lineRange": [1, 19],
+							"symbol": "lowerBound",
+							"note": "the whole binary search"
+						}
+					]
+				}
+			],
+			"lineSlack": 3
+		},
+		{
+			"id": "consola-throttle-resolve",
+			"title": "consola: the timer that re-emits throttled repeats",
+			"repos": ["unjs/consola@c47faac1738b7383971c6c20b5a34ffa15e7cc3b"],
+			"query": "When consola throttles a repeated log message, where is the timer that re-emits the suppressed repeats once the window ends?",
+			"negative": false,
+			"expected": [
+				{
+					"path": "src/consola.ts",
+					"line": 436,
+					"symbol": "setTimeout",
+					"note": "the auto-resolve timer calls resolveLog after the throttle window",
+					"accept": [
+						{
+							"path": "src/consola.ts",
+							"lineRange": [436, 439],
+							"symbol": "setTimeout",
+							"note": "the setTimeout call and its arguments"
+						},
+						{
+							"path": "src/consola.ts",
+							"lineRange": [398, 414],
+							"symbol": "resolveLog",
+							"note": "the function the timer fires, which re-emits the repeats"
+						}
+					]
+				},
+				{
+					"path": "src/consola.ts",
+					"line": 399,
+					"symbol": "throttleMin",
+					"note": "repeats above throttleMin are the ones swallowed and counted",
+					"accept": [
+						{
+							"path": "src/consola.ts",
+							"lineRange": [434, 434],
+							"symbol": "throttleMin",
+							"note": "the count check that arms the timer"
+						}
+					]
+				},
+				{
+					"path": "src/types.ts",
+					"line": 28,
+					"symbol": "throttle",
+					"note": "the option that sets the window length",
+					"accept": [
+						{
+							"path": "src/consola.ts",
+							"lineRange": [51, 52],
+							"symbol": "throttle",
+							"note": "the default throttle window the instance falls back to"
+						}
+					]
+				}
+			],
+			"lineSlack": 3
+		},
+		{
+			"id": "multi-repo-queue-insert",
+			"title": "p-limit vs p-queue: where a new task enters the queue",
+			"repos": [
+				"sindresorhus/p-limit@a8a6fbec4e0e866d6d779b10889bb4f5567e70eb",
+				"sindresorhus/p-queue@7f272ab5ff2254c0dc2537b7977e88ede1cd55e8"
+			],
+			"query": "Both p-limit and p-queue hold tasks in a queue before they run: where does each library insert a newly added task, and does either one order that queue by priority?",
+			"negative": false,
+			"expected": [
+				{
+					"path": "index.js",
+					"line": 57,
+					"symbol": "enqueue",
+					"note": "p-limit hands the task to yocto-queue in arrival order, with no priority",
+					"accept": [
+						{
+							"path": "index.js",
+							"lineRange": [50, 58],
+							"symbol": "enqueue",
+							"note": "the enqueue helper, from its declaration to the queue call"
+						}
+					]
+				},
+				{
+					"path": "source/priority-queue.ts",
+					"line": 88,
+					"symbol": "lowerBound",
+					"note": "p-queue binary-inserts by priority, so the queue is ordered",
+					"accept": [
+						{
+							"path": "source/priority-queue.ts",
+							"lineRange": [85, 89],
+							"symbol": "lowerBound",
+							"note": "the insertion index call and the splice"
+						},
+						{
+							"path": "source/priority-queue.ts",
+							"lineRange": [79, 83],
+							"symbol": "priority",
+							"note": "the tail-append fast path that keeps equal priorities in arrival order"
+						}
+					]
+				}
+			],
+			"lineSlack": 3
+		},
+		{
+			"id": "consola-file-reporter",
+			"title": "consola: built-in file reporter (absent)",
+			"repos": ["unjs/consola@c47faac1738b7383971c6c20b5a34ffa15e7cc3b"],
+			"query": "Which built-in consola reporter class writes log output to a file on disk?",
+			"negative": true,
+			"evidenceTerms": ["reporter", "file"],
+			"expected": [],
+			"lineSlack": 3
+		},
+		{
+			"id": "consola-options-type",
+			"title": "consola: where ConsolaOptions is defined and what it carries",
+			"repos": ["unjs/consola@c47faac1738b7383971c6c20b5a34ffa15e7cc3b"],
+			"query": "Where is the `ConsolaOptions` interface defined, and which fields does it declare?",
+			"negative": false,
+			"expected": [
+				{
+					"path": "src/types.ts",
+					"line": 3,
+					"symbol": "ConsolaOptions",
+					"note": "the interface declaration",
+					"accept": [
+						{
+							"path": "src/types.ts",
+							"lineRange": [3, 3],
+							"symbol": "ConsolaOptions",
+							"note": "the declaration line"
+						}
+					]
+				},
+				{
+					"path": "src/types.ts",
+					"line": 62,
+					"symbol": "formatOptions",
+					"note": "the last required field; naming it means the fields were enumerated",
+					"accept": [
+						{
+							"path": "src/types.ts",
+							"lineRange": [59, 62],
+							"symbol": "formatOptions",
+							"note": "the formatOptions field with its comment"
+						}
+					]
+				}
+			],
+			"lineSlack": 3
+		},
+		{
+			"id": "consola-log-pipeline",
+			"title": "consola: one log call from the method to the write",
+			"repos": ["unjs/consola@c47faac1738b7383971c6c20b5a34ffa15e7cc3b"],
+			"query": "Trace one `consola.info(...)` call to the line that reaches stdout: which method builds the log object, which method hands it to the reporters, where is the reporter that writes installed, and which reporter method writes the line?",
+			"negative": false,
+			"expected": [
+				{
+					"path": "src/consola.ts",
+					"line": 353,
+					"symbol": "_logFn",
+					"note": "the method every log function calls; it builds the LogObject and applies the level check and the throttle",
+					"accept": [
+						{
+							"path": "src/consola.ts",
+							"lineRange": [343, 351],
+							"symbol": "_logFn",
+							"note": "the wrapper that calls _logFn, which is where a log call enters"
+						},
+						{
+							"path": "src/consola.ts",
+							"lineRange": [353, 449],
+							"symbol": "_logFn",
+							"note": "the whole method body"
+						}
+					]
+				},
+				{
+					"path": "src/consola.ts",
+					"line": 451,
+					"symbol": "_log",
+					"note": "loops over options.reporters and calls reporter.log(logObj, {options})",
+					"accept": [
+						{
+							"path": "src/consola.ts",
+							"lineRange": [451, 457],
+							"symbol": "_log",
+							"note": "the whole method"
+						},
+						{
+							"path": "src/consola.ts",
+							"lineRange": [405, 412],
+							"symbol": "_log",
+							"note": "the resolveLog path that calls _log"
+						}
+					]
+				},
+				{
+					"path": "src/index.ts",
+					"line": 33,
+					"symbol": "reporters",
+					"note": "createConsola installs FancyReporter, or BasicReporter in CI and tests",
+					"accept": [
+						{
+							"path": "src/index.ts",
+							"lineRange": [33, 37],
+							"symbol": "reporters",
+							"note": "the reporters array createConsola builds"
+						}
+					]
+				},
+				{
+					"path": "src/reporters/basic.ts",
+					"line": 78,
+					"symbol": "log",
+					"note": "BasicReporter.log formats the object and writes it with writeStream",
+					"accept": [
+						{
+							"path": "src/reporters/basic.ts",
+							"lineRange": [78, 90],
+							"symbol": "log",
+							"note": "the whole log method, including the stream choice"
+						}
+					]
+				}
+			],
+			"lineSlack": 3
+		},
+		{
+			"id": "pqueue-task-lifecycle",
+			"title": "p-queue: a waiting task's path into the queue",
+			"repos": [
+				"sindresorhus/p-queue@7f272ab5ff2254c0dc2537b7977e88ede1cd55e8"
+			],
+			"query": "When p-queue's `.add()` cannot start a task immediately, trace the task into the waiting queue: which method hands it to the queue, which queue method stores it, and what decides its insertion index?",
+			"negative": false,
+			"expected": [
+				{
+					"path": "source/index.ts",
+					"line": 736,
+					"symbol": "enqueue",
+					"note": "#add hands the waiting task to the queue with #queue.enqueue(run, options)",
+					"accept": [
+						{
+							"path": "source/index.ts",
+							"lineRange": [735, 738],
+							"symbol": "enqueue",
+							"note": "the enqueue call with the waiting-task bookkeeping around it"
+						},
+						{
+							"path": "source/index.ts",
+							"lineRange": [613, 613],
+							"symbol": "#add",
+							"note": "the #add method that reaches the enqueue call"
+						}
+					]
+				},
+				{
+					"path": "source/priority-queue.ts",
+					"line": 58,
+					"symbol": "enqueue",
+					"note": "PriorityQueue.enqueue stores the run function with its priority and id",
+					"accept": [
+						{
+							"path": "source/priority-queue.ts",
+							"lineRange": [58, 90],
+							"symbol": "enqueue",
+							"note": "the whole enqueue method"
+						}
+					]
+				},
+				{
+					"path": "source/priority-queue.ts",
+					"line": 88,
+					"symbol": "lowerBound",
+					"note": "lowerBound computes the insertion index when the task is not appended at the tail",
+					"accept": [
+						{
+							"path": "source/priority-queue.ts",
+							"lineRange": [85, 89],
+							"symbol": "lowerBound",
+							"note": "the insertion index call and the splice that uses it"
+						}
+					]
+				},
+				{
+					"path": "source/lower-bound.ts",
+					"line": 3,
+					"symbol": "lowerBound",
+					"note": "the binary search that returns the insertion index",
+					"accept": [
+						{
+							"path": "source/lower-bound.ts",
+							"lineRange": [1, 19],
+							"symbol": "lowerBound",
+							"note": "the whole binary search"
+						}
+					]
+				}
+			],
+			"lineSlack": 3
+		}
+	]
+}

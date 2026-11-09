@@ -1,5 +1,16 @@
 [tasks.lint]
 extends = "ext:lint"
+# bench/ is formatted and typechecked too: a broken bench must fail the gate.
+sources = [
+	"src/**/*.ts",
+	"test/**/*.ts",
+	"bench/*.ts",
+	"package.json",
+	"tsconfig.json",
+	"vitest.config.ts",
+	"{{ vars.monorepo }}/biome.json",
+	"{{ vars.monorepo }}/pnpm-lock.yaml",
+]
 
 [tasks.test]
 extends = "ext:test"
@@ -26,6 +37,7 @@ extends = "ext:typecheck"
 # `depends` edge alone does not persist across separate mise invocations.
 sources = [
 	"src/**/*.ts",
+	"bench/*.ts",
 	"tsconfig.json",
 	"{{ vars.monorepo }}/tsconfig.base.json",
 	"{{ vars.monorepo }}/packages/pi-subagent/src/**/*.ts",
@@ -61,3 +73,22 @@ extends = "ext:check"
 [tasks.generate-schema]
 description = "Regenerate the committed JSON config schema. Use after changing the config schema."
 run = "node scripts/generate-schema.ts"
+
+# The benchmark is non-hermetic: it clones from GitHub and calls a real model.
+# No `sources`, so it always runs.
+
+[tasks.bench-verify]
+description = "Check every benchmark task against its pinned clone. Run before a baseline."
+run = "node bench/verify-tasks.ts"
+
+[tasks.bench]
+description = "Run the repo-query prompt benchmark. Non-hermetic; costs model tokens."
+run = "node bench/run.ts"
+
+[tasks.bench-parent]
+description = "Run the parent-side tool-prompt benchmark. Non-hermetic; costs model tokens."
+run = "node bench/parent.ts"
+
+[tasks.bench-compare]
+description = "Compare two benchmark runs, paired by task. Pass both run directories."
+run = "node bench/compare.ts"

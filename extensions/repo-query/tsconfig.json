@@ -2,7 +2,13 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"composite": true,
-		"tsBuildInfoFile": "./node_modules/.cache/tsbuildinfo"
+		"tsBuildInfoFile": "./node_modules/.cache/tsbuildinfo",
+		// bench/ files are run by node directly, so they import siblings with
+		// the ".ts" extension. Node does not resolve "./x.js" to "./x.ts".
+		"allowImportingTsExtensions": true
 	},
-	"include": ["src/**/*.ts"]
+	// Only the top level of bench/ is source. bench/.cache and bench/runs hold
+	// cloned repositories, which must never be type-checked.
+	"include": ["src/**/*.ts", "bench/*.ts"],
+	"exclude": ["bench/.cache", "bench/runs"]
 }

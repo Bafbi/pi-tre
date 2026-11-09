@@ -1,15 +1,15 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 
+import { findFindingsBlock, stripFindingsBlock } from "./answer-text.js";
+import { MAX_FINDINGS } from "./prompt.js";
 import type { ParsedRepo, RepoFinding } from "./types.js";
 
-/** Keep the structured payload small enough to read at a glance. */
-export const MAX_FINDINGS = 20;
+export { MAX_FINDINGS };
+
 const MAX_CLAIM_CHARS = 300;
 /** Files larger than this are checked for existence, not line numbers. */
 const MAX_VERIFY_BYTES = 1_048_576;
-
-const FENCED_JSON = /```json[ \t]*\r?\n([\s\S]*?)```/gi;
 
 interface ParsedAnswer {
 	/** The answer with the findings block removed. */
@@ -62,26 +62,10 @@ export async function parseFindings(
 		return { text: answer, findings: [] };
 	}
 
-	return { text: stripBlock(answer, block.index, block.length), findings };
-}
-
-function findFindingsBlock(
-	answer: string,
-): { json: string; index: number; length: number } | null {
-	// Take the last block: a model may show an example before the real one.
-	const matches = [...answer.matchAll(FENCED_JSON)];
-	for (let i = matches.length - 1; i >= 0; i--) {
-		const match = matches[i];
-		if (match === undefined) continue;
-		const json = match[1];
-		const index = match.index;
-		if (json === undefined || index === undefined) continue;
-		if (!json.includes('"findings"') && !json.trimStart().startsWith("[")) {
-			continue;
-		}
-		return { json, index, length: match[0].length };
-	}
-	return null;
+	return {
+		text: stripFindingsBlock(answer, block.index, block.length),
+		findings,
+	};
 }
 
 function entriesOf(payload: unknown): unknown[] | null {
@@ -102,12 +86,6 @@ function isFindingShaped(value: unknown): boolean {
 	if (typeof value !== "object" || value === null) return false;
 	const record = value as Record<string, unknown>;
 	return typeof record.claim === "string" && typeof record.path === "string";
-}
-
-function stripBlock(answer: string, index: number, length: number): string {
-	return `${answer.slice(0, index)}${answer.slice(index + length)}`
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
 }
 
 async function verifyFinding(
