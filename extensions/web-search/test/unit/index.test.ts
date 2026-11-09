@@ -87,6 +87,12 @@ function textOf(result: { content: unknown[] }): string {
 	return String((result.content[0] as { type: "text"; text: string }).text);
 }
 
+/** Assert the result is what a codemode script receives, with no key in it. */
+function expectSchema(result: { structuredContent?: unknown }): void {
+	expect(Check(WebSearchOutputSchema, result.structuredContent)).toBe(true);
+	expect(JSON.stringify(result)).not.toContain(SECRET);
+}
+
 const searchParams = { query: "opencode hosted web search" };
 
 describe("search_web", () => {
@@ -116,9 +122,7 @@ describe("search_web", () => {
 			status: "disabled",
 			costUsd: 0,
 		});
-		expect(Check(WebSearchOutputSchema, result.structuredContent)).toBe(
-			true,
-		);
+		expectSchema(result);
 	});
 
 	it("explains a missing credential instead of calling out", async () => {
@@ -143,9 +147,7 @@ describe("search_web", () => {
 		expect(result.isError).toBeFalsy();
 		expect(result.details).toMatchObject({ status: "unconfigured" });
 		expect(textOf(result)).toContain("opencode-go");
-		expect(Check(WebSearchOutputSchema, result.structuredContent)).toBe(
-			true,
-		);
+		expectSchema(result);
 	});
 
 	it("returns the results and reports the spend", async () => {
@@ -174,10 +176,7 @@ describe("search_web", () => {
 			costUsd: 0.01,
 			results: [{ url: hit.url }, { url: secondHit.url }],
 		});
-		expect(Check(WebSearchOutputSchema, result.structuredContent)).toBe(
-			true,
-		);
-		expect(JSON.stringify(result)).not.toContain(SECRET);
+		expectSchema(result);
 		expect(result.usage?.cost.total).toBeCloseTo(0.01, 5);
 	});
 
@@ -200,10 +199,7 @@ describe("search_web", () => {
 
 		expect(result.isError).toBe(true);
 		expect(result.details).toMatchObject({ status: "failed", costUsd: 0 });
-		expect(Check(WebSearchOutputSchema, result.structuredContent)).toBe(
-			true,
-		);
-		expect(JSON.stringify(result)).not.toContain(SECRET);
+		expectSchema(result);
 		expect(textOf(result)).toContain("401");
 	});
 
@@ -227,6 +223,7 @@ describe("search_web", () => {
 		expect(result.structuredContent).toMatchObject({
 			results: [{ url: hit.url }],
 		});
+		expectSchema(result);
 	});
 
 	it("keeps an out-of-range limit inside the Console bounds", async () => {
@@ -242,6 +239,7 @@ describe("search_web", () => {
 			[0, 1],
 			[-5, 1],
 			[999, 2],
+			[Number.NaN, 2],
 		] as const) {
 			const result = await tool.execute(
 				`call-limit-${limit}`,
@@ -254,6 +252,7 @@ describe("search_web", () => {
 				results: unknown[];
 			};
 			expect(structured.results).toHaveLength(kept);
+			expectSchema(result);
 		}
 	});
 
@@ -277,6 +276,7 @@ describe("search_web", () => {
 		expect(result.structuredContent).toMatchObject({
 			results: [{ url: hit.url }],
 		});
+		expectSchema(result);
 	});
 
 	it("reads the project config only from a trusted project", async () => {
@@ -297,6 +297,7 @@ describe("search_web", () => {
 			makeContext(cwd, { isProjectTrusted: () => false }),
 		);
 		expect(untrusted.details).toMatchObject({ status: "disabled" });
+		expectSchema(untrusted);
 
 		const trusted = await tool.execute(
 			"call-8",
@@ -306,6 +307,7 @@ describe("search_web", () => {
 			makeContext(cwd, { isProjectTrusted: () => true }),
 		);
 		expect(trusted.details).toMatchObject({ status: "ok" });
+		expectSchema(trusted);
 	});
 
 	it("reads the credential from pi's store for the configured provider", async () => {
@@ -326,6 +328,7 @@ describe("search_web", () => {
 		);
 
 		expect(result.details).toMatchObject({ status: "ok" });
+		expectSchema(result);
 		expect(requested).toEqual(["opencode-go"]);
 		const headers = calls[0]?.headers as Record<string, string>;
 		expect(headers.authorization).toBe(`Bearer ${SECRET}`);
@@ -351,6 +354,7 @@ describe("search_web", () => {
 		);
 
 		expect(result.details).toMatchObject({ status: "ok" });
+		expectSchema(result);
 		expect(requested).toEqual(["opencode-go", "opencode"]);
 	});
 
@@ -372,6 +376,7 @@ describe("search_web", () => {
 		expect(fetchImpl).not.toHaveBeenCalled();
 		expect(result.details).toMatchObject({ status: "unconfigured" });
 		expect(result.isError).toBeFalsy();
+		expectSchema(result);
 	});
 
 	it("survives a credential store that throws", async () => {
@@ -390,5 +395,6 @@ describe("search_web", () => {
 
 		expect(result.details).toMatchObject({ status: "unconfigured" });
 		expect(result.isError).toBeFalsy();
+		expectSchema(result);
 	});
 });

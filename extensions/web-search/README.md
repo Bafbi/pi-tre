@@ -15,8 +15,9 @@ spent until you enable it.
 }
 ```
 
-`extensions/web-search/web-search.schema.json` describes every key for editor completion. The loader ignores
-`$schema`, so point it anywhere or leave it out.
+`extensions/web-search/web-search.schema.json` describes every key for editor completion. The loader strips keys
+it does not know, `$schema` included, so it warns on every load unless the path resolves. Leave it out, or point it at
+that file.
 
 For one project instead of every project, write the same file to `<repo>/.pi/configs/web-search.json`. The project
 layer applies only when the project is trusted, and it wins over the global layer per key.

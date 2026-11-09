@@ -123,6 +123,13 @@ export async function searchConsole(
 		? AbortSignal.any([options.signal, timeout])
 		: timeout;
 
+	/** The outcome for a request that ran out of time. */
+	const timedOut = (): SearchOutcome => ({
+		ok: false,
+		reason: "timeout",
+		message: `The OpenCode search timed out after ${options.timeoutMs} ms.`,
+	});
+
 	/**
 	 * The outcome for a request that stopped early. The caller's abort wins over
 	 * the timeout, so a cancelled call is never reported as a slow one.
@@ -135,13 +142,7 @@ export async function searchConsole(
 				message: "The search was cancelled.",
 			};
 		}
-		if (timeout.aborted) {
-			return {
-				ok: false,
-				reason: "timeout",
-				message: `The OpenCode search timed out after ${options.timeoutMs} ms.`,
-			};
-		}
+		if (timeout.aborted) return timedOut();
 		return undefined;
 	};
 
@@ -164,13 +165,7 @@ export async function searchConsole(
 		const stopped = interrupted();
 		if (stopped) return stopped;
 		const name = error instanceof Error ? error.name : "";
-		if (name === "TimeoutError" || name === "AbortError") {
-			return {
-				ok: false,
-				reason: "timeout",
-				message: `The OpenCode search timed out after ${options.timeoutMs} ms.`,
-			};
-		}
+		if (name === "TimeoutError" || name === "AbortError") return timedOut();
 		return {
 			ok: false,
 			reason: "network",
