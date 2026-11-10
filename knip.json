@@ -1,4 +1,9 @@
 {
 	"$schema": "./node_modules/knip/schema.json",
-	"ignoreBinaries": ["ast-grep", "semgrep", "mise"]
+	"ignoreBinaries": ["ast-grep", "semgrep", "mise"],
+	"workspaces": {
+		"extensions/repo-query": {
+			"entry": ["bench/stub-extension.ts", "bench/trace.ts"]
+		}
+	}
 }

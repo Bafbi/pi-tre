@@ -9,11 +9,13 @@ import {
 	zeroUsage,
 } from "@pi-tre/pi-subagent";
 
-import { MAX_FINDINGS } from "./findings.js";
+import { MAX_OUTPUT_CHARS, truncateSubagentOutput } from "./answer-text.js";
+import { buildSystemPrompt } from "./prompt.js";
 import type { ParsedRepo, SubagentUsage } from "./types.js";
 
 const SUBAGENT_TIMEOUT_MS = 300_000;
-export const MAX_OUTPUT_CHARS = 8000;
+
+export { MAX_OUTPUT_CHARS, truncateSubagentOutput };
 
 const ABORT_NOTICE = "[Exploration aborted before completion.]";
 
@@ -26,11 +28,8 @@ export type {
 	ProcessSpawnFn as SpawnFunction,
 } from "@pi-tre/pi-subagent";
 
-export function truncateSubagentOutput(text: string): string {
-	return text.length > MAX_OUTPUT_CHARS
-		? `${text.slice(0, MAX_OUTPUT_CHARS)}...\n[Answer truncated]`
-		: text;
-}
+/** The findings-block request lives in prompt.ts; keep the historical path. */
+export { findingsInstructions } from "./prompt.js";
 
 export interface SubagentOptions {
 	tempspace: string;
@@ -238,80 +237,4 @@ export async function runExplorer(
 			!exit.spawnError &&
 			rawAnswer.length <= MAX_OUTPUT_CHARS,
 	};
-}
-
-/**
- * Ask for the machine-readable findings block.
- *
- * The tool parses this block, verifies each path and line against the clone,
- * and returns it as `structuredContent.answer.findings`. A malformed block
- * falls back to the prose answer.
- */
-export function findingsInstructions(repoHint: string): string {
-	const fence = "```";
-	return [
-		"End the answer with one fenced json block listing the claims you can attribute to a file:",
-		`${fence}json`,
-		`{"findings":[{"repo":"${repoHint}","path":"src/file.ts","line":42,"claim":"one sentence"}]}`,
-		fence,
-		`Use paths relative to the repository root. Set line to null when the claim spans a file. Include at most ${MAX_FINDINGS} findings. Leave out any claim you cannot attribute to a file.`,
-	].join("\n");
-}
-
-function buildSystemPrompt(
-	repos: ParsedRepo[],
-	query: string,
-	isSingle: boolean,
-): string {
-	if (isSingle) {
-		const repo = repos[0];
-		if (repo === undefined) {
-			return "You are a senior code exploration agent.";
-		}
-		return `You are a senior code exploration agent. You are in the root of the "${repo.displayName}" repository.
-
-Your task: answer this query using only the code in this repository.
-
-Process:
-1. Use \`find\` and \`ls\` to understand repository structure
-2. Use \`grep\` to search for relevant terms, patterns, or symbols
-3. Use \`read\` with \`offset\` and \`limit\` to read specific file sections
-4. Never read entire files larger than 100 lines — read relevant chunks
-
-Output requirements:
-- Provide a synthesized answer with specific file paths and line numbers
-- If you cannot find the answer, state this clearly
-- Maximum 800 words
-- Do NOT make assumptions beyond the code you have read
-
-${findingsInstructions(repo.displayName)}
-
-Query: ${query}`;
-	}
-
-	const repoList = repos
-		.map((r) => `- ${r.displayName} (in ./${r.dirName})`)
-		.join("\n");
-	return `You are a senior code exploration agent. You are in a tempspace containing multiple repositories:
-
-${repoList}
-
-Your task: answer this query by exploring across all repositories. You may find cross-repo references, shared patterns, or divergent implementations.
-
-Process:
-1. Use \`ls\` and \`find\` to understand the tempspace structure
-2. Use \`grep\` with paths like \`./repo-name/...\` to search within specific repos
-3. Use \`read\` with \`offset\` and \`limit\` to read specific file sections
-4. Compare and contrast findings across repositories
-
-Output requirements:
-- Provide a synthesized answer with specific file paths and line numbers
-- Note cross-repo similarities or differences when relevant
-- If you cannot find the answer, state this clearly
-- Maximum 1000 words
-- Do NOT make assumptions beyond the code you have read
-
-${findingsInstructions("owner/repo")}
-
-Query: ${query}`;
 }

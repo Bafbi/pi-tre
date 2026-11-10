@@ -74,6 +74,8 @@ The model sees formatted text. Code-mode scripts receive `structuredContent`:
 
 The subagent ends its answer with a fenced `json` block of claims. The tool parses it, removes the block from the text, and checks each finding against the clone. `verified` is true when the path exists and the line is within the file. A malformed block falls back to the prose answer with no findings.
 
+An answer is capped at 8000 characters. The cap cuts the prose and keeps the findings block, so a long answer does not lose the claims it was asked to emit. `complete` is false whenever the answer was cut, and whenever the run failed or was aborted.
+
 ### One call or several
 
 A batch is one query over several repositories. Use it to compare repositories, or to use them together, such as a documentation repository beside the code repository it documents. The subagent answers across all repositories, and the clones run in sequence.
